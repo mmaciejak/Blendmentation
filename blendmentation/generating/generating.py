@@ -1,7 +1,8 @@
 import bpy_generating as bpy_g
 
-class Generator():
-    """ Renders and/or bbox generator
+
+class Generator:
+    """Renders and/or bbox generator
     with option to deconflict overlapping bboxes
 
     Args:
@@ -14,7 +15,7 @@ class Generator():
         if iou_deconflict is None all images will be rendered
     """
 
-    def __init__(self, path, resolution, bboxes, iou_deconflict) :
+    def __init__(self, path, resolution, bboxes, iou_deconflict):
         self.path = path
         self.resolution = resolution
         self.bboxes = bboxes
@@ -32,6 +33,9 @@ class Generator():
             scaling_factor (float): scaling factor for preview images
         """
 
-        bpy_g.render(self.path, self.resolution//scaling_factor, self.bboxes, self.iou_deconflict)
-
-
+        bpy_g.render(
+            self.path,
+            self.resolution // scaling_factor,
+            self.bboxes,
+            self.iou_deconflict,
+        )

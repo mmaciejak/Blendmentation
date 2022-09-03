@@ -1,5 +1,6 @@
 import bpy_functions as bpy_f
 
+
 class Compose:
     """Compose augmentations together. Changes the object in place.
     Save the objects state before applying.
@@ -7,6 +8,7 @@ class Compose:
     Args:
         augmentations (list): list of augmentations to compose together
     """
+
     def __init__(self, augmentations):
         self.augmentations = augmentations
 
@@ -30,16 +32,18 @@ class Translation:
             y (float) : range of augmentation in y axis in  blender units
             z (float) : range of augmentation in z axis in  blender units
     """
-    def __init__(self, x:float, y:float, z:float):
+
+    def __init__(self, x: float, y: float, z: float):
         self.x = x
         self.y = y
         self.z = z
 
     def __call__(self, obj):
         """Args:
-            obj (bpy.object) : Object to be augmented
+        obj (bpy.object) : Object to be augmented
         """
         bpy_f.translation(obj, self.x, self.y, self.z)
+
 
 class Rotation:
     """Augument the object rotation, in given ranges for each axis.
@@ -50,16 +54,18 @@ class Rotation:
             y (float) : range of augmentation in y axis in degrees
             z (float) : range of augmentation in z axis in degrees
     """
-    def __init__(self, x:float, y:float, z:float):
+
+    def __init__(self, x: float, y: float, z: float):
         self.x = x
         self.y = y
         self.z = z
 
     def __call__(self, obj):
         """Args:
-            obj (bpy.object) : Object to be augmented
+        obj (bpy.object) : Object to be augmented
         """
         bpy_f.rotation(obj, self.x, self.y, self.z)
+
 
 class Scale:
     """Augument the object scale, in given ranges for each axis.
@@ -70,16 +76,18 @@ class Scale:
             y (float) : range of augmentation in y axis in percents
             z (float) : range of augmentation in z axis in percents
     """
-    def __init__(self, x:float, y:float, z:float):
+
+    def __init__(self, x: float, y: float, z: float):
         self.x = x
         self.y = y
         self.z = z
 
     def __call__(self, obj):
         """Args:
-            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
+        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         bpy_f.scale(obj, self.x, self.y, self.z)
+
 
 class Color:
     """Augument the object color, in given ranges for H,S and V.
@@ -92,7 +100,8 @@ class Color:
             S (float) : range of augmentation of saturation in percents
             V (float) : range of augmentation of value in percents
     """
-    def __init__(self, material_id:str, h:float, s:float, v:float):
+
+    def __init__(self, material_id: str, h: float, s: float, v: float):
         self.material_id = material_id
         self.h = h
         self.s = s
@@ -100,9 +109,10 @@ class Color:
 
     def __call__(self, obj):
         """Args:
-            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
+        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         bpy_f.color(obj, self.material_id, self.h, self.s, self.v)
+
 
 class Shader:
     """Augument the shader values, for specifed material in roughness and normals strength .
@@ -113,16 +123,18 @@ class Shader:
             roughness (float) : range of augmentation of roughness in percents
             normals (float) : range of augmentation of normals strength in percents
     """
-    def __init__(self, material_id:str, roughness:float, normals:float):
+
+    def __init__(self, material_id: str, roughness: float, normals: float):
         self.material_id = material_id
         self.roughness = roughness
         self.normals = normals
 
     def __call__(self, obj):
         """Args:
-            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
+        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         bpy_f.shader(obj, self.material_id, self.roughness, self.normals)
+
 
 class Lamp:
     """Augument the lamp values, strength, size and color temperature .
@@ -133,16 +145,14 @@ class Lamp:
             size (float) : range of augmentation of size in percents
             temp (float) : range of augmentation of color temperature in percents
     """
-    def __init__(self, strength:float, size:float, temp:float):
+
+    def __init__(self, strength: float, size: float, temp: float):
         self.strength = strength
         self.size = size
         self.temp = temp
 
     def __call__(self, obj):
         """Args:
-            light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
+        light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
         """
         bpy_f.shader(obj, self.strength, self.size, self.temp)
-
-
-

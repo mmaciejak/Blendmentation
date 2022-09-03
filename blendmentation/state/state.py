@@ -1,10 +1,11 @@
 import bpy_states as bpy_s
 
-class State():
+
+class State:
     """Saves and restors states of blender objects properties for reverting after augmentation
 
-        Args:
-            objects (list) : list of bpy objects to save the state from
+    Args:
+        objects (list) : list of bpy objects to save the state from
     """
 
     def __init__(self, objects):
