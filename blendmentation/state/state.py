@@ -5,7 +5,6 @@ class State():
 
         Args:
             objects (list) : list of bpy objects to save the state from
-
     """
 
     def __init__(self, objects):
@@ -20,3 +19,7 @@ class State():
         for object in self.objects:
             bpy_s.load_from_state_dict(object, self.state_dict)
 
+    def clear(self):
+        """Clears the state dict"""
+
+        self.state_dict = {}
