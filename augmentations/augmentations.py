@@ -57,7 +57,7 @@ class Rotation:
 
 class Scale:
     """Augument the object scale, in given ranges for each axis.
-    For mesh objects and lamps.
+    For mesh objects only.
 
         Args:
             x (float) : range of augmentation in x axis in percents
@@ -71,7 +71,7 @@ class Scale:
 
     def __call__(self, obj):
         """Args:
-            obj (bpy.object) : Object to be augmented
+            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         bpy_f.scale(obj, self.x, self.y, self.z)
 
@@ -92,7 +92,7 @@ class Color:
 
     def __call__(self, obj):
         """Args:
-            mesh obj (bpy.object.type == MESH) : Object to be augmented
+            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         bpy_f.color(obj, self.h, self.s, self.v)
 
@@ -112,11 +112,29 @@ class Shader:
 
     def __call__(self, obj):
         """Args:
-            mesh obj (bpy.object.type == MESH) : Object to be augmented
+            mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_f.color(obj, self.material_id, self.roughness, self.normals)
+        bpy_f.shader(obj, self.material_id, self.roughness, self.normals)
 
+class Lamp:
+    """Augument the lamp values, strength, size and color temperature .
+    For lamp objects only with emission shader and blackbody converter connected to color.
 
+        Args:
+            strength (float) : range of augmentation of strength in percents
+            size (float) : range of augmentation of size in percents
+            temp (float) : range of augmentation of color temperature in percents
+    """
+    def __init__(self, strength:float, size:float, temp:float):
+        self.strength = strength
+        self.size = size
+        self.temp = temp
+
+    def __call__(self, obj):
+        """Args:
+            light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
+        """
+        bpy_f.shader(obj, self.strength, self.size, self.temp)
 
 
 
