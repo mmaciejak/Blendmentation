@@ -10,9 +10,15 @@ class Compose:
     def __init__(self, augmentations):
         self.augmentations = augmentations
 
-    def __call__(self, blender_object):
-        for a in self.augmentations:
-            a(blender_object)
+    def __call__(self, blender_objects):
+        """Performs the augmentation on objects.
+
+        Args:
+            blender_objects (list) = list of objects to augment
+        """
+        for blender_object in blender_objects:
+            for a in self.augmentations:
+                a(blender_object)
 
 
 class Translation:
@@ -81,11 +87,13 @@ class Color:
     for base color.
 
         Args:
+            material_id (str) : name of material to augment
             H (float) : range of augmentation of hue in percents
             S (float) : range of augmentation of saturation in percents
             V (float) : range of augmentation of value in percents
     """
-    def __init__(self, h:float, s:float, v:float):
+    def __init__(self, material_id:str, h:float, s:float, v:float):
+        self.material_id = material_id
         self.h = h
         self.s = s
         self.v = v
@@ -94,14 +102,14 @@ class Color:
         """Args:
             mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_f.color(obj, self.h, self.s, self.v)
+        bpy_f.color(obj, self.material_id, self.h, self.s, self.v)
 
 class Shader:
     """Augument the shader values, for specifed material in roughness and normals strength .
     For mesh objects only with principle shader and unconnected socket for roughness and normals node.
 
         Args:
-            material_id (str) : range of augmentation of hue in percents
+            material_id (str) : name of material to augment
             roughness (float) : range of augmentation of roughness in percents
             normals (float) : range of augmentation of normals strength in percents
     """
