@@ -15,7 +15,7 @@ class Generator:
         if iou_deconflict is None all images will be rendered
     """
 
-    def __init__(self, path, resolution, bboxes, iou_deconflict):
+    def __init__(self, path, resolution, bboxes, iou_deconflict=None):
         self.path = path
         self.resolution = resolution
         self.bboxes = bboxes
