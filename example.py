@@ -1,3 +1,6 @@
+import sys
+sys.path += [r"E:\blendmentation"]
+
 import bpy
 from blendmentation.augmentations import augmentations
 from blendmentation.state import state

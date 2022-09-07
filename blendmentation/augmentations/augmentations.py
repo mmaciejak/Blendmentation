@@ -19,8 +19,8 @@ class Compose:
             blender_objects (list) = list of objects to augment
         """
         for blender_object in blender_objects:
-            for a in self.augmentations:
-                a(blender_object)
+            for augmentation in self.augmentations:
+                augmentation(blender_object)
 
 
 class Translation:
