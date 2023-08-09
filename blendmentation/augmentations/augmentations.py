@@ -1,4 +1,4 @@
-import bpy_functions as bpy_f
+import bpy_augmentations as bpy_a
 
 
 class Compose:
@@ -42,7 +42,7 @@ class Translation:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
-        bpy_f.translation(obj, self.x, self.y, self.z)
+        bpy_a.translation(obj, self.x, self.y, self.z)
 
 
 class Rotation:
@@ -64,7 +64,7 @@ class Rotation:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
-        bpy_f.rotation(obj, self.x, self.y, self.z)
+        bpy_a.rotation(obj, self.x, self.y, self.z)
 
 
 class Scale:
@@ -86,7 +86,7 @@ class Scale:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_f.scale(obj, self.x, self.y, self.z)
+        bpy_a.scale(obj, self.x, self.y, self.z)
 
 
 class Color:
@@ -111,7 +111,7 @@ class Color:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_f.color(obj, self.material_id, self.h, self.s, self.v)
+        bpy_a.color(obj, self.material_id, self.h, self.s, self.v)
 
 
 class Shader:
@@ -133,7 +133,7 @@ class Shader:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_f.shader(obj, self.material_id, self.roughness, self.normals)
+        bpy_a.shader(obj, self.material_id, self.roughness, self.normals)
 
 
 class Lamp:
@@ -155,4 +155,4 @@ class Lamp:
         """Args:
         light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
         """
-        bpy_f.shader(obj, self.strength, self.size, self.temp)
+        bpy_a.shader(obj, self.strength, self.size, self.temp)
