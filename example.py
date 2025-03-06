@@ -4,6 +4,7 @@ sys.path += [r"E:\blendmentation"]
 import bpy
 from blendmentation.augmentations import augmentations
 from blendmentation.state import state
+from blendmentation.generating import generating
 
 mesh_transform = augmentations.Compose(
     [
@@ -23,10 +24,16 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
+image_generator = generating.Generator(path ="",
+                                       resolution=(460,460),
+                                       bboxes=True,
+                                       rotation_matrix=True)
+
 def pipeline():
     mesh_transform([obj1, obj2])
     lamp_transforms([lamp])
-    bpy.render()
+    lamp_transforms.augmentations.Lamp
+    image_generator.generate()
     initial_state.restore()
 
 obj1 = bpy.object
