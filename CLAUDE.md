@@ -27,7 +27,7 @@ Each subpackage under `blendmentation/` is split into two layers:
 
 Keep this split: Blender-specific logic goes in the `bpy_*` modules, and the public classes stay thin. `blendmentation/bpy_paths.py` is shared by augmentations and state. It parses data paths like `bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value` into attribute/item steps without `eval`, then gets or sets the value and calls `update_tag()` on the owning datablock. Paths starting with `bpy.` are absolute; any other path is relative to an object.
 
-The three subpackages:
+The subpackages:
 
 - **augmentations**: `Compose` applies a list of transforms to each object in a list. Every transform is a callable taking a single `bpy` object, and it **mutates in place**.
   - `Translation`, `Rotation`, `Scale`: each parameter is a number `v`, sampled from (-v, v), or a `(low, high)` pair. Translation is in blender units and rotation in degrees, both added; scale is in percent, multiplied. The sampled values are stored in `actual_x/y/z`.
@@ -48,7 +48,7 @@ The three subpackages:
   - **Label JSON:** written only when there is more than the image (e.g. `Render()` alone writes no JSON). It holds:
     - `resolution`, `image`, `aovs: {name: file}`;
     - `bboxes: [{class, objects, bbox}]`;
-    - `masks: [{class, objects, mask}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes) first, then class masks `<index>_mask_<class>.png` (name sanitized);
+    - `masks: [{class, objects, mask, per}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes) first, then class masks `<index>_mask_<class>.png` (name sanitized);
     - `rotation_matrices: [{object, rotation_matrix}]`;
     - `OutputField` values: absolute paths as one value, relative paths as `{object name: value}`;
     - `custom_dict` keys.
@@ -67,6 +67,8 @@ The three subpackages:
   Class masks are unions of the instance ids, so `per="both"` still needs one render. Masks hold only visible pixels; bboxes don't account for occlusion. All changed settings and object colors are restored afterwards.
 
   AOVs (`save_aovs`) avoid the compositor. The Render Result is saved via `save_render` as a multilayer EXR to a temp dir, and OpenImageIO splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total). The engine must be Cycles or EEVEE.
+
+- **export**: `export.coco/yolo/voc(path, ...)` turn a generated folder's `<index>.json` labels into standard formats. It is pure Python with no `bpy` layer: `blendmentation/__init__.py` imports `bpy` only if it's available, and numpy / OpenImageIO are imported lazily, only for COCO masks, so YOLO and VOC run in a plain interpreter. Only labels with `"image"` are exported. Instances are keyed by `(class, objects)`, merging `bboxes` with masks where `"per": "instance"`. COCO segmentation is uncompressed RLE (column-major runs starting with zeros, as pycocotools expects); instances with empty masks are skipped. Class ids follow first appearance unless `classes=` is given.
 
 Intended loop (see `example.py`): build `State` once → for N datapoints: apply augmentation `Compose`s → call the generating `Compose` → `State.restore()`.
 

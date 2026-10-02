@@ -309,7 +309,7 @@ def save_masks(scene, instances, path, index, per):
         per (str): "instance", "class" or "both"
 
     Returns:
-        list: {"class", "objects", "mask"} for every mask
+        list: {"class", "objects", "mask", "per"} for every mask
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         ids = render_ids(scene, [group for _, group in instances], temp_dir)
@@ -318,14 +318,14 @@ def save_masks(scene, instances, path, index, per):
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
             file_name = mask_file(path, f"{index:06d}_mask_{number}.png", ids == number + 1)
-            entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name})
+            entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name, "per": "instance"})
     if per in ("class", "both"):
         for class_name in dict.fromkeys(class_name for class_name, _ in instances):
             numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
             safe_name = re.sub(r"[^\w.-]", "_", class_name)
             file_name = mask_file(path, f"{index:06d}_mask_{safe_name}.png", np.isin(ids, [n + 1 for n in numbers]))
             objects = [obj.name for number in numbers for obj in instances[number][1]]
-            entries.append({"class": class_name, "objects": objects, "mask": file_name})
+            entries.append({"class": class_name, "objects": objects, "mask": file_name, "per": "class"})
     return entries
 
 

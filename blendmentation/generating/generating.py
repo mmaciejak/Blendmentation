@@ -229,7 +229,7 @@ class Passes:
 
 class Segmentation:
     """Saves black and white masks of the visible pixels and adds them to the labels
-    under "masks", as {"class", "objects", "mask"}. Uses a separate, fast workbench
+    under "masks", as {"class", "objects", "mask", "per"}, per is "instance" or "class". Uses a separate, fast workbench
     render. Objects that are not in classes still occlude.
 
     Args:

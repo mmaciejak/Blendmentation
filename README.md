@@ -8,6 +8,7 @@ your dataset as composed steps, in the style of torchvision / albumentations:
    and write a JSON label with bounding boxes, keypoints, camera data, rotations and
    any values you want to record.
 3. **Restore:** put the scene back as it was, and repeat.
+4. **Export:** convert the dataset to COCO, YOLO or Pascal VOC.
 
 ## Requirements
 
@@ -351,8 +352,8 @@ objects…) become their name.
     {"class": "table", "objects": ["TableTop", "TableLegs"], "bbox": [300.0, 120.5, 512.3, 401.0]}
   ],
   "masks": [
-    {"class": "car", "objects": ["Car.001"], "mask": "000000_mask_0.png"},
-    {"class": "car", "objects": ["Car.001", "Car.002"], "mask": "000000_mask_car.png"}
+    {"class": "car", "objects": ["Car.001"], "mask": "000000_mask_0.png", "per": "instance"},
+    {"class": "car", "objects": ["Car.001", "Car.002"], "mask": "000000_mask_car.png", "per": "class"}
   ],
   "rotation_matrices": [{"object": "Car.001", "rotation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}],
   "passes": {"Depth": "000000_Depth.exr", "Normal": "000000_Normal.exr"},
@@ -362,6 +363,31 @@ objects…) become their name.
   "light_energy": 1000.0
 }
 ```
+
+## Export
+
+After generating, convert the dataset folder to standard formats:
+
+```python
+from blendmentation.export import export
+
+export.coco("//dataset")   # <path>/coco.json
+export.yolo("//dataset")   # <index>.txt next to every image, classes.txt, dataset.yaml
+export.voc("//dataset")    # <path>/Annotations/<index>.xml
+```
+
+- **What gets exported:** datapoints with an image (a `Render` step) and with
+  bboxes and/or instance masks.
+- **Class ids:** classes are numbered in order of first appearance. Pass
+  `classes=["car", "table"]` to `coco` or `yolo` to fix the order.
+- **No Blender needed:** export runs in plain Python, so you can run it on another
+  machine. COCO with masks needs `numpy` and `OpenImageIO`, which come with Blender.
+
+| Format | Contents |
+|---|---|
+| `coco(path, output=None, classes=None, bbox_from="label")` | Instance segmentation as RLE from the instance masks, and bboxes. Instances whose mask is empty (fully hidden) are skipped. `bbox_from="mask"` uses the visible pixels of the mask for the bbox, instead of the geometric bbox that includes hidden parts. Each annotation also has an `"objects"` field with the object names. |
+| `yolo(path, classes=None)` | One `class x_center y_center width height` line per bbox, normalized to 0–1. `dataset.yaml` points at the folder, ready for Ultralytics. |
+| `voc(path, output_dir=None)` | One XML file per image, with 1-based pixel bboxes. Boxes touching the image border are marked `truncated`. |
 
 ## Known issues
 
