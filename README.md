@@ -18,8 +18,8 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 
 ## Setup
 
-Add the folder that contains `blendmentation/` to `sys.path` in your script, then
-import the modules as a package:
+Inside Blender, the simplest setup is to add the folder that contains
+`blendmentation/` to `sys.path` in your script, then import the modules as a package:
 
 ```python
 import sys
@@ -49,17 +49,14 @@ only one Python version:
 OpenImageIO is bundled with the Blender app but not with the module, so install it too:
 
 ```sh
-uv venv --python 3.13 .venv            # or: python3.13 -m venv .venv
-uv pip install bpy==5.2.2 OpenImageIO  # or: .venv/bin/pip install ...
+uv venv --python 3.13 .venv                       # or: python3.13 -m venv .venv
+uv pip install -e "/path/to/Blendmentation[module]"  # installs bpy and OpenImageIO too
 ```
 
-The script is the same as inside Blender, except that you open the `.blend` file
-yourself:
+The package is installed, so `sys.path` isn't needed. The script is otherwise the same
+as inside Blender, except that you open the `.blend` file yourself:
 
 ```python
-import sys
-sys.path.append("/path/to/Blendmentation")
-
 import bpy
 from blendmentation.augmentations import augmentations
 from blendmentation.generating import generating
@@ -417,6 +414,20 @@ export.voc("//dataset")    # <path>/Annotations/<index>.xml
 | `coco(path, output=None, classes=None, bbox_from="label")` | Instance segmentation as RLE from the instance masks, and bboxes. Instances whose mask is empty (fully hidden) are skipped. `bbox_from="mask"` uses the visible pixels of the mask for the bbox, instead of the geometric bbox that includes hidden parts. Each annotation also has an `"objects"` field with the object names. |
 | `yolo(path, classes=None)` | One `class x_center y_center width height` line per bbox, normalized to 0–1. `dataset.yaml` points at the folder, ready for Ultralytics. |
 | `voc(path, output_dir=None)` | One XML file per image, with 1-based pixel bboxes. Boxes touching the image border are marked `truncated`. |
+
+## Tests
+
+The tests run with pytest and use Blender as a Python module, so they need a
+`bpy`-compatible Python and a GPU (for Workbench):
+
+```sh
+uv venv --python 3.13 .venv
+uv pip install -e ".[module,test]"
+.venv/bin/python -m pytest
+```
+
+Without `bpy`, only the tests that don't need Blender run, and the rest are skipped.
+The suite passes with `bpy` 5.2 (Python 3.13) and `bpy` 4.5 (Python 3.11).
 
 ## Known issues
 

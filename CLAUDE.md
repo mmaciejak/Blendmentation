@@ -8,15 +8,22 @@ Blendmentation is a Python library for generating synthetic, augmented training 
 
 ## Running
 
-There is no build system, packaging, dependency manifest, linter config, or test suite. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
+Packaging is in `pyproject.toml`; there is no linter config. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
 
-To check changes, build a scene in a script and run it headless, e.g. `"/Applications/Blender 4.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python test.py`. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0. The code supports both, so test on both.
+**Tests** are in `tests/` (pytest) and run with `bpy` as a Python module:
+```sh
+uv venv --python 3.13 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[module,test]"   # bpy 5.x
+uv venv --python 3.11 .venv311 && VIRTUAL_ENV=.venv311 uv pip install "bpy==4.5.14" -e ".[module,test]"  # bpy 4.x
+.venv/bin/python -m pytest                      # all
+.venv/bin/python -m pytest tests/test_generating.py::test_keypoints   # one test
+```
+Run the suite on both. `conftest.py` resets to an empty factory scene (Workbench, Cycles at 1 CPU sample) with a camera at (0, -10, 0) looking along +Y before every test. The `cube` fixture's default size is 1 (half-extent 0.5), and `renders` records the engine of every render started. Without `bpy`, the conftest still loads and only the pure tests (export) run. Workbench and EEVEE need a GPU.
+
+There are no `bpy` wheels for 4.0/4.1, so 4.0 is only checked in the app. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0, e.g. `"/Applications/Blender.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python script.py`.
 
 The code also runs with `bpy` as a plain Python module (`pip install bpy OpenImageIO`; `bpy` 5.1+ needs Python 3.13, 4.x–5.0 need 3.11). Two things keep that working:
-- `blendmentation/__init__.py` imports `bpy` first, because `mathutils` is only importable after `bpy` in module mode.
+- `blendmentation/__init__.py` imports `bpy` first (if it's installed), because `mathutils` is only importable after `bpy` in module mode.
 - The `bpy` wheel ships numpy but not OpenImageIO, so `bpy_generating.py` raises an `ImportError` with install instructions when it's missing.
-
-To test module mode: `uv venv --python 3.13 env && VIRTUAL_ENV=env uv pip install bpy==5.2.2 OpenImageIO`, then `env/bin/python test.py`.
 
 ## Architecture
 
