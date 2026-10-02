@@ -2,7 +2,8 @@ import colorsys
 import math
 import random
 
-from mathutils import Euler, Quaternion
+import bpy
+from mathutils import Euler, Matrix, Quaternion, Vector
 
 from .. import bpy_paths
 
@@ -132,6 +133,78 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
             get_unlinked_input(principled, socket_name, mat.name).default_value = new
             applied[name] = new
 
+    return applied
+
+
+def target_center(target):
+    """World location of a look-at target: an object or a list of objects (the center
+    of their bounding boxes), or a point (x, y, z)."""
+    if isinstance(target, (list, tuple)) and len(target) == 3 and all(isinstance(v, (int, float)) for v in target):
+        return Vector(target)
+    objects = [target] if isinstance(target, bpy.types.Object) else list(target)
+    if not objects or not all(isinstance(obj, bpy.types.Object) for obj in objects):
+        raise TypeError("LookAt target must be an object, a list of objects or a point (x, y, z)")
+    centers = [obj.matrix_world @ (sum((Vector(corner) for corner in obj.bound_box), Vector()) / 8) for obj in objects]
+    return sum(centers, Vector()) / len(centers)
+
+
+def range_or_value(value_range, current):
+    """None keeps the current value, a number is used as it is, (min, max) is sampled."""
+    if value_range is None:
+        return current
+    if isinstance(value_range, (int, float)):
+        return float(value_range)
+    low, high = value_range
+    return random.uniform(low, high)
+
+
+def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
+    """Moves the object on a sphere around the target and points its -Z axis
+    (the view direction of cameras and lights) at it, with Y up.
+
+    Args:
+        distance (tuple): distance from the target in blender units
+        elevation (tuple): angle above the target's horizontal plane in degrees
+        azimuth (tuple): angle around the world Z axis in degrees, 0 = +X
+        roll (tuple): rotation around the object's local Z axis (the view axis) in degrees, None = 0
+        focal_length (tuple): camera lens in mm, cameras only
+
+    Each is (min, max), an exact number, or None to keep the current value.
+
+    Returns:
+        dict: values that were set
+    """
+    if focal_length is not None and obj.type != "CAMERA":
+        raise TypeError(f"focal_length needs a camera, '{obj.name}' is {obj.type}")
+    center = target_center(target)
+    offset = obj.matrix_world.translation - center
+    current_distance = offset.length
+    current_elevation = math.degrees(math.asin(max(-1.0, min(1.0, offset.z / current_distance)))) if current_distance else 0.0
+    current_azimuth = math.degrees(math.atan2(offset.y, offset.x))
+
+    applied = {
+        "distance": range_or_value(distance, current_distance),
+        "elevation": range_or_value(elevation, current_elevation),
+        "azimuth": range_or_value(azimuth, current_azimuth),
+        "roll": range_or_value(roll, 0.0),
+    }
+    if applied["distance"] <= 0:
+        raise ValueError(f"LookAt distance must be positive, got {applied['distance']}")
+
+    elevation_rad = math.radians(applied["elevation"])
+    azimuth_rad = math.radians(applied["azimuth"])
+    location = center + applied["distance"] * Vector((
+        math.cos(elevation_rad) * math.cos(azimuth_rad),
+        math.cos(elevation_rad) * math.sin(azimuth_rad),
+        math.sin(elevation_rad),
+    ))
+    rotation = (center - location).to_track_quat("-Z", "Y") @ Quaternion((0.0, 0.0, 1.0), math.radians(applied["roll"]))
+    obj.matrix_world = Matrix.LocRotScale(location, rotation, obj.matrix_world.to_scale())
+
+    if focal_length is not None:
+        obj.data.lens = range_or_value(focal_length, obj.data.lens)
+        # blender stores it as 32 bit float, report what was stored
+        applied["focal_length"] = obj.data.lens
     return applied
 
 

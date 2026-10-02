@@ -141,6 +141,35 @@ see the values actually sampled, read `.actual_x/.actual_y/.actual_z` on
 
 Each parameter is a number `v`, which samples from `(-v, v)`, or a pair `(low, high)`.
 
+### LookAt
+
+```python
+LookAt(target, distance=None, elevation=None, azimuth=None, roll=None, focal_length=None)
+```
+
+Moves a camera (or a light, or any object) to a random point on a sphere around a
+target, and points it at the target, upright. The target stays in the centre of the
+view.
+
+- **`target`:** an object, a list of objects (aimed at the centre of their bounding
+  boxes), or a point `(x, y, z)`.
+- **`distance`:** in blender units.
+- **`elevation`:** degrees above the target's horizontal plane. Avoid exactly ±90.
+- **`azimuth`:** degrees around the world Z axis, where 0 is +X.
+- **`roll`:** degrees around the camera's local Z axis. `None` keeps the camera upright.
+- **`focal_length`:** the lens in mm; cameras only.
+
+Each parameter is a `(min, max)` range, an exact number, or `None` to keep the current
+value. Pass the camera to `State` to restore its transform and lens.
+
+```python
+camera_aug = augmentations.Compose([
+    augmentations.LookAt(car_1, distance=(4, 9), elevation=(5, 45), azimuth=(0, 360),
+                         roll=(-10, 10), focal_length=(24, 85)),
+])
+camera_aug([bpy.context.scene.camera])
+```
+
 ### Material
 
 ```python
@@ -198,7 +227,7 @@ State(objects, fields=())
 
 `State` saves the scene so it can be restored after every datapoint. It saves:
 
-- the transforms of the `objects`;
+- the transforms of the `objects`, and the lens of cameras;
 - all node values of the materials on those objects;
 - the value at the data path of every `Number` / `Vector` / `Boolean` / `Menu` in `fields`.
 
