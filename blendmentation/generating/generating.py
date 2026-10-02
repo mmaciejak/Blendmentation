@@ -1,8 +1,9 @@
 """Generating steps, composed like augmentations.
 
 Steps run in a fixed order whatever order they are given in: labels (BBox,
-RotationMatrix, OutputField) first, so a skipped datapoint is never rendered,
-then Render, AOVToImage and Segmentation. Render and AOVToImage share one render.
+RotationMatrix, OutputField, CameraData, Keypoints) first, so a skipped datapoint
+is never rendered, then Render, AOVToImage / Passes and Segmentation.
+Render, AOVToImage and Passes share one render.
 
 BBox and Segmentation take classes as {class name: [instances]}, an instance is
 an object, or a sublist of objects labeled as one object, e.g.
@@ -120,6 +121,43 @@ class OutputField:
         bpy_g.output_field(frame, self.name, self.data_path, self.objects)
 
 
+class CameraData:
+    """Adds the active camera to the labels under "camera": name, type, matrix_world,
+    extrinsics_opencv (3x4 world to camera [R|t], OpenCV axes: x right, y down, z forward),
+    clip_start and clip_end, and for perspective cameras lens, sensor size and fit and
+    intrinsics (3x3 K in pixels, top-left image origin), for orthographic ones ortho_scale."""
+
+    stage = 0
+
+    def __call__(self, frame):
+        bpy_g.camera_data(frame)
+
+
+class Keypoints:
+    """Projects 3D points to the image and adds them to the labels under "keypoints", as
+    {"name", "position", "depth", "in_frame", "visible"}. position is in pixels from the
+    top left corner, depth the distance along the camera view, visible is False when
+    the point is out of frame or hidden behind geometry.
+
+    Args:
+        points (dict) : {name: source}, a source is an object (its origin),
+            (mesh object, vertex index), (mesh object, "vertex group") for the center
+            of the group, (armature, "bone") for the bone head, or a point (x, y, z).
+            Vertices include deformations like armatures and modifiers.
+    """
+
+    stage = 0
+
+    def __init__(self, points: dict):
+        self.points = points
+
+    def check(self):
+        bpy_g.check_keypoints(self.points)
+
+    def __call__(self, frame):
+        bpy_g.keypoints(frame, self.points)
+
+
 class Render:
     """Renders the image with the scene engine to <index>.<ext>.
 
@@ -161,9 +199,37 @@ class AOVToImage:
         bpy_g.aov_images(frame, self.names, self.file_format)
 
 
+class Passes:
+    """Saves built-in render passes as images <index>_<pass>.<ext>. Uses the same render
+    as Render and AOVToImage, the passes are enabled in the view layer only for that render.
+
+    Args:
+        names (list): any of "Depth", "Mist", "Normal", "Position", "Vector", "UV",
+            "ObjectIndex", "MaterialIndex". Engines support different passes, EEVEE has
+            no UV and index passes, workbench only Depth
+        file_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped
+            to 0-1, so only useful for some passes like Normal)
+    """
+
+    stage = 2
+
+    def __init__(self, names: list, file_format: str = "OPEN_EXR"):
+        self.names = names
+        self.file_format = file_format
+
+    def check(self):
+        bpy_g.check_passes(self.names, self.file_format)
+
+    def prepare(self, frame):
+        bpy_g.prepare_passes(frame, self.names)
+
+    def __call__(self, frame):
+        bpy_g.render_passes(frame, self.names, self.file_format)
+
+
 class Segmentation:
     """Saves black and white masks of the visible pixels and adds them to the labels
-    under "masks", as {"class", "objects", "mask"}. Uses a separate, fast workbench
+    under "masks", as {"class", "objects", "mask", "per"}, per is "instance" or "class". Uses a separate, fast workbench
     render. Objects that are not in classes still occlude.
 
     Args:

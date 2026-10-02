@@ -4,9 +4,11 @@ Generate synthetic, augmented training datasets from Blender scenes. You describ
 your dataset as composed steps, in the style of torchvision / albumentations:
 
 1. **Augment:** randomize objects, materials and any other value in the scene.
-2. **Generate:** render the image, shader AOVs and segmentation masks, and write a
-   JSON label with bounding boxes, rotations and any values you want to record.
+2. **Generate:** render the image, render passes, shader AOVs and segmentation masks,
+   and write a JSON label with bounding boxes, keypoints, camera data, rotations and
+   any values you want to record.
 3. **Restore:** put the scene back as it was, and repeat.
+4. **Export:** convert the dataset to COCO, YOLO or Pascal VOC.
 
 ## Requirements
 
@@ -16,8 +18,8 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 
 ## Setup
 
-Add the folder that contains `blendmentation/` to `sys.path` in your script, then
-import the modules as a package:
+Inside Blender, the simplest setup is to add the folder that contains
+`blendmentation/` to `sys.path` in your script, then import the modules as a package:
 
 ```python
 import sys
@@ -47,17 +49,14 @@ only one Python version:
 OpenImageIO is bundled with the Blender app but not with the module, so install it too:
 
 ```sh
-uv venv --python 3.13 .venv            # or: python3.13 -m venv .venv
-uv pip install bpy==5.2.2 OpenImageIO  # or: .venv/bin/pip install ...
+uv venv --python 3.13 .venv                       # or: python3.13 -m venv .venv
+uv pip install -e "/path/to/Blendmentation[module]"  # installs bpy and OpenImageIO too
 ```
 
-The script is the same as inside Blender, except that you open the `.blend` file
-yourself:
+The package is installed, so `sys.path` isn't needed. The script is otherwise the same
+as inside Blender, except that you open the `.blend` file yourself:
 
 ```python
-import sys
-sys.path.append("/path/to/Blendmentation")
-
 import bpy
 from blendmentation.augmentations import augmentations
 from blendmentation.generating import generating
@@ -76,24 +75,36 @@ All features work the same way in the module. Note that Workbench (used by
 
 ## Quick start
 
+The scene here has two cars and a table made of two objects, a point light and a
+camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV.
+
 ```python
 import bpy
+from blendmentation.export import export
 
 car_1 = bpy.data.objects["Car.001"]
 car_2 = bpy.data.objects["Car.002"]
 table = [bpy.data.objects["TableTop"], bpy.data.objects["TableLegs"]]
 lamp = bpy.data.objects["Light"]
+camera = bpy.context.scene.camera
 
 # 1. augmentations, applied to every object in the list
 objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),
     augmentations.Rotation(z=180),
     augmentations.Scale(x=10, y=10, z=10),
-    augmentations.Material("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),
+    augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6)),
 ])
 lamp_aug = augmentations.Compose([
     augmentations.Number("data.energy", percent=40),
     augmentations.Vector("data.color", value_range=(0.8, 1.0)),
+    augmentations.Menu("data.type", options=["POINT", "SPOT"]),
+    augmentations.Boolean("data.use_shadow", probability=0.8),
+])
+camera_aug = augmentations.Compose([
+    augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360),
+                         focal_length=(35, 70)),
 ])
 
 # 2. what to save for every datapoint
@@ -101,8 +112,13 @@ classes = {"car": [car_1, car_2], "table": [table]}
 generator = generating.Compose(
     [
         generating.Render(),
+        generating.AOVToImage(["Albedo"]),
+        generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5),
         generating.Segmentation(classes, per="both"),
+        generating.RotationMatrix([car_1, car_2]),
+        generating.CameraData(),
+        generating.Keypoints({"car_1": car_1, "car_1_corner": (car_1, 0)}),
         generating.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
     ],
     path="//dataset",
@@ -111,15 +127,20 @@ generator = generating.Compose(
 
 # 3. the scene state to go back to after every datapoint
 initial = state.State(
-    [car_1, car_2, lamp],
+    [car_1, car_2, lamp, camera],
     fields=objects_aug.augmentations + lamp_aug.augmentations,
 )
 
 for _ in range(1000):
     objects_aug([car_1, car_2])
     lamp_aug([lamp])
+    camera_aug([camera])
     generator()
     initial.restore()
+
+# 4. training-ready annotations
+export.coco("//dataset")
+export.yolo("//dataset")
 ```
 
 ## Augmentations
@@ -138,6 +159,35 @@ see the values actually sampled, read `.actual_x/.actual_y/.actual_z` on
 | `Scale(x, y, z)` | percent | the scale is multiplied by 1 ± p/100 |
 
 Each parameter is a number `v`, which samples from `(-v, v)`, or a pair `(low, high)`.
+
+### LookAt
+
+```python
+LookAt(target, distance=None, elevation=None, azimuth=None, roll=None, focal_length=None)
+```
+
+Moves a camera (or a light, or any object) to a random point on a sphere around a
+target, and points it at the target, upright. The target stays in the centre of the
+view.
+
+- **`target`:** an object, a list of objects (aimed at the centre of their bounding
+  boxes), or a point `(x, y, z)`.
+- **`distance`:** in blender units.
+- **`elevation`:** degrees above the target's horizontal plane. Avoid exactly ±90.
+- **`azimuth`:** degrees around the world Z axis, where 0 is +X.
+- **`roll`:** degrees around the camera's local Z axis. `None` keeps the camera upright.
+- **`focal_length`:** the lens in mm; cameras only.
+
+Each parameter is a `(min, max)` range, an exact number, or `None` to keep the current
+value. Pass the camera to `State` to restore its transform and lens.
+
+```python
+camera_aug = augmentations.Compose([
+    augmentations.LookAt(car_1, distance=(4, 9), elevation=(5, 45), azimuth=(0, 360),
+                         roll=(-10, 10), focal_length=(24, 85)),
+])
+camera_aug([bpy.context.scene.camera])
+```
 
 ### Material
 
@@ -196,7 +246,7 @@ State(objects, fields=())
 
 `State` saves the scene so it can be restored after every datapoint. It saves:
 
-- the transforms of the `objects`;
+- the transforms of the `objects`, and the lens of cameras;
 - all node values of the materials on those objects;
 - the value at the data path of every `Number` / `Vector` / `Boolean` / `Menu` in `fields`.
 
@@ -230,17 +280,20 @@ resolution divided by `factor`.
 |---|---|
 | `Render(file_format="PNG")` | `<index>.png`, or `.jpg` / `.exr` for `"JPEG"` / `"OPEN_EXR"` |
 | `AOVToImage(names, file_format="OPEN_EXR")` | `<index>_<aov>.exr`, or `.png` for `"PNG"` (8-bit, clamped to 0–1) |
+| `Passes(names, file_format="OPEN_EXR")` | `<index>_<pass>.exr` / `.png` for built-in passes (depth, normal…) |
 | `BBox(classes, iou_deconflict=None)` | `"bboxes"` in the label |
 | `Segmentation(classes, per="instance")` | mask PNGs and `"masks"` in the label |
 | `RotationMatrix(objects)` | `"rotation_matrices"` in the label |
 | `OutputField(name, data_path, objects=None)` | `name` in the label |
+| `CameraData()` | `"camera"` in the label |
+| `Keypoints(points)` | `"keypoints"` in the label |
 
 You can list the steps in any order. They always run in this order:
 
-1. Label steps (`BBox`, `RotationMatrix`, `OutputField`). Because these come first,
-   a datapoint skipped by `iou_deconflict` is never rendered.
+1. Label steps (`BBox`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`).
+   Because these come first, a datapoint skipped by `iou_deconflict` is never rendered.
 2. `Render`.
-3. `AOVToImage`.
+3. `AOVToImage` and `Passes`.
 4. `Segmentation`.
 
 Settings are checked before anything renders, so a typo fails immediately.
@@ -256,6 +309,53 @@ an object, or a sublist of objects that should count as one object (one bbox, on
 Properties → Passes → Shader AOV, and the engine must be Cycles or EEVEE. The AOVs
 come from the same render as `Render`, so they add no render time. Without `Render`,
 the scene is still rendered once, but no image is saved.
+
+**Passes.** This step saves Blender's built-in render passes: `"Depth"`, `"Mist"`,
+`"Normal"`, `"Position"`, `"Vector"` (motion), `"UV"`, `"ObjectIndex"` and
+`"MaterialIndex"`.
+
+- **No extra setup:** each pass is turned on in the view layer only for that render,
+  so you don't need to enable it yourself.
+- **Shared render:** passes come from the same render as `Render` and `AOVToImage`, so
+  they add no render time.
+- **Engine support differs:** Cycles has all passes; EEVEE has no `UV` or index
+  passes; Workbench only has `Depth`. A pass that the engine didn't render gives an
+  error. In Cycles, `Vector` also needs motion blur turned off.
+- **Format:** use EXR for anything outside 0–1, such as depth or position. PNG clamps
+  values to 0–1.
+- **Channel names:** EXR channels keep their Blender names (`Z`, `X Y Z`, `U V A`…).
+
+**CameraData.** Saves the active camera as `"camera"` in the label:
+
+- its name and type;
+- `matrix_world` (the camera's placement in the world, in Blender's convention);
+- `extrinsics_opencv`, a 3×4 world-to-camera `[R|t]` with OpenCV axes (x right, y
+  down, z forward);
+- `clip_start` and `clip_end`;
+- for a perspective camera: lens, sensor size and fit, and `intrinsics`, the 3×4 `K`
+  matrix in pixels. It accounts for sensor fit, lens shift and pixel aspect, so
+  `K @ extrinsics_opencv @ [x, y, z, 1]` gives the pixel position from the top-left
+  corner;
+- for an orthographic camera: `ortho_scale`.
+
+**Keypoints.** Projects 3D points into the image. Pass `{name: source}`, where a
+source is one of:
+
+| Source | Point |
+|---|---|
+| `obj` | the object's origin, e.g. an empty |
+| `(mesh_obj, 12)` | vertex 12 |
+| `(mesh_obj, "hand_L")` | the centre of the vertex group |
+| `(armature, "forearm.L")` | the bone's head |
+| `(x, y, z)` | a point in world space |
+
+Vertices include deformations from armatures and modifiers. Each keypoint is saved with:
+
+- `position`: pixels from the top-left corner;
+- `depth`: distance along the camera's view direction;
+- `in_frame`;
+- `visible`: false when the point is out of frame or hidden behind geometry (checked
+  with a ray cast from the camera).
 
 **BBox.** Boxes are in pixels as `[x_min, y_min, x_max, y_max]`, from the top-left
 corner. They are calculated from the geometry (modifiers included), so parts hidden
@@ -300,13 +400,56 @@ objects…) become their name.
     {"class": "table", "objects": ["TableTop", "TableLegs"], "bbox": [300.0, 120.5, 512.3, 401.0]}
   ],
   "masks": [
-    {"class": "car", "objects": ["Car.001"], "mask": "000000_mask_0.png"},
-    {"class": "car", "objects": ["Car.001", "Car.002"], "mask": "000000_mask_car.png"}
+    {"class": "car", "objects": ["Car.001"], "mask": "000000_mask_0.png", "per": "instance"},
+    {"class": "car", "objects": ["Car.001", "Car.002"], "mask": "000000_mask_car.png", "per": "class"}
   ],
   "rotation_matrices": [{"object": "Car.001", "rotation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}],
+  "passes": {"Depth": "000000_Depth.exr", "Normal": "000000_Normal.exr"},
+  "camera": {"name": "Camera", "type": "PERSP", "intrinsics": [[888.9, 0, 320], [0, 888.9, 240], [0, 0, 1]],
+             "extrinsics_opencv": [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 10]], "...": "..."},
+  "keypoints": [{"name": "nose", "position": [310.2, 140.8], "depth": 9.1, "in_frame": true, "visible": true}],
   "light_energy": 1000.0
 }
 ```
+
+## Export
+
+After generating, convert the dataset folder to standard formats:
+
+```python
+from blendmentation.export import export
+
+export.coco("//dataset")   # <path>/coco.json
+export.yolo("//dataset")   # <index>.txt next to every image, classes.txt, dataset.yaml
+export.voc("//dataset")    # <path>/Annotations/<index>.xml
+```
+
+- **What gets exported:** datapoints with an image (a `Render` step) and with
+  bboxes and/or instance masks.
+- **Class ids:** classes are numbered in order of first appearance. Pass
+  `classes=["car", "table"]` to `coco` or `yolo` to fix the order.
+- **No Blender needed:** export runs in plain Python, so you can run it on another
+  machine. COCO with masks needs `numpy` and `OpenImageIO`, which come with Blender.
+
+| Format | Contents |
+|---|---|
+| `coco(path, output=None, classes=None, bbox_from="label")` | Instance segmentation as RLE from the instance masks, and bboxes. Instances whose mask is empty (fully hidden) are skipped. `bbox_from="mask"` uses the visible pixels of the mask for the bbox, instead of the geometric bbox that includes hidden parts. Each annotation also has an `"objects"` field with the object names. |
+| `yolo(path, classes=None)` | One `class x_center y_center width height` line per bbox, normalized to 0–1. `dataset.yaml` points at the folder, ready for Ultralytics. |
+| `voc(path, output_dir=None)` | One XML file per image, with 1-based pixel bboxes. Boxes touching the image border are marked `truncated`. |
+
+## Tests
+
+The tests run with pytest and use Blender as a Python module, so they need a
+`bpy`-compatible Python and a GPU (for Workbench):
+
+```sh
+uv venv --python 3.13 .venv
+uv pip install -e ".[module,test]"
+.venv/bin/python -m pytest
+```
+
+Without `bpy`, only the tests that don't need Blender run, and the rest are skipped.
+The suite passes with `bpy` 5.2 (Python 3.13) and `bpy` 4.5 (Python 3.11).
 
 ## Known issues
 

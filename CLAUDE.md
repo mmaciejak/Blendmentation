@@ -4,19 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Blendmentation is a Python library for generating synthetic, augmented training datasets (renders, AOVs, segmentation masks and labels) from Blender scenes. It is modelled after torchvision/albumentations-style transforms: you compose augmentations, apply them to Blender objects, render, then restore the scene and repeat.
+Blendmentation is a Python library for generating synthetic, augmented training datasets (renders, passes, AOVs, segmentation masks and labels) from Blender scenes. It is modelled after torchvision/albumentations-style transforms: you compose augmentations, apply them to Blender objects, render, then restore the scene and repeat.
 
 ## Running
 
-There is no build system, packaging, dependency manifest, linter config, or test suite. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
+Packaging is in `pyproject.toml`; there is no linter config. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage of every feature; its docstring lists the scene it expects. It adds its own folder to `sys.path`. Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
 
-To check changes, build a scene in a script and run it headless, e.g. `"/Applications/Blender 4.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python test.py`. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0. The code supports both, so test on both.
+**Tests** are in `tests/` (pytest) and run with `bpy` as a Python module:
+```sh
+uv venv --python 3.13 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[module,test]"   # bpy 5.x
+uv venv --python 3.11 .venv311 && VIRTUAL_ENV=.venv311 uv pip install "bpy==4.5.14" -e ".[module,test]"  # bpy 4.x
+.venv/bin/python -m pytest                      # all
+.venv/bin/python -m pytest tests/test_generating.py::test_keypoints   # one test
+```
+Run the suite on both. `conftest.py` resets to an empty factory scene (Workbench, Cycles at 1 CPU sample) with a camera at (0, -10, 0) looking along +Y before every test. The `cube` fixture's default size is 1 (half-extent 0.5), and `renders` records the engine of every render started. Without `bpy`, the conftest still loads and only the pure tests (export) run. Workbench and EEVEE need a GPU.
+
+There are no `bpy` wheels for 4.0/4.1, so 4.0 is only checked in the app. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0, e.g. `"/Applications/Blender.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python script.py`.
 
 The code also runs with `bpy` as a plain Python module (`pip install bpy OpenImageIO`; `bpy` 5.1+ needs Python 3.13, 4.x–5.0 need 3.11). Two things keep that working:
-- `blendmentation/__init__.py` imports `bpy` first, because `mathutils` is only importable after `bpy` in module mode.
+- `blendmentation/__init__.py` imports `bpy` first (if it's installed), because `mathutils` is only importable after `bpy` in module mode.
 - The `bpy` wheel ships numpy but not OpenImageIO, so `bpy_generating.py` raises an `ImportError` with install instructions when it's missing.
 
-To test module mode: `uv venv --python 3.13 env && VIRTUAL_ENV=env uv pip install bpy==5.2.2 OpenImageIO`, then `env/bin/python test.py`.
+## Examples
+
+There are two usage examples: `example.py` and the README "Quick start". **Every new user-facing feature (augmentation, generating step, export, option) must be added to both**, and both must still run. To check them, build a scene matching what each describes (the `example.py` docstring and the paragraph above the quick start), save it as a `.blend`, and run the example with fewer datapoints. Run it in the app and as a module. Keep the scene descriptions up to date when a feature needs something new in the scene.
 
 ## Architecture
 
@@ -27,32 +38,37 @@ Each subpackage under `blendmentation/` is split into two layers:
 
 Keep this split: Blender-specific logic goes in the `bpy_*` modules, and the public classes stay thin. `blendmentation/bpy_paths.py` is shared by augmentations and state. It parses data paths like `bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value` into attribute/item steps without `eval`, then gets or sets the value and calls `update_tag()` on the owning datablock. Paths starting with `bpy.` are absolute; any other path is relative to an object.
 
-The three subpackages:
+The subpackages:
 
 - **augmentations**: `Compose` applies a list of transforms to each object in a list. Every transform is a callable taking a single `bpy` object, and it **mutates in place**.
   - `Translation`, `Rotation`, `Scale`: each parameter is a number `v`, sampled from (-v, v), or a `(low, high)` pair. Translation is in blender units and rotation in degrees, both added; scale is in percent, multiplied. The sampled values are stored in `actual_x/y/z`.
+  - `LookAt(target, distance, elevation, azimuth, roll, focal_length)`: places the object on a sphere around the target (object, list of objects → mean world bbox center, or point) and aims its -Z at it with Y up (`to_track_quat("-Z", "Y")`), then rolls around local Z. Each parameter is `(min, max)`, an exact number, or `None` (keep current; roll defaults to 0). It sets `matrix_world`, so parented cameras work. `focal_length` is cameras only.
   - `Material(material_id, hue, saturation, value, roughness, metallic)`: sets the Principled BSDF Base Color (through HSV), Roughness and Metallic to random values in absolute `(min, max)` ranges, all 0-1. `None` leaves a value unchanged. It changes the **material**, so every object using it is affected.
   - Data-path augmentations change any value by its path (shader node inputs, geometry nodes inputs, shape keys, light settings…). An absolute path ignores the object, so it can be called as `aug()`. Inside a `Compose` it runs once per object, which compounds `percent` on absolute paths.
     - `Number(data_path, value_range=None, percent=None)`: int or float. `value_range` sets an absolute value, `percent` scales the current one, and ints are rounded.
     - `Vector(data_path, value_range=None, percent=None)`: the same per component. Each bound is a number for all components or a per-component sequence, and `None` keeps that component, e.g. `((0, 0, 0, None), (1, 1, 1, None))` for RGB that keeps alpha.
     - `Boolean(data_path, probability=0.5)`.
     - `Menu(data_path, options=None, weights=None)`: enum. With no `options`, it takes them from RNA `enum_items`, or for menu sockets from the Menu Switch node's `enum_items`; otherwise `options` is required.
-- **state**: `State(objects, fields=())` snapshots, at construction, each object's transforms and all unlinked node input values of its materials (stored as `state_dict[object.name]`). It also saves the value at every data path in `fields` (`Number`/`Vector`/`Boolean`/`Menu` instances or path strings). Entries without a `data_path` are ignored, so a whole `Compose.augmentations` list can be passed. Absolute paths are saved once and relative paths once per object they resolve on. `restore()` reverts everything, which is why augmentations can safely mutate in place. A data-path augmentation that isn't passed to `State` is not restored, and with `percent` it compounds every iteration. A new augmentation must touch only what this snapshot covers, or `bpy_states.py` must be extended.
+- **state**: `State(objects, fields=())` snapshots, at construction, each object's transforms, all unlinked node input values of its materials, and the lens of cameras (stored as `state_dict[object.name]`). It also saves the value at every data path in `fields` (`Number`/`Vector`/`Boolean`/`Menu` instances or path strings). Entries without a `data_path` are ignored, so a whole `Compose.augmentations` list can be passed. Absolute paths are saved once and relative paths once per object they resolve on. `restore()` reverts everything, which is why augmentations can safely mutate in place. A data-path augmentation that isn't passed to `State` is not restored, and with `percent` it compounds every iteration. A new augmentation must touch only what this snapshot covers, or `bpy_states.py` must be extended.
 - **generating**: `Compose(steps, path, resolution)` generates one datapoint per call (`preview(factor)` at reduced resolution); it returns `False` when a step skips the datapoint. Files are `<path>/<index>...`, where the index is the next free leading number in the folder (`next_index`), so output can be resumed.
-  - **Steps:** `BBox(classes, iou_deconflict=None)`, `RotationMatrix(objects)`, `OutputField(name, data_path, objects=None)`, `Render(file_format="PNG")`, `AOVToImage(names, file_format="OPEN_EXR")`, `Segmentation(classes, per="instance"|"class"|"both")`. Each step takes its own objects; `Compose` has none.
+  - **Steps:** `BBox(classes, iou_deconflict=None)`, `RotationMatrix(objects)`, `OutputField(name, data_path, objects=None)`, `CameraData()`, `Keypoints(points)`, `Render(file_format="PNG")`, `AOVToImage(names, file_format="OPEN_EXR")`, `Passes(names, file_format="OPEN_EXR")`, `Segmentation(classes, per="instance"|"class"|"both")`. Each step takes its own objects; `Compose` has none.
   - **Classes:** `classes` is `{class name: [instances]}`, where an instance is an object or a sublist of objects labeled as one (bbox = union of members, one mask). `to_instances` flattens it to `(class, [objects])` pairs and rejects non-dicts, non-list values, empty sublists and objects in two instances.
-  - **Stages:** each step class has a `stage`, and `Compose` sorts by it, so list order doesn't matter. Label steps (0) run first, so an `iou_deconflict` skip happens before any render; then `Render` (1), `AOVToImage` (2), `Segmentation` (3).
+  - **Stages:** each step class has a `stage`, and `Compose` sorts by it, so list order doesn't matter. Label steps (0) run first, so an `iou_deconflict` skip happens before any render; then `Render` (1), `AOVToImage`/`Passes` (2), `Segmentation` (3).
+  - **`prepare(frame)`:** runs for all steps after the `Frame` is created and before any step runs. It is for settings that must be in place before the beauty render (e.g. `Passes` enabling `use_pass_*`). Change them with `frame.set(owner, name, value)`, which records the old value; `generate` restores it in a `finally`.
   - **`check()`:** steps define `check()`, which runs before anything is generated, so bad config (classes format, file format, missing AOV, Workbench + AOVs, relative `OutputField` without objects) fails without wasting a render.
-  - **`Frame`:** `bpy_generating.generate` builds a `Frame` and passes it to each step. It holds the scene, index, the `label` dict (`frame.add(key, entries)` appends to a list, so several steps can add to it), and a lazy `beauty()` that renders with the scene engine **at most once**. `Render` writes the image through it (`write_still`), and `AOVToImage` reuses that Render Result, or triggers the one render itself when there is no `Render`. A new step that needs the beauty render must call `frame.beauty()`, not `bpy.ops.render.render()`.
+  - **`Frame`:** `bpy_generating.generate` builds a `Frame` and passes it to each step. It holds the scene, index, the `label` dict (`frame.add(key, entries)` appends to a list, so several steps can add to it), a lazy `beauty()` that renders with the scene engine **at most once**, and a lazy `multilayer()` that saves that render once as a multilayer EXR in the frame's temp dir, returning the path and each EXR part's channel names. `Render` writes the image through it (`write_still`), and `AOVToImage` reuses that Render Result, or triggers the one render itself when there is no `Render`. A new step that needs the beauty render must call `frame.beauty()`, not `bpy.ops.render.render()`.
   - **Label JSON:** written only when there is more than the image (e.g. `Render()` alone writes no JSON). It holds:
     - `resolution`, `image`, `aovs: {name: file}`;
     - `bboxes: [{class, objects, bbox}]`;
-    - `masks: [{class, objects, mask}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes) first, then class masks `<index>_mask_<class>.png` (name sanitized);
+    - `masks: [{class, objects, mask, per}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes) first, then class masks `<index>_mask_<class>.png` (name sanitized);
     - `rotation_matrices: [{object, rotation_matrix}]`;
     - `OutputField` values: absolute paths as one value, relative paths as `{object name: value}`;
     - `custom_dict` keys.
   - **Field values:** `OutputField` converts values with `to_json`: IDs become their names, and vectors/matrices become nested lists.
   - **Bboxes** are pixel `[x_min, y_min, x_max, y_max]` with a top-left origin, computed from the evaluated mesh vertices (modifiers included; occlusion ignored; `None` when out of frame).
+  - **Passes:** `save_layer` extracts one AOV or pass from `frame.multilayer()`. Channels are `<view layer>.<layer>.<channel>`. Index passes are `IndexOB`/`IndexMA` in 4.x and `Object Index`/`Material Index` in 5.x, so `PASSES` lists both names. OpenEXR always stores channels alphabetically (`A,U,V`), so they're sorted by `CHANNEL_ORDER` for PNG output.
+  - **CameraData:** `intrinsics` K follows Blender's sensor fit / shift / pixel-aspect rules; `extrinsics_opencv` flips Blender's camera axes (looks down -Z, Y up) to OpenCV's.
+  - **Keypoints:** they are located on the evaluated mesh (deformations included) and projected with `world_to_camera_view`. Visibility is a `scene.ray_cast` from the camera, with a small tolerance so a point on a surface isn't hidden by that surface.
   - Render resolution and output settings are restored after each datapoint.
 
   Segmentation (`render_ids` / `save_masks`) is a separate Workbench render:
@@ -63,6 +79,8 @@ The three subpackages:
   Class masks are unions of the instance ids, so `per="both"` still needs one render. Masks hold only visible pixels; bboxes don't account for occlusion. All changed settings and object colors are restored afterwards.
 
   AOVs (`save_aovs`) avoid the compositor. The Render Result is saved via `save_render` as a multilayer EXR to a temp dir, and OpenImageIO splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total). The engine must be Cycles or EEVEE.
+
+- **export**: `export.coco/yolo/voc(path, ...)` turn a generated folder's `<index>.json` labels into standard formats. It is pure Python with no `bpy` layer: `blendmentation/__init__.py` imports `bpy` only if it's available, and numpy / OpenImageIO are imported lazily, only for COCO masks, so YOLO and VOC run in a plain interpreter. Only labels with `"image"` are exported. Instances are keyed by `(class, objects)`, merging `bboxes` with masks where `"per": "instance"`. COCO segmentation is uncompressed RLE (column-major runs starting with zeros, as pycocotools expects); instances with empty masks are skipped. Class ids follow first appearance unless `classes=` is given.
 
 Intended loop (see `example.py`): build `State` once → for N datapoints: apply augmentation `Compose`s → call the generating `Compose` → `State.restore()`.
 
@@ -77,4 +95,3 @@ Intended loop (see `example.py`): build `State` once → for N datapoints: apply
 ## Known gaps
 
 - Type hints on `Translation`/`Rotation`/`Scale` say `range`, but the values passed are numbers or `(low, high)` tuples.
-- `example.py` uses placeholder objects (`bpy.object`, `bpy.lampobject`), so it does not run as-is.

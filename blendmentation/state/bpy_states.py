@@ -42,7 +42,7 @@ def load_node_tree(node_tree, nodes):
 
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms and material node values.
+    transforms, material node values and the lens of cameras.
 
     Args:
     object (bpy.object): object to get the parameters from
@@ -55,6 +55,8 @@ def create_state_list(object):
         material = slot.material
         if material is not None and material.node_tree is not None:
             state["materials"][material.name] = save_node_tree(material.node_tree)
+    if object.type == "CAMERA":
+        state["lens"] = object.data.lens
     return state
 
 
@@ -75,6 +77,9 @@ def load_from_state_dict(object, state_dict: dict):
         material = slot.material
         if material is not None and material.name in state["materials"]:
             load_node_tree(material.node_tree, state["materials"][material.name])
+
+    if "lens" in state:
+        object.data.lens = state["lens"]
 
     object.update_tag()
 

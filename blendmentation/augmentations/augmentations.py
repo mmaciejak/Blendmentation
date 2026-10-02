@@ -106,6 +106,45 @@ class Scale:
         self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
 
 
+class LookAt:
+    """Moves a camera (or a light, or any object) on a sphere around a target and points
+    it at the target, upright. The target stays in the center of the camera view.
+
+    Args:
+        target : object, list of objects (the center of their bounding boxes),
+            or point (x, y, z)
+        distance (tuple) : distance from the target in blender units
+        elevation (tuple) : angle above the target's horizontal plane in degrees,
+            avoid exactly 90 / -90
+        azimuth (tuple) : angle around the world Z axis in degrees, 0 = +X
+        roll (tuple) : rotation around the camera's local Z axis (the view axis) in degrees,
+            like a local Z rotation in blender, None = upright
+        focal_length (tuple) : camera lens in mm, cameras only
+
+    Each is a (min, max) range, an exact number, or None to keep the current value.
+
+    .. note::
+        Pass the camera to State, it restores the transform and the lens.
+    """
+
+    def __init__(self, target, distance=None, elevation=None, azimuth=None, roll=None, focal_length=None):
+        self.target = target
+        self.distance = distance
+        self.elevation = elevation
+        self.azimuth = azimuth
+        self.roll = roll
+        self.focal_length = focal_length
+        self.actual = None
+
+    def __call__(self, obj):
+        """Args:
+        obj (bpy.object) : camera or other object to move
+        """
+        self.actual = bpy_a.look_at(
+            obj, self.target, self.distance, self.elevation, self.azimuth, self.roll, self.focal_length
+        )
+
+
 class Material:
     """Augument the basic material values: base color, roughness and metallic,
     set to random values in given (min, max) ranges. None leaves the value unchanged.
