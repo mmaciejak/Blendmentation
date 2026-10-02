@@ -5,6 +5,8 @@ import tempfile
 
 import bpy
 import numpy as np
+from bpy_extras.object_utils import world_to_camera_view
+from mathutils import Matrix, Vector
 
 try:
     import OpenImageIO as oiio
@@ -17,6 +19,21 @@ from .. import bpy_paths
 IMAGE_SETTINGS = ("media_type", "file_format", "color_mode", "color_depth", "exr_codec")
 AOV_FORMATS = {"OPEN_EXR": ".exr", "PNG": ".png"}
 RENDER_FORMATS = {"PNG": ".png", "JPEG": ".jpg", "OPEN_EXR": ".exr"}
+# built-in passes: view layer property, and the layer names in the multilayer EXR
+# (index passes were renamed in blender 5)
+PASSES = {
+    "Depth": ("use_pass_z", ("Depth",)),
+    "Mist": ("use_pass_mist", ("Mist",)),
+    "Normal": ("use_pass_normal", ("Normal",)),
+    "Position": ("use_pass_position", ("Position",)),
+    "Vector": ("use_pass_vector", ("Vector",)),
+    "UV": ("use_pass_uv", ("UV",)),
+    "ObjectIndex": ("use_pass_object_index", ("Object Index", "IndexOB")),
+    "MaterialIndex": ("use_pass_material_index", ("Material Index", "IndexMA")),
+}
+# EXR stores channels sorted by name (U, V, A becomes A, U, V), this is their natural
+# order, which matters when they are written to formats without channel names, like PNG
+CHANNEL_ORDER = ("R", "G", "B", "X", "Y", "Z", "W", "U", "V", "A")
 # output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
@@ -157,47 +174,55 @@ def check_aov_images(names, file_format):
     check_aovs(bpy.context.scene, bpy.context.view_layer, names, file_format)
 
 
-def save_aovs(scene, view_layer, aovs, aov_format, path, index):
-    """Saves the AOV passes of the last render to <path>/<index>_<aov>.<ext>.
-    The render result is saved as a multilayer EXR, the AOV channels are split from it.
+def read_multilayer(file_path):
+    """Returns the channel names of every part of a multilayer EXR."""
+    image_input = oiio.ImageInput.open(file_path)
+    if image_input is None:
+        raise RuntimeError(f"Cannot read the render result: {oiio.geterror()}")
+    parts = []
+    while image_input.seek_subimage(len(parts), 0):
+        parts.append(image_input.spec().channelnames)
+    image_input.close()
+    return parts
+
+
+def save_layer(frame, layer_names, file_name, file_format, channel_names=None):
+    """Saves one layer of the beauty render (an AOV or a pass) to <path>/<file_name>.
+    Channels are named <view layer>.<layer>.<channel>, in one or several EXR parts.
+
+    Args:
+        layer_names (tuple): names the layer may have in the EXR, the first found is used
+        channel_names (function): number of channels -> new channel names, None keeps them
 
     Returns:
-        dict: file name for every AOV
+        str: file_name, or None if the layer is not in the render result
     """
-    files = {}
-    with tempfile.TemporaryDirectory() as temp_dir:
-        multilayer = os.path.join(temp_dir, "render.exr")
-        set_file_format(scene.render.image_settings, "OPEN_EXR_MULTILAYER")
-        scene.render.image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(multilayer, scene=scene)
+    multilayer, parts = frame.multilayer()
+    for layer in layer_names:
+        prefix = f"{frame.view_layer.name}.{layer}."
+        for part, names in enumerate(parts):
+            found = [(i, name[len(prefix):]) for i, name in enumerate(names) if name.startswith(prefix)]
+            if found:
+                break
+        else:
+            continue
+        break
+    else:
+        return None
 
-        # passes are channels named <view layer>.<aov>.<channel>, in one or several EXR parts
-        image_input = oiio.ImageInput.open(multilayer)
-        if image_input is None:
-            raise RuntimeError(f"Cannot read the render result: {oiio.geterror()}")
-        parts = []
-        while image_input.seek_subimage(len(parts), 0):
-            parts.append(image_input.spec().channelnames)
-        image_input.close()
+    found.sort(key=lambda item: CHANNEL_ORDER.index(item[1]) if item[1] in CHANNEL_ORDER else len(CHANNEL_ORDER))
+    indices = tuple(i for i, _ in found)
+    new_names = channel_names(len(indices)) if channel_names else tuple(name for _, name in found)
+    buffer = oiio.ImageBufAlgo.channels(oiio.ImageBuf(multilayer, part, 0), indices, new_names)
+    if file_format == "OPEN_EXR":
+        buffer.set_write_format(oiio.FLOAT)
+    if not buffer.write(os.path.join(frame.path, file_name)):
+        raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
+    return file_name
 
-        for name in aovs:
-            prefix = f"{view_layer.name}.{name}."
-            for part, channel_names in enumerate(parts):
-                indices = [i for i, channel in enumerate(channel_names) if channel.startswith(prefix)]
-                if indices:
-                    break
-            else:
-                raise RuntimeError(f"AOV '{name}' is missing in the render result")
 
-            new_names = ("Y",) if len(indices) == 1 else tuple("RGBA"[: len(indices)])
-            buffer = oiio.ImageBufAlgo.channels(oiio.ImageBuf(multilayer, part, 0), tuple(indices), new_names)
-            file_name = f"{index:06d}_{name}{AOV_FORMATS[aov_format]}"
-            if aov_format == "OPEN_EXR":
-                buffer.set_write_format(oiio.FLOAT)
-            if not buffer.write(os.path.join(path, file_name)):
-                raise RuntimeError(f"Cannot write AOV '{name}': {buffer.geterror()}")
-            files[name] = file_name
-    return files
+def aov_channel_names(count):
+    return ("Y",) if count == 1 else tuple("RGBA"[:count])
 
 
 def render_ids(scene, groups, temp_dir):
@@ -322,7 +347,7 @@ class Frame:
     The beauty render happens at most once, steps that need it reuse the render result.
     """
 
-    def __init__(self, scene, path, index, width, height):
+    def __init__(self, scene, path, index, width, height, temp_dir):
         self.scene = scene
         self.camera = scene.camera
         self.view_layer = bpy.context.view_layer
@@ -331,8 +356,11 @@ class Frame:
         self.index = index
         self.width = width
         self.height = height
+        self.temp_dir = temp_dir
         self.label = {"resolution": [width, height]}
         self.rendered = False
+        self.multilayer_file = None
+        self.changed = []
 
     def file_name(self, suffix):
         return f"{self.index:06d}{suffix}"
@@ -340,6 +368,16 @@ class Frame:
     def add(self, key, entries):
         """Appends entries to a list in the labels, so several steps can add to it."""
         self.label.setdefault(key, []).extend(entries)
+
+    def set(self, owner, name, value):
+        """Changes a setting for this datapoint only, it is restored afterwards."""
+        self.changed.append((owner, name, getattr(owner, name)))
+        setattr(owner, name, value)
+
+    def restore(self):
+        for owner, name, value in reversed(self.changed):
+            setattr(owner, name, value)
+        self.changed = []
 
     def beauty(self, file_path=None):
         """Renders the scene with its engine, once. With file_path the image is also written."""
@@ -351,6 +389,21 @@ class Frame:
             self.scene.render.filepath = file_path
         bpy.ops.render.render(write_still=bool(file_path))
         self.rendered = True
+
+    def multilayer(self):
+        """Saves the beauty render with all its passes as a multilayer EXR, once.
+
+        Returns:
+            tuple: path of the EXR and the channel names of each of its parts
+        """
+        if self.multilayer_file is None:
+            self.beauty()
+            file_path = os.path.join(self.temp_dir, "render.exr")
+            set_file_format(self.scene.render.image_settings, "OPEN_EXR_MULTILAYER")
+            self.scene.render.image_settings.color_depth = "32"
+            bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+            self.multilayer_file = (file_path, read_multilayer(file_path))
+        return self.multilayer_file
 
 
 def bboxes(frame, classes, iou_deconflict):
@@ -419,8 +472,157 @@ def render_image(frame, file_format):
 
 def aov_images(frame, names, file_format):
     """Saves the AOVs to <path>/<index>_<aov>.<ext>, from the beauty render."""
-    frame.beauty()
-    frame.label["aovs"] = save_aovs(frame.scene, frame.view_layer, names, file_format, frame.path, frame.index)
+    files = {}
+    for name in names:
+        file_name = frame.file_name(f"_{name}{AOV_FORMATS[file_format]}")
+        if save_layer(frame, (name,), file_name, file_format, aov_channel_names) is None:
+            raise RuntimeError(f"AOV '{name}' is missing in the render result")
+        files[name] = file_name
+    frame.label["aovs"] = files
+
+
+def check_passes(names, file_format):
+    unknown = [name for name in names if name not in PASSES]
+    if unknown:
+        raise ValueError(f"Unknown passes {unknown}, available: {list(PASSES)}")
+    if file_format not in AOV_FORMATS:
+        raise ValueError(f"Passes file_format must be one of {list(AOV_FORMATS)}")
+
+
+def prepare_passes(frame, names):
+    """Enables the passes in the view layer for this datapoint."""
+    for name in names:
+        frame.set(frame.view_layer, PASSES[name][0], True)
+
+
+def render_passes(frame, names, file_format):
+    """Saves the built-in passes to <path>/<index>_<pass>.<ext>, from the beauty render."""
+    files = {}
+    for name in names:
+        file_name = frame.file_name(f"_{name}{AOV_FORMATS[file_format]}")
+        if save_layer(frame, PASSES[name][1], file_name, file_format) is None:
+            hint = ", Vector also needs motion blur off" if name == "Vector" else ""
+            raise RuntimeError(f"Pass '{name}' was not rendered, {frame.scene.render.engine} may not support it{hint}")
+        files[name] = file_name
+    frame.label["passes"] = files
+
+
+def camera_intrinsics(scene, camera_data, width, height):
+    """3x3 intrinsic matrix K of a perspective camera, in pixels, for the OpenCV
+    camera convention (x right, y down, z forward) and top-left image origin."""
+    render = scene.render
+    pixel_aspect = render.pixel_aspect_y / render.pixel_aspect_x
+    sensor_fit = camera_data.sensor_fit
+    if sensor_fit == "AUTO":
+        sensor_fit = "HORIZONTAL" if render.pixel_aspect_x * width >= render.pixel_aspect_y * height else "VERTICAL"
+    sensor_size = camera_data.sensor_height if camera_data.sensor_fit == "VERTICAL" else camera_data.sensor_width
+    view_factor = width if sensor_fit == "HORIZONTAL" else pixel_aspect * height
+    pixels_per_mm = camera_data.lens * view_factor / sensor_size
+    return [
+        [pixels_per_mm, 0.0, width / 2 - camera_data.shift_x * view_factor],
+        [0.0, pixels_per_mm / pixel_aspect, height / 2 + camera_data.shift_y * view_factor / pixel_aspect],
+        [0.0, 0.0, 1.0],
+    ]
+
+
+def camera_data(frame):
+    """Adds the camera settings, intrinsics and extrinsics to the labels under "camera"."""
+    camera = frame.camera
+    data = camera.data
+    location, rotation, _ = camera.matrix_world.decompose()
+    # blender cameras look down -z with y up, OpenCV cameras look down +z with y down
+    world_to_camera = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, -1))) @ rotation.to_matrix().transposed()
+    translation = -(world_to_camera @ location)
+    info = {
+        "name": camera.name,
+        "type": data.type,
+        "matrix_world": to_json(camera.matrix_world),
+        "extrinsics_opencv": [list(row) + [translation[i]] for i, row in enumerate(world_to_camera)],
+        "clip_start": data.clip_start,
+        "clip_end": data.clip_end,
+    }
+    if data.type == "PERSP":
+        info.update(
+            lens=data.lens,
+            sensor_width=data.sensor_width,
+            sensor_height=data.sensor_height,
+            sensor_fit=data.sensor_fit,
+            intrinsics=camera_intrinsics(frame.scene, data, frame.width, frame.height),
+        )
+    elif data.type == "ORTHO":
+        info["ortho_scale"] = data.ortho_scale
+    frame.label["camera"] = info
+
+
+def check_keypoints(points):
+    if not isinstance(points, dict) or not points:
+        raise TypeError("Keypoints needs a dict {name: object | (object, vertex index | vertex group | bone) | (x, y, z)}")
+
+
+def keypoint_location(source, depsgraph):
+    """World location of a keypoint source: an object (its origin), (mesh object, vertex index),
+    (mesh object, vertex group name) for the group's center, (armature, bone name) for the
+    bone head, or a point (x, y, z)."""
+    if isinstance(source, bpy.types.Object):
+        return source.matrix_world.translation.copy()
+    if isinstance(source, (list, tuple)) and len(source) == 3 and all(isinstance(v, (int, float)) for v in source):
+        return Vector(source)
+    if not (isinstance(source, (list, tuple)) and len(source) == 2 and isinstance(source[0], bpy.types.Object)):
+        raise TypeError(f"Unknown keypoint source {source}")
+
+    obj, key = source
+    if obj.type == "ARMATURE":
+        return obj.matrix_world @ obj.pose.bones[key].head
+    # evaluated mesh, so deformations like armatures are included
+    obj_eval = obj.evaluated_get(depsgraph)
+    mesh = obj_eval.to_mesh()
+    try:
+        if isinstance(key, int):
+            co = mesh.vertices[key].co.copy()
+        else:
+            group = obj.vertex_groups[key].index
+            coords = [v.co for v in mesh.vertices if any(g.group == group and g.weight > 0 for g in v.groups)]
+            if not coords:
+                raise ValueError(f"Vertex group '{key}' of '{obj.name}' has no vertices")
+            co = sum(coords, Vector()) / len(coords)
+    finally:
+        obj_eval.to_mesh_clear()
+    return obj_eval.matrix_world @ co
+
+
+def keypoint_visible(frame, location):
+    """True if nothing is between the camera and the location."""
+    camera_matrix = frame.camera.matrix_world
+    if frame.camera.data.type == "ORTHO":
+        forward = (camera_matrix.to_3x3() @ Vector((0, 0, -1))).normalized()
+        origin = location - forward * (location - camera_matrix.translation).dot(forward)
+    else:
+        origin = camera_matrix.translation
+    direction = location - origin
+    distance = direction.length
+    if distance == 0:
+        return True
+    hit, hit_location, *_ = frame.scene.ray_cast(frame.depsgraph, origin, direction.normalized(), distance=distance)
+    # a point on a surface hits that surface itself, at its own distance
+    return not hit or (hit_location - origin).length >= distance - max(1e-4, distance * 1e-4)
+
+
+def keypoints(frame, points):
+    """Adds {"name", "position", "depth", "in_frame", "visible"} of every keypoint to the labels
+    under "keypoints". position is in pixels from the top left corner."""
+    entries = []
+    for name, source in points.items():
+        location = keypoint_location(source, frame.depsgraph)
+        view = world_to_camera_view(frame.scene, frame.camera, location)
+        in_frame = 0.0 <= view.x <= 1.0 and 0.0 <= view.y <= 1.0 and view.z > 0
+        entries.append({
+            "name": name,
+            "position": [view.x * frame.width, (1.0 - view.y) * frame.height],
+            "depth": view.z,
+            "in_frame": in_frame,
+            "visible": in_frame and keypoint_visible(frame, location),
+        })
+    frame.add("keypoints", entries)
 
 
 def check_segmentation(classes, per):
@@ -473,10 +675,17 @@ def generate(path, resolution, steps, custom_dict=None):
         render_settings.resolution_percentage = 100
         bpy.context.view_layer.update()
 
-        frame = Frame(scene, path, next_index(path), width, height)
-        for step in steps:
-            if step(frame) is False:
-                return False
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frame = Frame(scene, path, next_index(path), width, height, temp_dir)
+            try:
+                for step in steps:
+                    if hasattr(step, "prepare"):
+                        step.prepare(frame)
+                for step in steps:
+                    if step(frame) is False:
+                        return False
+            finally:
+                frame.restore()
     finally:
         (
             render_settings.resolution_x,

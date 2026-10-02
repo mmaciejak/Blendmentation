@@ -4,8 +4,9 @@ Generate synthetic, augmented training datasets from Blender scenes. You describ
 your dataset as composed steps, in the style of torchvision / albumentations:
 
 1. **Augment:** randomize objects, materials and any other value in the scene.
-2. **Generate:** render the image, shader AOVs and segmentation masks, and write a
-   JSON label with bounding boxes, rotations and any values you want to record.
+2. **Generate:** render the image, render passes, shader AOVs and segmentation masks,
+   and write a JSON label with bounding boxes, keypoints, camera data, rotations and
+   any values you want to record.
 3. **Restore:** put the scene back as it was, and repeat.
 
 ## Requirements
@@ -230,17 +231,20 @@ resolution divided by `factor`.
 |---|---|
 | `Render(file_format="PNG")` | `<index>.png`, or `.jpg` / `.exr` for `"JPEG"` / `"OPEN_EXR"` |
 | `AOVToImage(names, file_format="OPEN_EXR")` | `<index>_<aov>.exr`, or `.png` for `"PNG"` (8-bit, clamped to 0–1) |
+| `Passes(names, file_format="OPEN_EXR")` | `<index>_<pass>.exr` / `.png` for built-in passes (depth, normal…) |
 | `BBox(classes, iou_deconflict=None)` | `"bboxes"` in the label |
 | `Segmentation(classes, per="instance")` | mask PNGs and `"masks"` in the label |
 | `RotationMatrix(objects)` | `"rotation_matrices"` in the label |
 | `OutputField(name, data_path, objects=None)` | `name` in the label |
+| `CameraData()` | `"camera"` in the label |
+| `Keypoints(points)` | `"keypoints"` in the label |
 
 You can list the steps in any order. They always run in this order:
 
-1. Label steps (`BBox`, `RotationMatrix`, `OutputField`). Because these come first,
-   a datapoint skipped by `iou_deconflict` is never rendered.
+1. Label steps (`BBox`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`).
+   Because these come first, a datapoint skipped by `iou_deconflict` is never rendered.
 2. `Render`.
-3. `AOVToImage`.
+3. `AOVToImage` and `Passes`.
 4. `Segmentation`.
 
 Settings are checked before anything renders, so a typo fails immediately.
@@ -256,6 +260,53 @@ an object, or a sublist of objects that should count as one object (one bbox, on
 Properties → Passes → Shader AOV, and the engine must be Cycles or EEVEE. The AOVs
 come from the same render as `Render`, so they add no render time. Without `Render`,
 the scene is still rendered once, but no image is saved.
+
+**Passes.** This step saves Blender's built-in render passes: `"Depth"`, `"Mist"`,
+`"Normal"`, `"Position"`, `"Vector"` (motion), `"UV"`, `"ObjectIndex"` and
+`"MaterialIndex"`.
+
+- **No extra setup:** each pass is turned on in the view layer only for that render,
+  so you don't need to enable it yourself.
+- **Shared render:** passes come from the same render as `Render` and `AOVToImage`, so
+  they add no render time.
+- **Engine support differs:** Cycles has all passes; EEVEE has no `UV` or index
+  passes; Workbench only has `Depth`. A pass that the engine didn't render gives an
+  error. In Cycles, `Vector` also needs motion blur turned off.
+- **Format:** use EXR for anything outside 0–1, such as depth or position. PNG clamps
+  values to 0–1.
+- **Channel names:** EXR channels keep their Blender names (`Z`, `X Y Z`, `U V A`…).
+
+**CameraData.** Saves the active camera as `"camera"` in the label:
+
+- its name and type;
+- `matrix_world` (the camera's placement in the world, in Blender's convention);
+- `extrinsics_opencv`, a 3×4 world-to-camera `[R|t]` with OpenCV axes (x right, y
+  down, z forward);
+- `clip_start` and `clip_end`;
+- for a perspective camera: lens, sensor size and fit, and `intrinsics`, the 3×4 `K`
+  matrix in pixels. It accounts for sensor fit, lens shift and pixel aspect, so
+  `K @ extrinsics_opencv @ [x, y, z, 1]` gives the pixel position from the top-left
+  corner;
+- for an orthographic camera: `ortho_scale`.
+
+**Keypoints.** Projects 3D points into the image. Pass `{name: source}`, where a
+source is one of:
+
+| Source | Point |
+|---|---|
+| `obj` | the object's origin, e.g. an empty |
+| `(mesh_obj, 12)` | vertex 12 |
+| `(mesh_obj, "hand_L")` | the centre of the vertex group |
+| `(armature, "forearm.L")` | the bone's head |
+| `(x, y, z)` | a point in world space |
+
+Vertices include deformations from armatures and modifiers. Each keypoint is saved with:
+
+- `position`: pixels from the top-left corner;
+- `depth`: distance along the camera's view direction;
+- `in_frame`;
+- `visible`: false when the point is out of frame or hidden behind geometry (checked
+  with a ray cast from the camera).
 
 **BBox.** Boxes are in pixels as `[x_min, y_min, x_max, y_max]`, from the top-left
 corner. They are calculated from the geometry (modifiers included), so parts hidden
@@ -304,6 +355,10 @@ objects…) become their name.
     {"class": "car", "objects": ["Car.001", "Car.002"], "mask": "000000_mask_car.png"}
   ],
   "rotation_matrices": [{"object": "Car.001", "rotation_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]}],
+  "passes": {"Depth": "000000_Depth.exr", "Normal": "000000_Normal.exr"},
+  "camera": {"name": "Camera", "type": "PERSP", "intrinsics": [[888.9, 0, 320], [0, 888.9, 240], [0, 0, 1]],
+             "extrinsics_opencv": [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 10]], "...": "..."},
+  "keypoints": [{"name": "nose", "position": [310.2, 140.8], "depth": 9.1, "in_frame": true, "visible": true}],
   "light_energy": 1000.0
 }
 ```
