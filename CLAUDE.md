@@ -8,7 +8,7 @@ Blendmentation is a Python library for generating synthetic, augmented training 
 
 ## Running
 
-There is no build system, packaging, dependency manifest, linter config, or test suite. The code depends on `bpy`, `mathutils` and `numpy` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
+There is no build system, packaging, dependency manifest, linter config, or test suite. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
 
 To check changes, build a scene in a script and run it headless, e.g. `"/Applications/Blender 4.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python test.py`. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0. The code supports both, so test on both.
 
@@ -39,12 +39,16 @@ The three subpackages:
 
   `objects` defaults to all render-visible meshes, which includes floors and backgrounds, so pass the objects to label explicitly. `iou_deconflict` skips the render (and `generate()` returns `False`) if any two bboxes overlap above that IoU. Render resolution and output settings are restored after each render. `preview()` renders at a reduced resolution.
 
+  `aovs=[...]` also saves shader AOVs (they must exist in the view layer, and the engine must be Cycles or EEVEE) as `<index>_<aov>.exr`, or `.png` with `aov_format="PNG"`. The label lists them under `"aovs"`. This avoids the compositor: after the normal PNG `write_still`, the Render Result is saved via `save_render` as a multilayer EXR to a temp dir. OpenImageIO then splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total).
+
 Intended loop (see `example.py`): build `State` once → for N datapoints: apply `Compose` transforms → `Generator.generate()` → `State.restore()`.
 
 ## Version differences
 
 - Blender 5 moved geometry nodes modifier inputs from id properties to `modifier.properties.inputs.Socket_2.value`, so data paths for them differ by version. On 4.x the path is `modifiers["GeoNodes"]["Socket_2"]`; on 5.x it is `modifiers["GeoNodes"].properties.inputs.Socket_2.value`.
 - Geometry nodes menu sockets don't exist in 4.0. On 5.x, modifier menu inputs list their options via RNA.
+- Blender 5 needs `image_settings.media_type` set alongside `file_format` (`set_file_format` in `bpy_generating.py`).
+- Blender 5.2 EEVEE bug: a VALUE AOV listed before a COLOR AOV in the view layer renders as 0 (Cycles is fine). Listing color AOVs first avoids it.
 - Blender 5.2 warns that `Material.use_nodes` and light node trees are going away in Blender 6.
 
 ## Known gaps

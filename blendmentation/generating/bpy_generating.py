@@ -1,8 +1,13 @@
 import json
 import os
+import tempfile
 
 import bpy
 import numpy as np
+import OpenImageIO as oiio
+
+IMAGE_SETTINGS = ("media_type", "file_format", "color_mode", "color_depth", "exr_codec")
+AOV_FORMATS = {"OPEN_EXR": ".exr", "PNG": ".png"}
 
 
 def default_objects(scene):
@@ -107,7 +112,82 @@ def rotation_to_camera(camera, obj):
     return [list(row) for row in relative.to_3x3().normalized()]
 
 
-def render(path, resolution, bboxes, rotation_matrix, iou_deconflict, custom_dict=None, objects=None):
+def set_file_format(image_settings, file_format):
+    """Sets the output file format, blender 5 also needs the matching media type."""
+    if hasattr(image_settings, "media_type"):
+        image_settings.media_type = "MULTI_LAYER_IMAGE" if file_format == "OPEN_EXR_MULTILAYER" else "IMAGE"
+    image_settings.file_format = file_format
+
+
+def check_aovs(scene, view_layer, aovs, aov_format):
+    """Raises if the AOVs cannot be rendered."""
+    if aov_format not in AOV_FORMATS:
+        raise ValueError(f"aov_format must be one of {list(AOV_FORMATS)}")
+    if scene.render.engine == "BLENDER_WORKBENCH":
+        raise ValueError("Shader AOVs need Cycles or EEVEE, not Workbench")
+    available = [aov.name for aov in view_layer.aovs]
+    missing = [name for name in aovs if name not in available]
+    if missing:
+        raise ValueError(
+            f"AOVs {missing} are not in view layer '{view_layer.name}' (has {available}), "
+            "add them in View Layer Properties > Passes > Shader AOV"
+        )
+
+
+def save_aovs(scene, view_layer, aovs, aov_format, path, index):
+    """Saves the AOV passes of the last render to <path>/<index>_<aov>.<ext>.
+    The render result is saved as a multilayer EXR, the AOV channels are split from it.
+
+    Returns:
+        dict: file name for every AOV
+    """
+    files = {}
+    with tempfile.TemporaryDirectory() as temp_dir:
+        multilayer = os.path.join(temp_dir, "render.exr")
+        set_file_format(scene.render.image_settings, "OPEN_EXR_MULTILAYER")
+        scene.render.image_settings.color_depth = "32"
+        bpy.data.images["Render Result"].save_render(multilayer, scene=scene)
+
+        # passes are channels named <view layer>.<aov>.<channel>, in one or several EXR parts
+        image_input = oiio.ImageInput.open(multilayer)
+        if image_input is None:
+            raise RuntimeError(f"Cannot read the render result: {oiio.geterror()}")
+        parts = []
+        while image_input.seek_subimage(len(parts), 0):
+            parts.append(image_input.spec().channelnames)
+        image_input.close()
+
+        for name in aovs:
+            prefix = f"{view_layer.name}.{name}."
+            for part, channel_names in enumerate(parts):
+                indices = [i for i, channel in enumerate(channel_names) if channel.startswith(prefix)]
+                if indices:
+                    break
+            else:
+                raise RuntimeError(f"AOV '{name}' is missing in the render result")
+
+            new_names = ("Y",) if len(indices) == 1 else tuple("RGBA"[: len(indices)])
+            buffer = oiio.ImageBufAlgo.channels(oiio.ImageBuf(multilayer, part, 0), tuple(indices), new_names)
+            file_name = f"{index:06d}_{name}{AOV_FORMATS[aov_format]}"
+            if aov_format == "OPEN_EXR":
+                buffer.set_write_format(oiio.FLOAT)
+            if not buffer.write(os.path.join(path, file_name)):
+                raise RuntimeError(f"Cannot write AOV '{name}': {buffer.geterror()}")
+            files[name] = file_name
+    return files
+
+
+def render(
+    path,
+    resolution,
+    bboxes,
+    rotation_matrix,
+    iou_deconflict,
+    custom_dict=None,
+    objects=None,
+    aovs=None,
+    aov_format="OPEN_EXR",
+):
     """Renders the active scene camera to <path>/<index>.png and writes labels to <path>/<index>.json
 
     Args:
@@ -118,6 +198,8 @@ def render(path, resolution, bboxes, rotation_matrix, iou_deconflict, custom_dic
         iou_deconflict (float): skip the render if any two bboxes overlap over this IoU, None disables it
         custom_dict (dict): extra key and values saved in the labels
         objects (list): objects to label, None = all visible mesh objects
+        aovs (list): names of shader AOVs to save as <path>/<index>_<aov>.<ext>
+        aov_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped to 0-1)
 
     Returns:
         bool: True if the image was rendered, False if it was skipped by iou_deconflict
@@ -131,16 +213,21 @@ def render(path, resolution, bboxes, rotation_matrix, iou_deconflict, custom_dic
     os.makedirs(path, exist_ok=True)
     if objects is None:
         objects = default_objects(scene)
+    view_layer = bpy.context.view_layer
+    if aovs:
+        check_aovs(scene, view_layer, aovs, aov_format)
 
     width, height = int(resolution[0]), int(resolution[1])
     render_settings = scene.render
+    image_settings = render_settings.image_settings
     previous = (
         render_settings.resolution_x,
         render_settings.resolution_y,
         render_settings.resolution_percentage,
         render_settings.filepath,
-        render_settings.image_settings.file_format,
     )
+    previous_image = {name: getattr(image_settings, name) for name in IMAGE_SETTINGS if hasattr(image_settings, name)}
+    aov_files = {}
     try:
         # set before computing bboxes, the camera frame depends on the resolution
         render_settings.resolution_x = width
@@ -168,20 +255,26 @@ def render(path, resolution, bboxes, rotation_matrix, iou_deconflict, custom_dic
 
         index = next_index(path)
         image_name = f"{index:06d}.png"
-        render_settings.image_settings.file_format = "PNG"
+        set_file_format(image_settings, "PNG")
         render_settings.filepath = os.path.join(path, image_name)
         bpy.ops.render.render(write_still=True)
+        if aovs:
+            aov_files = save_aovs(scene, view_layer, aovs, aov_format, path, index)
     finally:
         (
             render_settings.resolution_x,
             render_settings.resolution_y,
             render_settings.resolution_percentage,
             render_settings.filepath,
-            render_settings.image_settings.file_format,
         ) = previous
+        # format first, the other settings depend on it
+        for name, value in previous_image.items():
+            setattr(image_settings, name, value)
 
     if bboxes or rotation_matrix or custom_dict:
         data = {"image": image_name, "resolution": [width, height], "objects": labels}
+        if aov_files:
+            data["aovs"] = aov_files
         if custom_dict:
             data.update(custom_dict)
         with open(os.path.join(path, f"{index:06d}.json"), "w") as file:

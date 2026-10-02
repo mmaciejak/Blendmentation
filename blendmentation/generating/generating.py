@@ -12,18 +12,33 @@ class Generator:
         rotation_matrix (bool): True will add roation matrix to labels
         iou_deconflict (float): Images with bboxes oberlapping over this value will not be rendered
         objects (list): objects to label, None = all visible mesh objects in the scene
+        aovs (list): names of shader AOVs (View Layer > Passes > Shader AOV) to save
+            next to the image as <index>_<aov>.exr, needs Cycles or EEVEE
+        aov_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped to 0-1)
 
     .. note::
         if iou_deconflict is None all images will be rendered
     """
 
-    def __init__(self, path, resolution, bboxes, rotation_matrix, iou_deconflict=None, objects=None):
+    def __init__(
+        self,
+        path,
+        resolution,
+        bboxes,
+        rotation_matrix,
+        iou_deconflict=None,
+        objects=None,
+        aovs=None,
+        aov_format="OPEN_EXR",
+    ):
         self.path = path
         self.resolution = resolution
         self.bboxes = bboxes
         self.rotation_matrix = rotation_matrix
         self.iou_deconflict = iou_deconflict
         self.objects = objects
+        self.aovs = aovs
+        self.aov_format = aov_format
 
     def generate(self, custom_dict:dict=None):
         """Generate the renders and bboxes
@@ -44,6 +59,8 @@ class Generator:
             self.iou_deconflict,
             custom_dict,
             self.objects,
+            self.aovs,
+            self.aov_format,
         )
 
     def preview(self, scaling_factor):
@@ -60,4 +77,6 @@ class Generator:
             self.rotation_matrix,
             self.iou_deconflict,
             objects=self.objects,
+            aovs=self.aovs,
+            aov_format=self.aov_format,
         )
