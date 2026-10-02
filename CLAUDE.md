@@ -32,12 +32,20 @@ The three subpackages:
     - `Boolean(data_path, probability=0.5)`.
     - `Menu(data_path, options=None, weights=None)`: enum. With no `options`, it takes them from RNA `enum_items`, or for menu sockets from the Menu Switch node's `enum_items`; otherwise `options` is required.
 - **state**: `State(objects, fields=())` snapshots, at construction, each object's transforms and all unlinked node input values of its materials (stored as `state_dict[object.name]`). It also saves the value at every data path in `fields` (`Number`/`Vector`/`Boolean`/`Menu` instances or path strings). Entries without a `data_path` are ignored, so a whole `Compose.augmentations` list can be passed. Absolute paths are saved once and relative paths once per object they resolve on. `restore()` reverts everything, which is why augmentations can safely mutate in place. A data-path augmentation that isn't passed to `State` is not restored, and with `percent` it compounds every iteration. A new augmentation must touch only what this snapshot covers, or `bpy_states.py` must be extended.
-- **generating**: `Generator` renders the scene camera to `<path>/<index>.png` with a matching `<index>.json` label. The index is the next free number in the folder, so output can be resumed. Labels hold, per object:
+- **generating**: `Generator` renders the scene camera to `<path>/<index>.png` with a matching `<index>.json` label. The index is the next free number in the folder, so output can be resumed. `objects` entries are objects or sublists of objects. Each sublist is one label ("group"), and its bbox is the union of its members. Labels hold, per group, `"objects": [names]` and:
   - a pixel bbox `[x_min, y_min, x_max, y_max]` with a top-left origin, computed from the evaluated mesh vertices (modifiers included; occlusion ignored; `None` when the object is out of frame);
-  - optionally, the 3x3 rotation of the object relative to the camera;
+  - optionally, the 3x3 rotation relative to the camera (for a group, its first object's);
+  - with `segmentation=True`, `"mask": "<index>_mask_<n>.png"`, where `n` is the position in `objects`;
   - any `custom_dict` keys.
 
   `objects` defaults to all render-visible meshes, which includes floors and backgrounds, so pass the objects to label explicitly. `iou_deconflict` skips the render (and `generate()` returns `False`) if any two bboxes overlap above that IoU. Render resolution and output settings are restored after each render. `preview()` renders at a reduced resolution.
+
+  Segmentation (`render_ids` / `save_masks`) is a second render with Workbench:
+  - flat `OBJECT` color shading, no anti-aliasing, transparent film, compositor off;
+  - every group colored with its id encoded as `R = id % 256 / 255`, `G = id // 256 / 255`, saved as a float EXR and read back exactly;
+  - all other objects (all of `bpy.data.objects`, to cover instanced collections) black, so they still occlude.
+
+  Masks hold only visible pixels; bboxes are geometric and ignore occlusion. All changed scene/shading/color-management settings and object colors are restored afterwards.
 
   `aovs=[...]` also saves shader AOVs (they must exist in the view layer, and the engine must be Cycles or EEVEE) as `<index>_<aov>.exr`, or `.png` with `aov_format="PNG"`. The label lists them under `"aovs"`. This avoids the compositor: after the normal PNG `write_still`, the Render Result is saved via `save_render` as a multilayer EXR to a temp dir. OpenImageIO then splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total).
 

@@ -19,6 +19,19 @@ def default_objects(scene):
     ]
 
 
+def to_groups(objects):
+    """Normalizes objects to a list of groups, an object alone is a group of one.
+    Objects in one sublist are labeled as one object."""
+    groups = [list(entry) if isinstance(entry, (list, tuple)) else [entry] for entry in objects]
+    if any(not group for group in groups):
+        raise ValueError("Object groups cannot be empty")
+    names = [obj.name for group in groups for obj in group]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"Objects {duplicates} are in more than one group")
+    return groups
+
+
 def next_index(path):
     """Returns the first free image index in the output directory."""
     taken = [
@@ -64,12 +77,12 @@ def camera_view_coords(scene, camera, obj, depsgraph):
     return np.stack([x, y], axis=1)
 
 
-def bbox(scene, camera, obj, depsgraph, width, height):
-    """Returns the object's 2D bbox in pixels [x_min, y_min, x_max, y_max]
-    with top-left image origin, or None if the object is not in the frame.
+def bbox(scene, camera, group, depsgraph, width, height):
+    """Returns the 2D bbox of the group of objects, as one object, in pixels
+    [x_min, y_min, x_max, y_max] with top-left image origin, or None if it is not in the frame.
     Occlusion by other objects is not taken into account.
     """
-    view = camera_view_coords(scene, camera, obj, depsgraph)
+    view = np.concatenate([camera_view_coords(scene, camera, obj, depsgraph) for obj in group])
     if len(view) == 0:
         return None
 
@@ -177,6 +190,93 @@ def save_aovs(scene, view_layer, aovs, aov_format, path, index):
     return files
 
 
+def render_ids(scene, groups, temp_dir):
+    """Renders every group of objects in a flat color encoding its id (1, 2, ...)
+    with workbench, other objects in black so they still occlude.
+
+    Returns:
+        np.ndarray: (height, width) array of group ids, 0 = background or other objects
+    """
+    shading = scene.display.shading
+    view_settings = scene.view_settings
+    saved = [
+        (scene.render, ("engine", "film_transparent", "use_compositing", "use_sequencer")),
+        (scene.display, ("render_aa",)),
+        (shading, ("type", "light", "color_type", "show_cavity", "show_object_outline", "show_shadows",
+                   "show_specular_highlight", "show_xray", "use_dof", "show_backface_culling")),
+        (view_settings, ("view_transform", "look", "exposure", "gamma", "use_curve_mapping")),
+    ]
+    saved = [(owner, {name: getattr(owner, name) for name in names}) for owner, names in saved]
+    # instanced collections may use objects that are not in the scene, so all objects are recolored
+    editable = [obj for obj in bpy.data.objects if obj.library is None]
+    saved_colors = {obj: tuple(obj.color) for obj in editable}
+    try:
+        scene.render.engine = "BLENDER_WORKBENCH"
+        scene.render.film_transparent = True
+        scene.render.use_compositing = False
+        scene.render.use_sequencer = False
+        scene.display.render_aa = "OFF"
+        shading.type = "SOLID"
+        shading.light = "FLAT"
+        shading.color_type = "OBJECT"
+        for name in ("show_cavity", "show_object_outline", "show_shadows", "show_specular_highlight",
+                     "show_xray", "use_dof", "show_backface_culling"):
+            setattr(shading, name, False)
+        view_settings.view_transform = "Standard"
+        view_settings.look = "None"
+        view_settings.exposure = 0.0
+        view_settings.gamma = 1.0
+        view_settings.use_curve_mapping = False
+
+        for obj in editable:
+            obj.color = (0.0, 0.0, 0.0, 1.0)
+        for group_id, group in enumerate(groups, start=1):
+            # id in 8 bit steps of red and green, read back exactly from the float EXR
+            color = ((group_id % 256) / 255.0, (group_id // 256) / 255.0, 0.0, 1.0)
+            for obj in group:
+                obj.color = color
+
+        bpy.ops.render.render()
+        id_file = os.path.join(temp_dir, "ids.exr")
+        set_file_format(scene.render.image_settings, "OPEN_EXR")
+        scene.render.image_settings.color_mode = "RGBA"
+        scene.render.image_settings.color_depth = "32"
+        bpy.data.images["Render Result"].save_render(id_file, scene=scene)
+    finally:
+        for owner, values in saved:
+            for name, value in values.items():
+                setattr(owner, name, value)
+        for obj, color in saved_colors.items():
+            obj.color = color
+
+    pixels = oiio.ImageBuf(id_file).get_pixels(oiio.FLOAT)
+    ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
+    ids[pixels[:, :, 3] < 0.5] = 0
+    return ids
+
+
+def save_masks(scene, groups, path, index):
+    """Saves a black and white mask PNG of the visible pixels of every group,
+    as <path>/<index>_mask_<group>.png
+
+    Returns:
+        list: mask file name for every group
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        ids = render_ids(scene, groups, temp_dir)
+    files = []
+    height, width = ids.shape
+    for group_id in range(1, len(groups) + 1):
+        mask = np.where(ids == group_id, 255, 0).astype(np.uint8).reshape(height, width, 1)
+        buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, 1, oiio.UINT8))
+        buffer.set_pixels(oiio.ROI(), mask)
+        file_name = f"{index:06d}_mask_{group_id - 1}.png"
+        if not buffer.write(os.path.join(path, file_name)):
+            raise RuntimeError(f"Cannot write mask {file_name}: {buffer.geterror()}")
+        files.append(file_name)
+    return files
+
+
 def render(
     path,
     resolution,
@@ -187,6 +287,7 @@ def render(
     objects=None,
     aovs=None,
     aov_format="OPEN_EXR",
+    segmentation=False,
 ):
     """Renders the active scene camera to <path>/<index>.png and writes labels to <path>/<index>.json
 
@@ -197,9 +298,12 @@ def render(
         rotation_matrix (bool): add object rotation relative to the camera to the labels
         iou_deconflict (float): skip the render if any two bboxes overlap over this IoU, None disables it
         custom_dict (dict): extra key and values saved in the labels
-        objects (list): objects to label, None = all visible mesh objects
+        objects (list): objects to label, None = all visible mesh objects. A sublist of
+            objects is labeled as one object, with one bbox and one mask
         aovs (list): names of shader AOVs to save as <path>/<index>_<aov>.<ext>
         aov_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped to 0-1)
+        segmentation (bool): save a mask of the visible pixels of every object (group)
+            as <path>/<index>_mask_<n>.png, n is the position in objects
 
     Returns:
         bool: True if the image was rendered, False if it was skipped by iou_deconflict
@@ -213,6 +317,7 @@ def render(
     os.makedirs(path, exist_ok=True)
     if objects is None:
         objects = default_objects(scene)
+    groups = to_groups(objects)
     view_layer = bpy.context.view_layer
     if aovs:
         check_aovs(scene, view_layer, aovs, aov_format)
@@ -237,12 +342,13 @@ def render(
         depsgraph = bpy.context.evaluated_depsgraph_get()
 
         labels = []
-        for obj in objects:
-            label = {"name": obj.name}
+        for group in groups:
+            label = {"objects": [obj.name for obj in group]}
             if bboxes or iou_deconflict is not None:
-                label["bbox"] = bbox(scene, camera, obj, depsgraph, width, height)
+                label["bbox"] = bbox(scene, camera, group, depsgraph, width, height)
             if rotation_matrix:
-                label["rotation_matrix"] = rotation_to_camera(camera, obj)
+                # a group is oriented by its first object
+                label["rotation_matrix"] = rotation_to_camera(camera, group[0])
             labels.append(label)
 
         if iou_deconflict is not None:
@@ -260,6 +366,9 @@ def render(
         bpy.ops.render.render(write_still=True)
         if aovs:
             aov_files = save_aovs(scene, view_layer, aovs, aov_format, path, index)
+        if segmentation:
+            for label, mask_file in zip(labels, save_masks(scene, groups, path, index)):
+                label["mask"] = mask_file
     finally:
         (
             render_settings.resolution_x,
@@ -271,7 +380,7 @@ def render(
         for name, value in previous_image.items():
             setattr(image_settings, name, value)
 
-    if bboxes or rotation_matrix or custom_dict:
+    if bboxes or rotation_matrix or custom_dict or segmentation:
         data = {"image": image_name, "resolution": [width, height], "objects": labels}
         if aov_files:
             data["aovs"] = aov_files
