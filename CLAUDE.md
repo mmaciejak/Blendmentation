@@ -8,7 +8,7 @@ Blendmentation is a Python library for generating synthetic, augmented training 
 
 ## Running
 
-Packaging is in `pyproject.toml`; there is no linter config. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage and adds the repo path to `sys.path` manually (currently a hardcoded Windows path, `E:\blendmentation`). Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
+Packaging is in `pyproject.toml`; there is no linter config. The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage of every feature; its docstring lists the scene it expects. It adds its own folder to `sys.path`. Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
 
 **Tests** are in `tests/` (pytest) and run with `bpy` as a Python module:
 ```sh
@@ -24,6 +24,10 @@ There are no `bpy` wheels for 4.0/4.1, so 4.0 is only checked in the app. On thi
 The code also runs with `bpy` as a plain Python module (`pip install bpy OpenImageIO`; `bpy` 5.1+ needs Python 3.13, 4.x–5.0 need 3.11). Two things keep that working:
 - `blendmentation/__init__.py` imports `bpy` first (if it's installed), because `mathutils` is only importable after `bpy` in module mode.
 - The `bpy` wheel ships numpy but not OpenImageIO, so `bpy_generating.py` raises an `ImportError` with install instructions when it's missing.
+
+## Examples
+
+There are two usage examples: `example.py` and the README "Quick start". **Every new user-facing feature (augmentation, generating step, export, option) must be added to both**, and both must still run. To check them, build a scene matching what each describes (the `example.py` docstring and the paragraph above the quick start), save it as a `.blend`, and run the example with fewer datapoints. Run it in the app and as a module. Keep the scene descriptions up to date when a feature needs something new in the scene.
 
 ## Architecture
 
@@ -91,4 +95,3 @@ Intended loop (see `example.py`): build `State` once → for N datapoints: apply
 ## Known gaps
 
 - Type hints on `Translation`/`Rotation`/`Scale` say `range`, but the values passed are numbers or `(low, high)` tuples.
-- `example.py` uses placeholder objects (`bpy.object`, `bpy.lampobject`), so it does not run as-is.
