@@ -1,3 +1,11 @@
+"""Augmentations, applied in place to blender objects.
+
+Number, Vector, Boolean and Menu take a data path to the value they augment.
+Paths starting with "bpy." are absolute (right click > Copy Full Data Path), e.g.
+'bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value'.
+Other paths are relative to the augmented object, e.g. 'data.shape_keys.key_blocks["Key 1"].value'.
+"""
+
 from . import bpy_augmentations as bpy_a
 
 
@@ -45,7 +53,7 @@ class Translation:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
-        bpy_a.translation(obj, self.x, self.y, self.z)
+        self.actual_x, self.actual_y, self.actual_z = bpy_a.translation(obj, self.x, self.y, self.z)
 
 
 class Rotation:
@@ -70,7 +78,7 @@ class Rotation:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
-        bpy_a.rotation(obj, self.x, self.y, self.z)
+        self.actual_x, self.actual_y, self.actual_z = bpy_a.rotation(obj, self.x, self.y, self.z)
 
 
 class Scale:
@@ -95,94 +103,165 @@ class Scale:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_a.scale(obj, self.x, self.y, self.z)
+        self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
 
 
-class Color:
-    """Augument the object color, in given ranges for H,S and V.
-    For mesh objects only with principle shader and unconnected socket
-    for base color.
-
-    Args:
-        material_id (str) : name of material to augment
-        H (float) : range of augmentation of hue in percents
-        S (float) : range of augmentation of saturation in percents
-        V (float) : range of augmentation of value in percents
-    """
-
-    def __init__(self, material_id: str, h: float, s: float, v: float):
-        self.material_id = material_id
-        self.h = h
-        self.s = s
-        self.v = v
-
-    def __call__(self, obj):
-        """Args:
-        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
-        """
-        bpy_a.color(obj, self.material_id, self.h, self.s, self.v)
-
-
-class Shader:
-    """Augument the shader values, for specifed material in roughness and normals strength .
-    For mesh objects only with principle shader and unconnected socket for roughness and normals node.
+class Material:
+    """Augument the basic material values: base color, roughness and metallic,
+    set to random values in given (min, max) ranges. None leaves the value unchanged.
+    For mesh objects only with principle shader and unconnected sockets
+    for the augmented values. Changes the material, so all objects using it are affected.
 
     Args:
         material_id (str) : name of material to augment
-        roughness (float) : range of augmentation of roughness in percents
-        normals (float) : range of augmentation of normals strength in percents
+        hue (tuple) : range of base color hue, 0-1
+        saturation (tuple) : range of base color saturation, 0-1
+        value (tuple) : range of base color value, 0-1
+        roughness (tuple) : range of roughness, 0-1
+        metallic (tuple) : range of metallic, 0-1
     """
 
-    def __init__(self, material_id: str, roughness: float, normals: float):
+    def __init__(
+        self,
+        material_id: str,
+        hue: tuple = None,
+        saturation: tuple = None,
+        value: tuple = None,
+        roughness: tuple = None,
+        metallic: tuple = None,
+    ):
         self.material_id = material_id
-        self.roughness = roughness
-        self.normals = normals
-
-    def __call__(self, obj):
-        """Args:
-        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
-        """
-        bpy_a.shader(obj, self.material_id, self.roughness, self.normals)
-
-
-class Lamp:
-    """Augument the lamp values, strength, size and color temperature .
-    For lamp objects only with emission shader and blackbody converter connected to color.
-
-    Args:
-        strength (range) : range of augmentation of strength in percents
-        size (range) : range of augmentation of size in percents
-        temp (flrangeoat) : range of augmentation of color temperature in percents
-    """
-
-    def __init__(self, strength: range, size: range, temp: range):
-        self.strength = strength
-        self.size = size
-        self.temp = temp
-
-    def __call__(self, obj):
-        """Args:
-        light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
-        """
-        bpy_a.lamp(obj, self.strength, self.size, self.temp)
-        
-class GeoNode:
-    """Augument the input field of gemetry nodes setup.
-
-    Args:
-        property_name (str) : name of the property to augment
-        value (range) : range of augmentation value
-        geonode_name(str): name of the geonode setup, None = first one
-    """
-
-    def __init__(self, property_name: str, value: range, geonode_name: str = None):
-        self.property_name = property_name
+        self.hue = hue
+        self.saturation = saturation
         self.value = value
-        self.geonode_name = geonode_name
+        self.roughness = roughness
+        self.metallic = metallic
+        self.actual = None
 
     def __call__(self, obj):
         """Args:
-        any obj (bpy.object) : Object to be augmented, must have geoemtry nodes
-        modifier.
+        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
-        bpy_a.geonode(obj, self.property_name, self.value, self.geonode_name)
+        self.actual = bpy_a.material(
+            obj, self.material_id, self.hue, self.saturation, self.value, self.roughness, self.metallic
+        )
+
+
+class Number:
+    """Augument any int or float value given by its data path: shader node inputs,
+    geometry nodes inputs, shape keys, light settings etc.
+    Either sets the value to a random value in value_range, or scales it by a random percent.
+    Int values are rounded.
+
+    Args:
+        data_path (str) : path to the value, see the module docstring. Use [index] for
+            a single vector component, e.g. 'location[2]'
+        value_range (tuple) : (min, max) range to set the value in
+        percent (float | tuple) : range of augmentation in percents, v = (-v, v)
+
+    .. note::
+        Give either value_range or percent. Pass it to State(fields=...)
+        so the value is restored.
+    """
+
+    def __init__(self, data_path: str, value_range: tuple = None, percent=None):
+        if (value_range is None) == (percent is None):
+            raise ValueError("Give either value_range or percent")
+        self.data_path = data_path
+        self.value_range = value_range
+        self.percent = percent
+        self.actual = None
+
+    def __call__(self, obj=None):
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = bpy_a.number(obj, self.data_path, self.value_range, self.percent)
+
+
+class Vector:
+    """Augument any vector value given by its data path: locations, colors,
+    vector node inputs etc. Every component is augmented independently.
+    Either sets the components to random values in value_range, or scales them by random percents.
+
+    Args:
+        data_path (str) : path to the value, see the module docstring
+        value_range (tuple) : (min, max), each a number for all components or a
+            sequence with a value per component, e.g. ((0, 0, 0, None), (1, 1, 1, None))
+            for a random RGB color that keeps alpha. None keeps the component.
+        percent (float | tuple) : v = (-v, v) for all components, or (low, high)
+            with numbers or per component sequences like value_range
+
+    .. note::
+        Give either value_range or percent. Pass it to State(fields=...)
+        so the value is restored.
+    """
+
+    def __init__(self, data_path: str, value_range: tuple = None, percent=None):
+        if (value_range is None) == (percent is None):
+            raise ValueError("Give either value_range or percent")
+        self.data_path = data_path
+        self.value_range = value_range
+        self.percent = percent
+        self.actual = None
+
+    def __call__(self, obj=None):
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = bpy_a.vector(obj, self.data_path, self.value_range, self.percent)
+
+
+class Boolean:
+    """Augument any boolean value given by its data path: geometry nodes switches,
+    object visibility, modifier toggles etc.
+
+    Args:
+        data_path (str) : path to the value, see the module docstring
+        probability (float) : probability of setting the value to True
+
+    .. note::
+        Pass it to State(fields=...) so the value is restored.
+    """
+
+    def __init__(self, data_path: str, probability: float = 0.5):
+        self.data_path = data_path
+        self.probability = probability
+        self.actual = None
+
+    def __call__(self, obj=None):
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = bpy_a.boolean(obj, self.data_path, self.probability)
+
+
+class Menu:
+    """Augument any menu (enum) value given by its data path: geometry nodes menu inputs,
+    node settings like the Principled BSDF distribution, light type etc.
+    Sets the value to a random option.
+
+    Args:
+        data_path (str) : path to the value, see the module docstring
+        options (list) : options to choose from, None = all options of the menu.
+            Required when blender doesn't list the options, e.g. for menu
+            sockets not on a menu switch node.
+        weights (list) : relative probability of each option, None = equal
+
+    .. note::
+        Pass it to State(fields=...) so the value is restored.
+    """
+
+    def __init__(self, data_path: str, options: list = None, weights: list = None):
+        if options is not None and weights is not None and len(options) != len(weights):
+            raise ValueError("Give one weight per option")
+        self.data_path = data_path
+        self.options = options
+        self.weights = weights
+        self.actual = None
+
+    def __call__(self, obj=None):
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = bpy_a.menu(obj, self.data_path, self.options, self.weights)

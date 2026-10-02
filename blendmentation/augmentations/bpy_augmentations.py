@@ -1,0 +1,262 @@
+import colorsys
+import math
+import random
+
+from mathutils import Euler, Quaternion
+
+from .. import bpy_paths
+
+
+def sample(value_range):
+    """Draws a random offset from an augmentation range.
+
+    Args:
+        value_range (float | tuple): a single number ``v`` samples from (-v, v),
+            a pair ``(low, high)`` samples from (low, high)
+    """
+    if isinstance(value_range, (int, float)):
+        return random.uniform(-value_range, value_range)
+    low, high = value_range
+    return random.uniform(low, high)
+
+
+def percent_factor(value_range):
+    """Draws a multiplicative factor from a range given in percents."""
+    return 1.0 + sample(value_range) / 100.0
+
+
+def get_material(obj, material_id):
+    """Returns the material of given name from the object's material slots."""
+    for slot in obj.material_slots:
+        if slot.material is not None and slot.material.name == material_id:
+            return slot.material
+    raise KeyError(f"Object '{obj.name}' has no material '{material_id}'")
+
+
+def get_node(node_tree, node_type, owner_name):
+    """Returns the first node of given type from the node tree."""
+    for node in node_tree.nodes:
+        if node.type == node_type:
+            return node
+    raise ValueError(f"'{owner_name}' has no {node_type} node")
+
+
+def get_unlinked_input(node, input_name, owner_name):
+    """Returns the node input, making sure nothing is connected to it."""
+    socket = node.inputs[input_name]
+    if socket.is_linked:
+        raise ValueError(f"'{input_name}' input of '{owner_name}' is connected, cannot augment it")
+    return socket
+
+
+def translation(obj, x, y, z):
+    """Moves the object by random offsets in blender units.
+
+    Returns:
+        tuple: applied offsets for x, y and z
+    """
+    offsets = (sample(x), sample(y), sample(z))
+    for axis, offset in enumerate(offsets):
+        obj.location[axis] += offset
+    return offsets
+
+
+def rotation(obj, x, y, z):
+    """Rotates the object by random angles in degrees, in the object's local euler space.
+
+    Returns:
+        tuple: applied angles in degrees for x, y and z
+    """
+    angles = (sample(x), sample(y), sample(z))
+    radians = [math.radians(angle) for angle in angles]
+
+    if obj.rotation_mode == "QUATERNION":
+        obj.rotation_quaternion = obj.rotation_quaternion @ Euler(radians).to_quaternion()
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        angle, *axis = obj.rotation_axis_angle
+        rotated = Quaternion(axis, angle) @ Euler(radians).to_quaternion()
+        axis, angle = rotated.to_axis_angle()
+        obj.rotation_axis_angle = (angle, *axis)
+    else:
+        for axis, angle in enumerate(radians):
+            obj.rotation_euler[axis] += angle
+    return angles
+
+
+def scale(obj, x, y, z):
+    """Scales the object by random factors given in percents.
+
+    Returns:
+        tuple: applied scale factors for x, y and z
+    """
+    factors = (percent_factor(x), percent_factor(y), percent_factor(z))
+    for axis, factor in enumerate(factors):
+        obj.scale[axis] *= factor
+    return factors
+
+
+def sample_absolute(value_range):
+    """Draws a value from a (min, max) range, None means no change."""
+    if value_range is None:
+        return None
+    low, high = value_range
+    return random.uniform(low, high)
+
+
+def material(obj, material_id, hue, saturation, value, roughness, metallic):
+    """Sets base color, roughness and metallic of the material's Principled BSDF
+    to random values from (min, max) ranges. None leaves the value unchanged.
+    Base color is set through hue, saturation and value, each in 0-1.
+
+    Returns:
+        dict: values that were set
+    """
+    mat = get_material(obj, material_id)
+    principled = get_node(mat.node_tree, "BSDF_PRINCIPLED", mat.name)
+    applied = {}
+
+    hsv = {"hue": sample_absolute(hue), "saturation": sample_absolute(saturation), "value": sample_absolute(value)}
+    if any(new is not None for new in hsv.values()):
+        base_color = get_unlinked_input(principled, "Base Color", mat.name)
+        red, green, blue, alpha = base_color.default_value
+        current = dict(zip(hsv, colorsys.rgb_to_hsv(red, green, blue)))
+        for name, new in hsv.items():
+            if new is not None:
+                current[name] = new
+                applied[name] = new
+        base_color.default_value = (*colorsys.hsv_to_rgb(*current.values()), alpha)
+
+    for name, socket_name, value_range in (("roughness", "Roughness", roughness), ("metallic", "Metallic", metallic)):
+        new = sample_absolute(value_range)
+        if new is not None:
+            get_unlinked_input(principled, socket_name, mat.name).default_value = new
+            applied[name] = new
+
+    return applied
+
+
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def number(obj, data_path, value_range, percent):
+    """Sets the int or float value at the data path, either to a random value from
+    value_range (min, max), or scaled by a random percent.
+
+    Returns:
+        float | int: value that was set
+    """
+    current = bpy_paths.get_value(data_path, obj)
+    if not is_number(current):
+        raise TypeError(f"'{data_path}' is not an int or float value")
+
+    if value_range is not None:
+        low, high = value_range
+        new = random.randint(round(low), round(high)) if isinstance(current, int) else random.uniform(low, high)
+    else:
+        new = current * percent_factor(percent)
+        if isinstance(current, int):
+            new = round(new)
+
+    bpy_paths.set_value(data_path, new, obj)
+    return new
+
+
+def boolean(obj, data_path, probability):
+    """Sets the boolean value at the data path to True with given probability.
+
+    Returns:
+        bool: value that was set
+    """
+    current = bpy_paths.get_value(data_path, obj)
+    if not isinstance(current, bool) and not (isinstance(current, int) and current in (0, 1)):
+        raise TypeError(f"'{data_path}' is not a boolean value")
+    new = random.random() < probability
+    # old blender versions store some booleans as 0/1 ints
+    bpy_paths.set_value(data_path, new if isinstance(current, bool) else int(new), obj)
+    return new
+
+
+def per_component(bound, size, data_path):
+    """Expands a bound to one value per vector component. A number is used for all
+    components, a sequence gives one value per component, None keeps the component."""
+    if bound is None or is_number(bound):
+        return [bound] * size
+    if len(bound) != size:
+        raise ValueError(f"'{data_path}' has {size} components, got bound {bound}")
+    return list(bound)
+
+
+def vector(obj, data_path, value_range, percent):
+    """Sets every component of the vector value at the data path, either to a random
+    value from value_range (min, max), or scaled by a random percent. min and max
+    are numbers for all components, or sequences with a value per component,
+    None in both keeps that component.
+
+    Returns:
+        tuple: vector that was set
+    """
+    current = bpy_paths.get_value(data_path, obj)
+    if not hasattr(current, "__len__") or isinstance(current, str) or not all(is_number(c) for c in current):
+        raise TypeError(f"'{data_path}' is not a vector of numbers")
+    current = tuple(current)
+    size = len(current)
+
+    if value_range is not None:
+        low, high = value_range
+    elif is_number(percent):
+        low, high = -percent, percent
+    else:
+        low, high = percent
+    lows = per_component(low, size, data_path)
+    highs = per_component(high, size, data_path)
+
+    new = []
+    for component, component_low, component_high in zip(current, lows, highs):
+        if component_low is None or component_high is None:
+            new.append(component)
+            continue
+        if value_range is not None:
+            value = random.uniform(component_low, component_high)
+        else:
+            value = component * (1.0 + random.uniform(component_low, component_high) / 100.0)
+        new.append(round(value) if isinstance(component, int) else value)
+
+    new = tuple(new)
+    bpy_paths.set_value(data_path, new, obj)
+    return new
+
+
+def menu_options(owner, token, data_path):
+    """Returns all options of the menu at the data path."""
+    kind, key = token
+    if kind == "attr" and key in owner.bl_rna.properties:
+        prop = owner.bl_rna.properties[key]
+        if prop.type == "ENUM":
+            if prop.is_enum_flag:
+                raise TypeError(f"'{data_path}' is a multiple choice enum, not supported")
+            if len(prop.enum_items):
+                return [item.identifier for item in prop.enum_items]
+    # menu sockets have dynamic items, defined by the menu switch node they belong to
+    node = getattr(owner, "node", None)
+    if getattr(owner, "type", None) == "MENU" and hasattr(node, "enum_items"):
+        return [item.name for item in node.enum_items]
+    raise ValueError(f"Cannot list the options of '{data_path}', pass them as options")
+
+
+def menu(obj, data_path, options, weights):
+    """Sets the menu (enum) value at the data path to a random option.
+
+    Args:
+        options (list): options to choose from, None = all options of the menu
+        weights (list): relative probability of each option, None = equal
+
+    Returns:
+        str: option that was set
+    """
+    if options is None:
+        owner, token = bpy_paths.resolve(data_path, obj)
+        options = menu_options(owner, token, data_path)
+    new = random.choices(options, weights=weights)[0]
+    bpy_paths.set_value(data_path, new, obj)
+    return new

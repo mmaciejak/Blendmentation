@@ -11,8 +11,9 @@ mesh_transform = augmentations.Compose(
     augmentations.Translation(x=0.5, y= 0.5, z =0.5),
     augmentations.Rotation(x=30.0, y=30.0, z = 30.0),
     augmentations.Scale(x=60.0, y=60.0, z=10.0),
-    augmentations.Color(material_id = 'material.001', h = 20.0, s=60.0,v=20.0),
-    augmentations.Shader(material_id= 'material.001', roughness=40.0, normals = 5.0)
+    augmentations.Material(material_id='material.001', hue=(0.0, 1.0), saturation=(0.4, 0.9),
+                           value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
+    augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
     ]
 )
 
@@ -20,7 +21,9 @@ lamp_transforms = augmentations.Compose(
     [
     augmentations.Translation(x=0.5, y= 0.5, z =0.5),
     augmentations.Rotation(x=30.0, y=30.0, z = 30.0),
-    augmentations.Lamp(strength=40.0,size=20.0,temp=30.0),
+    augmentations.Number('data.energy', percent=40.0),
+    augmentations.Number('data.shadow_soft_size', percent=20.0),
+    augmentations.Vector('data.color', value_range=(0.8, 1.0)),
     ]
 )
 
@@ -32,7 +35,6 @@ image_generator = generating.Generator(path ="",
 def pipeline():
     mesh_transform([obj1, obj2])
     lamp_transforms([lamp])
-    lamp_transforms.augmentations.Lamp
     image_generator.generate()
     initial_state.restore()
 
@@ -40,7 +42,8 @@ obj1 = bpy.object
 obj2 = bpy.object
 lamp = bpy.lampobject
 
-initial_state = state.State([obj1, obj2, lamp])
+initial_state = state.State([obj1, obj2, lamp],
+                            fields=mesh_transform.augmentations + lamp_transforms.augmentations)
 n_datapoints = 100
 
 for i in range (0, n_datapoints):
