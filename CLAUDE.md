@@ -12,6 +12,12 @@ There is no build system, packaging, dependency manifest, linter config, or test
 
 To check changes, build a scene in a script and run it headless, e.g. `"/Applications/Blender 4.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python test.py`. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0. The code supports both, so test on both.
 
+The code also runs with `bpy` as a plain Python module (`pip install bpy OpenImageIO`; `bpy` 5.1+ needs Python 3.13, 4.x–5.0 need 3.11). Two things keep that working:
+- `blendmentation/__init__.py` imports `bpy` first, because `mathutils` is only importable after `bpy` in module mode.
+- The `bpy` wheel ships numpy but not OpenImageIO, so `bpy_generating.py` raises an `ImportError` with install instructions when it's missing.
+
+To test module mode: `uv venv --python 3.13 env && VIRTUAL_ENV=env uv pip install bpy==5.2.2 OpenImageIO`, then `env/bin/python test.py`.
+
 ## Architecture
 
 Each subpackage under `blendmentation/` is split into two layers:

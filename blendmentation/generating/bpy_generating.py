@@ -5,7 +5,12 @@ import tempfile
 
 import bpy
 import numpy as np
-import OpenImageIO as oiio
+
+try:
+    import OpenImageIO as oiio
+except ImportError as error:
+    # bundled with blender, but not with the bpy python module
+    raise ImportError("OpenImageIO is missing, install it with: pip install OpenImageIO") from error
 
 from .. import bpy_paths
 

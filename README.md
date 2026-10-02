@@ -34,6 +34,46 @@ Run the script from Blender's Scripting tab, or headless:
 blender --background scene.blend --python make_dataset.py
 ```
 
+### As a Python module, without the Blender app
+
+Blender is also published on PyPI as the `bpy` module. Each `bpy` release supports
+only one Python version:
+
+| `bpy` | Python |
+|---|---|
+| 5.1, 5.2 | 3.13 |
+| 4.x, 5.0 | 3.11 |
+
+OpenImageIO is bundled with the Blender app but not with the module, so install it too:
+
+```sh
+uv venv --python 3.13 .venv            # or: python3.13 -m venv .venv
+uv pip install bpy==5.2.2 OpenImageIO  # or: .venv/bin/pip install ...
+```
+
+The script is the same as inside Blender, except that you open the `.blend` file
+yourself:
+
+```python
+import sys
+sys.path.append("/path/to/Blendmentation")
+
+import bpy
+from blendmentation.augmentations import augmentations
+from blendmentation.generating import generating
+from blendmentation.state import state
+
+bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relative to this file
+# ... same augmentations, State and generating Compose as below ...
+```
+
+```sh
+.venv/bin/python make_dataset.py
+```
+
+All features work the same way in the module. Note that Workbench (used by
+`Segmentation`) and EEVEE need a GPU; this has only been tested on macOS.
+
 ## Quick start
 
 ```python
