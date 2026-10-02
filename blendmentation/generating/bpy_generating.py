@@ -1,44 +1,45 @@
 import json
 import os
+import re
 import tempfile
 
 import bpy
 import numpy as np
 import OpenImageIO as oiio
 
+from .. import bpy_paths
+
 IMAGE_SETTINGS = ("media_type", "file_format", "color_mode", "color_depth", "exr_codec")
 AOV_FORMATS = {"OPEN_EXR": ".exr", "PNG": ".png"}
+RENDER_FORMATS = {"PNG": ".png", "JPEG": ".jpg", "OPEN_EXR": ".exr"}
+# output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
+INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
 
-def default_objects(scene):
-    """Returns all mesh objects that are visible in the render."""
-    return [
-        obj
-        for obj in scene.objects
-        if obj.type == "MESH" and not obj.hide_render and obj.visible_get()
-    ]
-
-
-def to_groups(objects):
-    """Normalizes objects to a list of groups, an object alone is a group of one.
-    Objects in one sublist are labeled as one object."""
-    groups = [list(entry) if isinstance(entry, (list, tuple)) else [entry] for entry in objects]
-    if any(not group for group in groups):
-        raise ValueError("Object groups cannot be empty")
-    names = [obj.name for group in groups for obj in group]
+def to_instances(classes):
+    """Normalizes {class name: [objects or sublists]} to a list of (class name, [objects]).
+    An object alone is an instance of one object, the objects of a sublist are one instance."""
+    if not isinstance(classes, dict):
+        raise TypeError("classes must be a dict {class name: [objects or sublists of objects]}")
+    instances = []
+    for class_name, entries in classes.items():
+        if not isinstance(entries, (list, tuple)):
+            raise TypeError(f"Class '{class_name}' must map to a list of objects or sublists of objects")
+        for entry in entries:
+            group = list(entry) if isinstance(entry, (list, tuple)) else [entry]
+            if not group:
+                raise ValueError(f"Class '{class_name}' has an empty sublist")
+            instances.append((class_name, group))
+    names = [obj.name for _, group in instances for obj in group]
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:
-        raise ValueError(f"Objects {duplicates} are in more than one group")
-    return groups
+        raise ValueError(f"Objects {duplicates} are in more than one instance")
+    return instances
 
 
 def next_index(path):
     """Returns the first free image index in the output directory."""
-    taken = [
-        int(os.path.splitext(name)[0])
-        for name in os.listdir(path)
-        if os.path.splitext(name)[0].isdigit()
-    ]
+    taken = [int(match.group(1)) for match in map(INDEX.match, os.listdir(path)) if match]
     return max(taken, default=-1) + 1
 
 
@@ -78,7 +79,7 @@ def camera_view_coords(scene, camera, obj, depsgraph):
 
 
 def bbox(scene, camera, group, depsgraph, width, height):
-    """Returns the 2D bbox of the group of objects, as one object, in pixels
+    """Returns the 2D bbox of the list of objects, as one object, in pixels
     [x_min, y_min, x_max, y_max] with top-left image origin, or None if it is not in the frame.
     Occlusion by other objects is not taken into account.
     """
@@ -135,7 +136,7 @@ def set_file_format(image_settings, file_format):
 def check_aovs(scene, view_layer, aovs, aov_format):
     """Raises if the AOVs cannot be rendered."""
     if aov_format not in AOV_FORMATS:
-        raise ValueError(f"aov_format must be one of {list(AOV_FORMATS)}")
+        raise ValueError(f"AOV file_format must be one of {list(AOV_FORMATS)}")
     if scene.render.engine == "BLENDER_WORKBENCH":
         raise ValueError("Shader AOVs need Cycles or EEVEE, not Workbench")
     available = [aov.name for aov in view_layer.aovs]
@@ -145,6 +146,10 @@ def check_aovs(scene, view_layer, aovs, aov_format):
             f"AOVs {missing} are not in view layer '{view_layer.name}' (has {available}), "
             "add them in View Layer Properties > Passes > Shader AOV"
         )
+
+
+def check_aov_images(names, file_format):
+    check_aovs(bpy.context.scene, bpy.context.view_layer, names, file_format)
 
 
 def save_aovs(scene, view_layer, aovs, aov_format, path, index):
@@ -255,72 +260,196 @@ def render_ids(scene, groups, temp_dir):
     return ids
 
 
-def save_masks(scene, groups, path, index):
-    """Saves a black and white mask PNG of the visible pixels of every group,
-    as <path>/<index>_mask_<group>.png
+def mask_file(path, file_name, mask):
+    """Writes a boolean (height, width) mask as a black and white PNG."""
+    height, width = mask.shape
+    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, 1, oiio.UINT8))
+    buffer.set_pixels(oiio.ROI(), np.where(mask, 255, 0).astype(np.uint8).reshape(height, width, 1))
+    if not buffer.write(os.path.join(path, file_name)):
+        raise RuntimeError(f"Cannot write mask {file_name}: {buffer.geterror()}")
+    return file_name
+
+
+def save_masks(scene, instances, path, index, per):
+    """Saves black and white mask PNGs of the visible pixels, per instance as
+    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png
+
+    Args:
+        instances (list): (class name, [objects]) pairs
+        per (str): "instance", "class" or "both"
 
     Returns:
-        list: mask file name for every group
+        list: {"class", "objects", "mask"} for every mask
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        ids = render_ids(scene, groups, temp_dir)
-    files = []
-    height, width = ids.shape
-    for group_id in range(1, len(groups) + 1):
-        mask = np.where(ids == group_id, 255, 0).astype(np.uint8).reshape(height, width, 1)
-        buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, 1, oiio.UINT8))
-        buffer.set_pixels(oiio.ROI(), mask)
-        file_name = f"{index:06d}_mask_{group_id - 1}.png"
-        if not buffer.write(os.path.join(path, file_name)):
-            raise RuntimeError(f"Cannot write mask {file_name}: {buffer.geterror()}")
-        files.append(file_name)
-    return files
+        ids = render_ids(scene, [group for _, group in instances], temp_dir)
+
+    entries = []
+    if per in ("instance", "both"):
+        for number, (class_name, group) in enumerate(instances):
+            file_name = mask_file(path, f"{index:06d}_mask_{number}.png", ids == number + 1)
+            entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name})
+    if per in ("class", "both"):
+        for class_name in dict.fromkeys(class_name for class_name, _ in instances):
+            numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
+            safe_name = re.sub(r"[^\w.-]", "_", class_name)
+            file_name = mask_file(path, f"{index:06d}_mask_{safe_name}.png", np.isin(ids, [n + 1 for n in numbers]))
+            objects = [obj.name for number in numbers for obj in instances[number][1]]
+            entries.append({"class": class_name, "objects": objects, "mask": file_name})
+    return entries
 
 
-def render(
-    path,
-    resolution,
-    bboxes,
-    rotation_matrix,
-    iou_deconflict,
-    custom_dict=None,
-    objects=None,
-    aovs=None,
-    aov_format="OPEN_EXR",
-    segmentation=False,
-):
-    """Renders the active scene camera to <path>/<index>.png and writes labels to <path>/<index>.json
+def to_json(value):
+    """Converts a blender value to something json can store."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, bpy.types.ID):
+        return value.name
+    if hasattr(value, "__len__"):
+        return [to_json(item) for item in value]
+    if hasattr(value, "name"):
+        return value.name
+    return str(value)
+
+
+class Frame:
+    """One datapoint being generated, shared by the generating steps.
+    The beauty render happens at most once, steps that need it reuse the render result.
+    """
+
+    def __init__(self, scene, path, index, width, height):
+        self.scene = scene
+        self.camera = scene.camera
+        self.view_layer = bpy.context.view_layer
+        self.depsgraph = bpy.context.evaluated_depsgraph_get()
+        self.path = path
+        self.index = index
+        self.width = width
+        self.height = height
+        self.label = {"resolution": [width, height]}
+        self.rendered = False
+
+    def file_name(self, suffix):
+        return f"{self.index:06d}{suffix}"
+
+    def add(self, key, entries):
+        """Appends entries to a list in the labels, so several steps can add to it."""
+        self.label.setdefault(key, []).extend(entries)
+
+    def beauty(self, file_path=None):
+        """Renders the scene with its engine, once. With file_path the image is also written."""
+        if self.rendered:
+            if file_path:
+                bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+            return
+        if file_path:
+            self.scene.render.filepath = file_path
+        bpy.ops.render.render(write_still=bool(file_path))
+        self.rendered = True
+
+
+def bboxes(frame, classes, iou_deconflict):
+    """Adds {"class", "objects", "bbox"} of every instance to the labels under "bboxes".
+
+    Returns:
+        bool: False if two bboxes overlap over iou_deconflict and the datapoint should be skipped
+    """
+    entries = []
+    for class_name, group in to_instances(classes):
+        box = bbox(frame.scene, frame.camera, group, frame.depsgraph, frame.width, frame.height)
+        entries.append({"class": class_name, "objects": [obj.name for obj in group], "bbox": box})
+    boxes = [entry["bbox"] for entry in entries if entry["bbox"] is not None]
+    if iou_deconflict is not None and max_iou(boxes) > iou_deconflict:
+        return False
+    frame.add("bboxes", entries)
+    return True
+
+
+def check_objects(objects, step_name):
+    if not isinstance(objects, (list, tuple)) or not objects:
+        raise TypeError(f"{step_name} needs a list of objects")
+
+
+def rotation_matrices(frame, objects):
+    """Adds {"object", "rotation_matrix"} relative to the camera of every object
+    to the labels under "rotation_matrices"."""
+    frame.add(
+        "rotation_matrices",
+        [{"object": obj.name, "rotation_matrix": rotation_to_camera(frame.camera, obj)} for obj in objects],
+    )
+
+
+def check_output_field(name, data_path, objects):
+    if not bpy_paths.is_absolute(data_path) and not objects:
+        raise ValueError(f"Output field '{name}': relative path '{data_path}' needs objects")
+
+
+def output_field(frame, name, data_path, objects):
+    """Adds the value at the data path to the labels under name. Absolute paths are saved once,
+    relative paths as {object name: value} for every object."""
+    if bpy_paths.is_absolute(data_path):
+        frame.label[name] = to_json(bpy_paths.get_value(data_path))
+        return
+    values = {}
+    for obj in objects:
+        try:
+            values[obj.name] = to_json(bpy_paths.get_value(data_path, obj))
+        except (AttributeError, KeyError, IndexError, TypeError) as error:
+            raise ValueError(f"Output field '{name}': '{data_path}' does not resolve on '{obj.name}' ({error})")
+    frame.label[name] = values
+
+
+def check_render(file_format):
+    if file_format not in RENDER_FORMATS:
+        raise ValueError(f"file_format must be one of {list(RENDER_FORMATS)}")
+
+
+def render_image(frame, file_format):
+    """Renders the image to <path>/<index>.<ext>."""
+    file_name = frame.file_name(RENDER_FORMATS[file_format])
+    set_file_format(frame.scene.render.image_settings, file_format)
+    frame.beauty(os.path.join(frame.path, file_name))
+    frame.label["image"] = file_name
+
+
+def aov_images(frame, names, file_format):
+    """Saves the AOVs to <path>/<index>_<aov>.<ext>, from the beauty render."""
+    frame.beauty()
+    frame.label["aovs"] = save_aovs(frame.scene, frame.view_layer, names, file_format, frame.path, frame.index)
+
+
+def check_segmentation(classes, per):
+    if per not in ("instance", "class", "both"):
+        raise ValueError('Segmentation per must be "instance", "class" or "both"')
+    to_instances(classes)
+
+
+def segmentation(frame, classes, per):
+    """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
+    frame.add("masks", save_masks(frame.scene, to_instances(classes), frame.path, frame.index, per))
+
+
+def generate(path, resolution, steps, custom_dict=None):
+    """Generates one datapoint: runs the steps in order and writes the labels to <path>/<index>.json
 
     Args:
         path (str): output directory, "" or relative paths are relative to the .blend file
         resolution (tuple): (width, height) in pixels
-        bboxes (bool): add 2D bboxes to the labels
-        rotation_matrix (bool): add object rotation relative to the camera to the labels
-        iou_deconflict (float): skip the render if any two bboxes overlap over this IoU, None disables it
+        steps (list): generating steps, called with the Frame, a step returning False skips the datapoint
         custom_dict (dict): extra key and values saved in the labels
-        objects (list): objects to label, None = all visible mesh objects. A sublist of
-            objects is labeled as one object, with one bbox and one mask
-        aovs (list): names of shader AOVs to save as <path>/<index>_<aov>.<ext>
-        aov_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped to 0-1)
-        segmentation (bool): save a mask of the visible pixels of every object (group)
-            as <path>/<index>_mask_<n>.png, n is the position in objects
 
     Returns:
-        bool: True if the image was rendered, False if it was skipped by iou_deconflict
+        bool: True if the datapoint was generated, False if a step skipped it
     """
     scene = bpy.context.scene
-    camera = scene.camera
-    if camera is None:
+    if scene.camera is None:
         raise RuntimeError("Scene has no active camera")
+    for step in steps:
+        if hasattr(step, "check"):
+            step.check()
 
     path = bpy.path.abspath(path or "//")
     os.makedirs(path, exist_ok=True)
-    if objects is None:
-        objects = default_objects(scene)
-    groups = to_groups(objects)
-    view_layer = bpy.context.view_layer
-    if aovs:
-        check_aovs(scene, view_layer, aovs, aov_format)
 
     width, height = int(resolution[0]), int(resolution[1])
     render_settings = scene.render
@@ -332,43 +461,17 @@ def render(
         render_settings.filepath,
     )
     previous_image = {name: getattr(image_settings, name) for name in IMAGE_SETTINGS if hasattr(image_settings, name)}
-    aov_files = {}
     try:
         # set before computing bboxes, the camera frame depends on the resolution
         render_settings.resolution_x = width
         render_settings.resolution_y = height
         render_settings.resolution_percentage = 100
         bpy.context.view_layer.update()
-        depsgraph = bpy.context.evaluated_depsgraph_get()
 
-        labels = []
-        for group in groups:
-            label = {"objects": [obj.name for obj in group]}
-            if bboxes or iou_deconflict is not None:
-                label["bbox"] = bbox(scene, camera, group, depsgraph, width, height)
-            if rotation_matrix:
-                # a group is oriented by its first object
-                label["rotation_matrix"] = rotation_to_camera(camera, group[0])
-            labels.append(label)
-
-        if iou_deconflict is not None:
-            visible_boxes = [label["bbox"] for label in labels if label["bbox"] is not None]
-            if max_iou(visible_boxes) > iou_deconflict:
+        frame = Frame(scene, path, next_index(path), width, height)
+        for step in steps:
+            if step(frame) is False:
                 return False
-        if not bboxes:
-            for label in labels:
-                label.pop("bbox", None)
-
-        index = next_index(path)
-        image_name = f"{index:06d}.png"
-        set_file_format(image_settings, "PNG")
-        render_settings.filepath = os.path.join(path, image_name)
-        bpy.ops.render.render(write_still=True)
-        if aovs:
-            aov_files = save_aovs(scene, view_layer, aovs, aov_format, path, index)
-        if segmentation:
-            for label, mask_file in zip(labels, save_masks(scene, groups, path, index)):
-                label["mask"] = mask_file
     finally:
         (
             render_settings.resolution_x,
@@ -380,13 +483,11 @@ def render(
         for name, value in previous_image.items():
             setattr(image_settings, name, value)
 
-    if bboxes or rotation_matrix or custom_dict or segmentation:
-        data = {"image": image_name, "resolution": [width, height], "objects": labels}
-        if aov_files:
-            data["aovs"] = aov_files
-        if custom_dict:
-            data.update(custom_dict)
-        with open(os.path.join(path, f"{index:06d}.json"), "w") as file:
-            json.dump(data, file, indent=2)
-
+    label = frame.label
+    if custom_dict:
+        label.update(custom_dict)
+    # an image alone needs no label file
+    if set(label) - {"resolution", "image"}:
+        with open(os.path.join(path, frame.file_name(".json")), "w") as file:
+            json.dump(label, file, indent=2)
     return True

@@ -6,6 +6,10 @@ from blendmentation.augmentations import augmentations
 from blendmentation.state import state
 from blendmentation.generating import generating
 
+obj1 = bpy.object
+obj2 = bpy.object
+lamp = bpy.lampobject
+
 mesh_transform = augmentations.Compose(
     [
     augmentations.Translation(x=0.5, y= 0.5, z =0.5),
@@ -27,20 +31,24 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
-image_generator = generating.Generator(path ="",
-                                       resolution=(460,460),
-                                       bboxes=True,
-                                       rotation_matrix=True)
+image_generator = generating.Compose(
+    [
+    generating.Render(),
+    generating.AOVToImage(["Albedo"]),
+    generating.BBox({"part": [obj1, obj2]}, iou_deconflict=0.5),
+    generating.RotationMatrix([obj1, obj2]),
+    generating.Segmentation({"part": [obj1, obj2]}, per="both"),
+    generating.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
+    ],
+    path="",
+    resolution=(460, 460),
+)
 
 def pipeline():
     mesh_transform([obj1, obj2])
     lamp_transforms([lamp])
-    image_generator.generate()
+    image_generator()
     initial_state.restore()
-
-obj1 = bpy.object
-obj2 = bpy.object
-lamp = bpy.lampobject
 
 initial_state = state.State([obj1, obj2, lamp],
                             fields=mesh_transform.augmentations + lamp_transforms.augmentations)

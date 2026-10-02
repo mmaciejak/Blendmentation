@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Blendmentation is a Python library for generating synthetic, augmented training datasets (renders + bounding-box labels) from Blender scenes. It is modelled after torchvision/albumentations-style transforms: you compose augmentations, apply them to Blender objects, render, then restore the scene and repeat.
+Blendmentation is a Python library for generating synthetic, augmented training datasets (renders, AOVs, segmentation masks and labels) from Blender scenes. It is modelled after torchvision/albumentations-style transforms: you compose augmentations, apply them to Blender objects, render, then restore the scene and repeat.
 
 ## Running
 
@@ -32,24 +32,33 @@ The three subpackages:
     - `Boolean(data_path, probability=0.5)`.
     - `Menu(data_path, options=None, weights=None)`: enum. With no `options`, it takes them from RNA `enum_items`, or for menu sockets from the Menu Switch node's `enum_items`; otherwise `options` is required.
 - **state**: `State(objects, fields=())` snapshots, at construction, each object's transforms and all unlinked node input values of its materials (stored as `state_dict[object.name]`). It also saves the value at every data path in `fields` (`Number`/`Vector`/`Boolean`/`Menu` instances or path strings). Entries without a `data_path` are ignored, so a whole `Compose.augmentations` list can be passed. Absolute paths are saved once and relative paths once per object they resolve on. `restore()` reverts everything, which is why augmentations can safely mutate in place. A data-path augmentation that isn't passed to `State` is not restored, and with `percent` it compounds every iteration. A new augmentation must touch only what this snapshot covers, or `bpy_states.py` must be extended.
-- **generating**: `Generator` renders the scene camera to `<path>/<index>.png` with a matching `<index>.json` label. The index is the next free number in the folder, so output can be resumed. `objects` entries are objects or sublists of objects. Each sublist is one label ("group"), and its bbox is the union of its members. Labels hold, per group, `"objects": [names]` and:
-  - a pixel bbox `[x_min, y_min, x_max, y_max]` with a top-left origin, computed from the evaluated mesh vertices (modifiers included; occlusion ignored; `None` when the object is out of frame);
-  - optionally, the 3x3 rotation relative to the camera (for a group, its first object's);
-  - with `segmentation=True`, `"mask": "<index>_mask_<n>.png"`, where `n` is the position in `objects`;
-  - any `custom_dict` keys.
+- **generating**: `Compose(steps, path, resolution)` generates one datapoint per call (`preview(factor)` at reduced resolution); it returns `False` when a step skips the datapoint. Files are `<path>/<index>...`, where the index is the next free leading number in the folder (`next_index`), so output can be resumed.
+  - **Steps:** `BBox(classes, iou_deconflict=None)`, `RotationMatrix(objects)`, `OutputField(name, data_path, objects=None)`, `Render(file_format="PNG")`, `AOVToImage(names, file_format="OPEN_EXR")`, `Segmentation(classes, per="instance"|"class"|"both")`. Each step takes its own objects; `Compose` has none.
+  - **Classes:** `classes` is `{class name: [instances]}`, where an instance is an object or a sublist of objects labeled as one (bbox = union of members, one mask). `to_instances` flattens it to `(class, [objects])` pairs and rejects non-dicts, non-list values, empty sublists and objects in two instances.
+  - **Stages:** each step class has a `stage`, and `Compose` sorts by it, so list order doesn't matter. Label steps (0) run first, so an `iou_deconflict` skip happens before any render; then `Render` (1), `AOVToImage` (2), `Segmentation` (3).
+  - **`check()`:** steps define `check()`, which runs before anything is generated, so bad config (classes format, file format, missing AOV, Workbench + AOVs, relative `OutputField` without objects) fails without wasting a render.
+  - **`Frame`:** `bpy_generating.generate` builds a `Frame` and passes it to each step. It holds the scene, index, the `label` dict (`frame.add(key, entries)` appends to a list, so several steps can add to it), and a lazy `beauty()` that renders with the scene engine **at most once**. `Render` writes the image through it (`write_still`), and `AOVToImage` reuses that Render Result, or triggers the one render itself when there is no `Render`. A new step that needs the beauty render must call `frame.beauty()`, not `bpy.ops.render.render()`.
+  - **Label JSON:** written only when there is more than the image (e.g. `Render()` alone writes no JSON). It holds:
+    - `resolution`, `image`, `aovs: {name: file}`;
+    - `bboxes: [{class, objects, bbox}]`;
+    - `masks: [{class, objects, mask}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes) first, then class masks `<index>_mask_<class>.png` (name sanitized);
+    - `rotation_matrices: [{object, rotation_matrix}]`;
+    - `OutputField` values: absolute paths as one value, relative paths as `{object name: value}`;
+    - `custom_dict` keys.
+  - **Field values:** `OutputField` converts values with `to_json`: IDs become their names, and vectors/matrices become nested lists.
+  - **Bboxes** are pixel `[x_min, y_min, x_max, y_max]` with a top-left origin, computed from the evaluated mesh vertices (modifiers included; occlusion ignored; `None` when out of frame).
+  - Render resolution and output settings are restored after each datapoint.
 
-  `objects` defaults to all render-visible meshes, which includes floors and backgrounds, so pass the objects to label explicitly. `iou_deconflict` skips the render (and `generate()` returns `False`) if any two bboxes overlap above that IoU. Render resolution and output settings are restored after each render. `preview()` renders at a reduced resolution.
-
-  Segmentation (`render_ids` / `save_masks`) is a second render with Workbench:
+  Segmentation (`render_ids` / `save_masks`) is a separate Workbench render:
   - flat `OBJECT` color shading, no anti-aliasing, transparent film, compositor off;
-  - every group colored with its id encoded as `R = id % 256 / 255`, `G = id // 256 / 255`, saved as a float EXR and read back exactly;
-  - all other objects (all of `bpy.data.objects`, to cover instanced collections) black, so they still occlude.
+  - every instance colored with its id encoded as `R = id % 256 / 255`, `G = id // 256 / 255`, saved as a float EXR and read back exactly;
+  - all other objects, including ones not in `classes` (all of `bpy.data.objects`, to cover instanced collections) black, so they still occlude.
 
-  Masks hold only visible pixels; bboxes are geometric and ignore occlusion. All changed scene/shading/color-management settings and object colors are restored afterwards.
+  Class masks are unions of the instance ids, so `per="both"` still needs one render. Masks hold only visible pixels; bboxes don't account for occlusion. All changed settings and object colors are restored afterwards.
 
-  `aovs=[...]` also saves shader AOVs (they must exist in the view layer, and the engine must be Cycles or EEVEE) as `<index>_<aov>.exr`, or `.png` with `aov_format="PNG"`. The label lists them under `"aovs"`. This avoids the compositor: after the normal PNG `write_still`, the Render Result is saved via `save_render` as a multilayer EXR to a temp dir. OpenImageIO then splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total).
+  AOVs (`save_aovs`) avoid the compositor. The Render Result is saved via `save_render` as a multilayer EXR to a temp dir, and OpenImageIO splits out the channels named `<view layer>.<aov>.<channel>`, searching every EXR part (5.x writes one part per pass, 4.0 one part total). The engine must be Cycles or EEVEE.
 
-Intended loop (see `example.py`): build `State` once → for N datapoints: apply `Compose` transforms → `Generator.generate()` → `State.restore()`.
+Intended loop (see `example.py`): build `State` once → for N datapoints: apply augmentation `Compose`s → call the generating `Compose` → `State.restore()`.
 
 ## Version differences
 
