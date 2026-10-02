@@ -1,4 +1,4 @@
-import bpy_states as bpy_s
+from . import bpy_states as bpy_s
 
 
 class State:
@@ -12,7 +12,7 @@ class State:
         self.state_dict = {}
         self.objects = objects
         for object in objects:
-            self.state_dict[f"{object.name}"].append(bpy_s.create_state_list(object))
+            self.state_dict[object.name] = bpy_s.create_state_list(object)
 
     def restore(self):
         """Restores transforms and values from previously saved state_dict"""

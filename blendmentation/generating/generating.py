@@ -1,4 +1,4 @@
-import bpy_generating as bpy_g
+from . import bpy_generating as bpy_g
 
 
 class Generator:
@@ -31,7 +31,14 @@ class Generator:
             apart from the standard data
         """
 
-        bpy_g.render(self.path, self.resolution, self.bboxes, self.iou_deconflict, custom_dict)
+        bpy_g.render(
+            self.path,
+            self.resolution,
+            self.bboxes,
+            self.rotation_matrix,
+            self.iou_deconflict,
+            custom_dict,
+        )
 
     def preview(self, scaling_factor):
         """Allows for quick preview with limited image resolution
@@ -42,7 +49,8 @@ class Generator:
 
         bpy_g.render(
             self.path,
-            self.resolution // scaling_factor,
+            tuple(int(size / scaling_factor) for size in self.resolution),
             self.bboxes,
+            self.rotation_matrix,
             self.iou_deconflict,
         )

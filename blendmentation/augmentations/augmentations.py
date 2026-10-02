@@ -1,4 +1,4 @@
-import bpy_augmentations as bpy_a
+from . import bpy_augmentations as bpy_a
 
 
 class Compose:
@@ -164,7 +164,7 @@ class Lamp:
         """Args:
         light obj (bpy.object.type == ‘LIGHT’) : Object to be augmented
         """
-        bpy_a.shader(obj, self.strength, self.size, self.temp)
+        bpy_a.lamp(obj, self.strength, self.size, self.temp)
         
 class GeoNode:
     """Augument the input field of gemetry nodes setup.
