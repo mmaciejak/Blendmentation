@@ -55,11 +55,13 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
-# orbit the camera around both parts, always aimed at their center
+# orbit the camera around both parts, always aimed at their center, zoom without changing
+# how big the parts are in the image, and sometimes blur what is not in focus
 camera_transforms = augmentations.Compose(
     [
-        augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360),
-                             roll=(-5, 5), focal_length=(35, 70)),
+        augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360), roll=(-5, 5)),
+        augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True),
+        augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), probability=0.5),
     ]
 )
 

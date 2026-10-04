@@ -145,6 +145,62 @@ class LookAt:
         )
 
 
+class FocalLength:
+    """Augument the camera focal length. Optionally moves the camera along the line to a
+    target by the same ratio as the lens (a dolly zoom), so the target keeps its size in
+    the image. That is exact for objects at the target's depth when the target is in the
+    center of the view, e.g. after LookAt; an off-center target also moves in the image.
+    For perspective cameras.
+
+    Args:
+        focal_length (tuple) : lens in mm, (min, max) or an exact number
+        target : object, list of objects (the center of their bounding boxes),
+            or point (x, y, z), needed for keep_size
+        keep_size (bool) : move the camera so the target keeps its size in the image
+    """
+
+    def __init__(self, focal_length, target=None, keep_size: bool = False):
+        if keep_size and target is None:
+            raise ValueError("keep_size needs a target")
+        self.focal_length = focal_length
+        self.target = target
+        self.keep_size = keep_size
+        self.actual = None
+
+    def __call__(self, obj):
+        """Args:
+        camera obj (bpy.object.type == 'CAMERA') : camera to augment
+        """
+        self.actual = bpy_a.focal_length(obj, self.focal_length, self.target, self.keep_size)
+
+
+class DepthOfField:
+    """Augument the camera depth of field: focus on a target with a random f-stop.
+    Depth of field is enabled with the given probability, otherwise it is disabled.
+    The focus distance is measured from where the camera is when this runs, so put it
+    after LookAt / FocalLength in a Compose.
+
+    Args:
+        target : object, list of objects (the center of their bounding boxes),
+            or point (x, y, z) to focus on, None keeps the current focus
+        f_stop (tuple) : aperture f-stop, lower is more blur, (min, max), an exact
+            number, or None to keep the current one
+        probability (float) : probability of enabling depth of field
+    """
+
+    def __init__(self, target=None, f_stop=None, probability: float = 1.0):
+        self.target = target
+        self.f_stop = f_stop
+        self.probability = probability
+        self.actual = None
+
+    def __call__(self, obj):
+        """Args:
+        camera obj (bpy.object.type == 'CAMERA') : camera to augment
+        """
+        self.actual = bpy_a.depth_of_field(obj, self.target, self.f_stop, self.probability)
+
+
 class Material:
     """Augument the basic material values: base color, roughness and metallic,
     set to random values in given (min, max) ranges. None leaves the value unchanged.

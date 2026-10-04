@@ -8,6 +8,7 @@ TRANSFORM_PROPERTIES = (
     "rotation_axis_angle",
     "scale",
 )
+DOF_PROPERTIES = ("use_dof", "focus_object", "focus_distance", "aperture_fstop")
 
 
 def to_plain(value):
@@ -42,7 +43,7 @@ def load_node_tree(node_tree, nodes):
 
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms, material node values and the lens of cameras.
+    transforms, material node values, and the lens and depth of field of cameras.
 
     Args:
     object (bpy.object): object to get the parameters from
@@ -56,7 +57,11 @@ def create_state_list(object):
         if material is not None and material.node_tree is not None:
             state["materials"][material.name] = save_node_tree(material.node_tree)
     if object.type == "CAMERA":
-        state["lens"] = object.data.lens
+        dof = object.data.dof
+        state["camera"] = {
+            "lens": object.data.lens,
+            "dof": {name: getattr(dof, name) for name in DOF_PROPERTIES},
+        }
     return state
 
 
@@ -78,8 +83,10 @@ def load_from_state_dict(object, state_dict: dict):
         if material is not None and material.name in state["materials"]:
             load_node_tree(material.node_tree, state["materials"][material.name])
 
-    if "lens" in state:
-        object.data.lens = state["lens"]
+    if "camera" in state:
+        object.data.lens = state["camera"]["lens"]
+        for name, value in state["camera"]["dof"].items():
+            setattr(object.data.dof, name, value)
 
     object.update_tag()
 

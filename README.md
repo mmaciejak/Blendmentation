@@ -103,8 +103,9 @@ lamp_aug = augmentations.Compose([
     augmentations.Boolean("data.use_shadow", probability=0.8),
 ])
 camera_aug = augmentations.Compose([
-    augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360),
-                         focal_length=(35, 70)),
+    augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
+    augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
+    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), probability=0.5),
 ])
 
 # 2. what to save for every datapoint
@@ -189,6 +190,49 @@ camera_aug = augmentations.Compose([
 camera_aug([bpy.context.scene.camera])
 ```
 
+### FocalLength
+
+```python
+FocalLength(focal_length, target=None, keep_size=False)
+```
+
+Sets the camera lens in mm, from a `(min, max)` range or an exact number. It works
+with perspective cameras only.
+
+With `keep_size=True` and a `target` (an object, a list of objects, or a point), the
+camera also moves along the line to the target by the same ratio as the lens change.
+This is a dolly zoom: the target keeps its size in the image while the perspective
+changes.
+
+- **When it's exact:** for parts of the target at its centre's depth, when the target
+  is in the centre of the view (e.g. after `LookAt`).
+- **When it's approximate:** an object seen at an angle has parts at other depths, so
+  their size changes slightly. In testing, a plane seen up to 30° off head-on
+  changed by about 0.01%. An off-centre target also moves in the image.
+
+### DepthOfField
+
+```python
+DepthOfField(target=None, f_stop=None, probability=1.0)
+```
+
+Turns depth of field on with the given `probability`, and off otherwise, so only some
+images are blurred.
+
+- **Focus:** on the `target` (an object, a list of objects, or a point). Focus is
+  measured from where the camera is when this runs, so put it after `LookAt` and
+  `FocalLength` in the `Compose`.
+- **`f_stop`:** a `(min, max)` range or an exact number. Lower values give more blur.
+- **`None`:** leaves the current focus or f-stop as it is.
+
+```python
+camera_aug = augmentations.Compose([
+    augmentations.LookAt(car_1, distance=(4, 9), elevation=(5, 45), azimuth=(0, 360)),
+    augmentations.FocalLength((24, 85), target=car_1, keep_size=True),
+    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), probability=0.5),
+])
+```
+
 ### Material
 
 ```python
@@ -246,7 +290,7 @@ State(objects, fields=())
 
 `State` saves the scene so it can be restored after every datapoint. It saves:
 
-- the transforms of the `objects`, and the lens of cameras;
+- the transforms of the `objects`, and the lens and depth of field of cameras;
 - all node values of the materials on those objects;
 - the value at the data path of every `Number` / `Vector` / `Boolean` / `Menu` in `fields`.
 

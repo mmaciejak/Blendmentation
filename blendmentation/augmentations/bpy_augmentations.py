@@ -208,6 +208,65 @@ def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
     return applied
 
 
+def check_camera(obj, perspective=False):
+    if obj.type != "CAMERA":
+        raise TypeError(f"'{obj.name}' is {obj.type}, not a camera")
+    if perspective and obj.data.type != "PERSP":
+        raise TypeError(f"Camera '{obj.name}' is {obj.data.type}, focal length needs a perspective camera")
+
+
+def focal_length(obj, focal_length_range, target, keep_size):
+    """Sets the camera lens. With keep_size the camera moves along the line to the target
+    by the same ratio as the lens, so the target keeps its size in the image (a dolly zoom).
+
+    Args:
+        focal_length_range (tuple): lens in mm, (min, max) or an exact number
+        target: object, list of objects or point (x, y, z), needed for keep_size
+
+    Returns:
+        dict: focal_length that was set, and the new distance to the target with keep_size
+    """
+    check_camera(obj, perspective=True)
+    old_lens = obj.data.lens
+    obj.data.lens = range_or_value(focal_length_range, old_lens)
+    # blender stores it as 32 bit float, report and use what was stored
+    applied = {"focal_length": obj.data.lens}
+    if keep_size:
+        center = target_center(target)
+        matrix = obj.matrix_world.copy()
+        matrix.translation = center + (matrix.translation - center) * (obj.data.lens / old_lens)
+        obj.matrix_world = matrix
+        applied["distance"] = (matrix.translation - center).length
+    return applied
+
+
+def depth_of_field(obj, target, f_stop, probability):
+    """Enables depth of field with given probability, focused at the target with a random f-stop,
+    otherwise disables it.
+
+    Args:
+        target: object, list of objects or point (x, y, z) to focus on, None keeps the focus
+        f_stop (tuple): aperture f-stop, (min, max), an exact number, or None to keep it
+        probability (float): probability of enabling depth of field
+
+    Returns:
+        dict: enabled, and when enabled f_stop and focus_distance
+    """
+    check_camera(obj)
+    dof = obj.data.dof
+    if random.random() >= probability:
+        dof.use_dof = False
+        return {"enabled": False}
+    dof.use_dof = True
+    if target is not None:
+        # focus distance along the view axis to the target center, from where the camera is now
+        forward = obj.matrix_world.to_3x3().normalized() @ Vector((0.0, 0.0, -1.0))
+        dof.focus_object = None
+        dof.focus_distance = max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0)
+    dof.aperture_fstop = range_or_value(f_stop, dof.aperture_fstop)
+    return {"enabled": True, "f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
+
+
 def is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 

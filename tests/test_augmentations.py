@@ -197,3 +197,55 @@ def test_look_at(scene, cube):
         A.LookAt(target, focal_length=50)(light)
     with pytest.raises(ValueError):
         A.LookAt(target, distance=0)(camera)
+
+
+def projected_width(scene, obj):
+    bpy.context.view_layer.update()
+    xs = [world_to_camera_view(scene, scene.camera, obj.matrix_world @ Vector(c)).x for c in obj.bound_box]
+    return (max(xs) - min(xs)) * scene.render.resolution_x
+
+
+def test_focal_length_keep_size(scene):
+    bpy.ops.mesh.primitive_plane_add(size=2, location=(0, 0, 0), rotation=(math.radians(90), 0, 0))  # faces the camera
+    plane = bpy.context.object
+    camera = scene.camera
+    width = projected_width(scene, plane)
+
+    focal = A.FocalLength((20, 100), target=plane, keep_size=True)
+    for _ in range(5):
+        focal(camera)
+        assert 20 <= camera.data.lens <= 100 and focal.actual["focal_length"] == camera.data.lens
+        assert projected_width(scene, plane) == pytest.approx(width, abs=1e-3)
+        assert focal.actual["distance"] == pytest.approx(10 * camera.data.lens / 50, rel=1e-5)
+        assert_centered(scene, Vector((0, 0, 0)))
+
+    location = camera.location.copy()
+    A.FocalLength(35)(camera)
+    assert camera.data.lens == 35 and camera.location == location  # without keep_size the camera stays
+
+
+def test_focal_length_errors(scene):
+    light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
+    with pytest.raises(ValueError, match="needs a target"):
+        A.FocalLength(50, keep_size=True)
+    with pytest.raises(TypeError):
+        A.FocalLength(50)(light)
+    scene.camera.data.type = "ORTHO"
+    with pytest.raises(TypeError, match="perspective"):
+        A.FocalLength(50)(scene.camera)
+
+
+def test_depth_of_field(scene, cube):
+    target = cube("Target")
+    camera = scene.camera
+    A.Compose([A.LookAt(target, distance=(6, 8), elevation=(0, 30)), A.DepthOfField(target, f_stop=(1.4, 4))])([camera])
+    dof = camera.data.dof
+    distance = (camera.matrix_world.translation - Vector((0, 0, 0))).length
+    assert dof.use_dof and 1.4 <= dof.aperture_fstop <= 4
+    assert dof.focus_distance == pytest.approx(distance, rel=1e-5) and dof.focus_object is None
+
+    off = A.DepthOfField(target, f_stop=2.8, probability=0.0)
+    off(camera)
+    assert not dof.use_dof and off.actual == {"enabled": False}
+    with pytest.raises(TypeError):
+        A.DepthOfField(target)(bpy.data.objects.new("empty", None))

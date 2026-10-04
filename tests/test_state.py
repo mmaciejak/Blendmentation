@@ -19,6 +19,8 @@ def snapshot(obj, material, light, paths):
         "color": tuple(principled.inputs["Base Color"].default_value),
         "roughness": principled.inputs["Roughness"].default_value,
         "lens": bpy.context.scene.camera.data.lens,
+        "dof": (bpy.context.scene.camera.data.dof.use_dof, bpy.context.scene.camera.data.dof.aperture_fstop,
+                bpy.context.scene.camera.data.dof.focus_distance),
     }
     for path, owner in paths:
         value = bpy_paths.get_value(path, owner)
@@ -41,7 +43,11 @@ def test_restore(scene, cube):
         A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
     ])
     light_augs = A.Compose([A.Number("data.energy", percent=40), A.Vector("data.color", value_range=(0, 0.5))])
-    camera_augs = A.Compose([A.LookAt(obj, distance=(5, 6), focal_length=(20, 30))])
+    camera_augs = A.Compose([
+        A.LookAt(obj, distance=(5, 6)),
+        A.FocalLength((20, 30), target=obj, keep_size=True),
+        A.DepthOfField(obj, f_stop=(1, 2)),
+    ])
     paths = [('data.shape_keys.key_blocks["Key 1"].value', obj), ("data.energy", light), ("data.color", light)]
 
     initial = state.State([obj, light, scene.camera], fields=object_augs.augmentations + light_augs.augmentations)
