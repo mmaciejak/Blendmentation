@@ -6,18 +6,34 @@ Paths starting with "bpy." are absolute (right click > Copy Full Data Path), e.g
 Other paths are relative to the augmented object, e.g. 'data.shape_keys.key_blocks["Key 1"].value'.
 """
 
+from __future__ import annotations
+
 import random
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import bpy_augmentations as bpy_a
 
+if TYPE_CHECKING:
+    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
-def check_p(p):
+#: a number v samples from (-v, v), a pair (low, high) from (low, high)
+Offset = Union[float, tuple[float, float]]
+#: a (min, max) range or an exact number
+RangeOrValue = Union[float, tuple[float, float]]
+#: an object, objects (the center of their bounding boxes), or a point (x, y, z)
+Target = Union["Object", Sequence["Object"], tuple[float, float, float]]
+#: a number for all components, or one value per component (None keeps it)
+Bound = Union[float, Sequence[Optional[float]]]
+
+
+def check_p(p: float) -> float:
     if not 0 <= p <= 1:
         raise ValueError("p must be between 0 and 1")
     return p
 
 
-def happens(p):
+def happens(p: float) -> bool:
     """True with probability p. p = 1 draws no random number, so seeded runs don't change."""
     return p >= 1 or random.random() < p
 
@@ -31,12 +47,12 @@ class Compose:
         p (float): probability of applying the whole composition, drawn once per call
     """
 
-    def __init__(self, augmentations, p: float = 1.0):
+    def __init__(self, augmentations: list[Callable[[Object], Any]], p: float = 1.0):
         self.augmentations = augmentations
         self.p = check_p(p)
-        self.applied = None
+        self.applied: Optional[bool] = None
 
-    def __call__(self, blender_objects):
+    def __call__(self, blender_objects: Sequence[Object]) -> None:
         """Performs the augmentation on objects.
 
         Args:
@@ -62,10 +78,10 @@ class Augmentation:
 
     def __init__(self, p: float = 1.0):
         self.p = check_p(p)
-        self.applied = None
-        self.actual = None
+        self.applied: Optional[bool] = None
+        self.actual: Any = None
 
-    def __call__(self, obj=None):
+    def __call__(self, obj: Optional[Object] = None) -> None:
         """Args:
         obj (bpy.object) : Object to be augmented, not needed for absolute data paths
         """
@@ -75,26 +91,26 @@ class Augmentation:
         else:
             self.skip(obj)
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         raise NotImplementedError
 
-    def skip(self, obj):
+    def skip(self, obj: Optional[Object]) -> None:
         self.actual = None
 
 
 class AxisAugmentation(Augmentation):
     """Base of Translation, Rotation and Scale, sampled per axis into actual_x/y/z."""
 
-    def __init__(self, x: range=(0,0), y: range=(0,0), z: range=(0,0), p: float = 1.0):
+    def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0):
         super().__init__(p)
         self.x = x
         self.y = y
         self.z = z
-        self.actual_x = None
-        self.actual_y = None
-        self.actual_z = None
+        self.actual_x: Optional[float] = None
+        self.actual_y: Optional[float] = None
+        self.actual_z: Optional[float] = None
 
-    def skip(self, obj):
+    def skip(self, obj: Optional[Object]) -> None:
         self.actual_x = self.actual_y = self.actual_z = None
 
 
@@ -109,7 +125,7 @@ class Translation(AxisAugmentation):
         p (float) : probability of applying the augmentation
     """
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
@@ -127,7 +143,7 @@ class Rotation(AxisAugmentation):
         p (float) : probability of applying the augmentation
     """
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object to be augmented
         """
@@ -145,7 +161,7 @@ class Scale(AxisAugmentation):
         p (float) : probability of applying the augmentation
     """
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
@@ -174,8 +190,16 @@ class LookAt(Augmentation):
         Pass the camera to State, it restores the transform and the lens.
     """
 
-    def __init__(self, target, distance=None, elevation=None, azimuth=None, roll=None, focal_length=None,
-                 p: float = 1.0):
+    def __init__(
+        self,
+        target: Target,
+        distance: Optional[RangeOrValue] = None,
+        elevation: Optional[RangeOrValue] = None,
+        azimuth: Optional[RangeOrValue] = None,
+        roll: Optional[RangeOrValue] = None,
+        focal_length: Optional[RangeOrValue] = None,
+        p: float = 1.0,
+    ):
         super().__init__(p)
         self.target = target
         self.distance = distance
@@ -184,7 +208,7 @@ class LookAt(Augmentation):
         self.roll = roll
         self.focal_length = focal_length
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : camera or other object to move
         """
@@ -208,7 +232,8 @@ class FocalLength(Augmentation):
         p (float) : probability of applying the augmentation
     """
 
-    def __init__(self, focal_length, target=None, keep_size: bool = False, p: float = 1.0):
+    def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
+                 p: float = 1.0):
         super().__init__(p)
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
@@ -216,7 +241,7 @@ class FocalLength(Augmentation):
         self.target = target
         self.keep_size = keep_size
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         camera obj (bpy.object.type == 'CAMERA') : camera to augment
         """
@@ -237,12 +262,12 @@ class DepthOfField(Augmentation):
             field settings are left unchanged
     """
 
-    def __init__(self, target=None, f_stop=None, p: float = 1.0):
+    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None, p: float = 1.0):
         super().__init__(p)
         self.target = target
         self.f_stop = f_stop
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         camera obj (bpy.object.type == 'CAMERA') : camera to augment
         """
@@ -268,11 +293,11 @@ class Material(Augmentation):
     def __init__(
         self,
         material_id: str,
-        hue: tuple = None,
-        saturation: tuple = None,
-        value: tuple = None,
-        roughness: tuple = None,
-        metallic: tuple = None,
+        hue: Optional[tuple[float, float]] = None,
+        saturation: Optional[tuple[float, float]] = None,
+        value: Optional[tuple[float, float]] = None,
+        roughness: Optional[tuple[float, float]] = None,
+        metallic: Optional[tuple[float, float]] = None,
         p: float = 1.0,
     ):
         super().__init__(p)
@@ -283,7 +308,7 @@ class Material(Augmentation):
         self.roughness = roughness
         self.metallic = metallic
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
@@ -310,7 +335,8 @@ class Number(Augmentation):
         so the value is restored.
     """
 
-    def __init__(self, data_path: str, value_range: tuple = None, percent=None, p: float = 1.0):
+    def __init__(self, data_path: str, value_range: Optional[tuple[float, float]] = None,
+                 percent: Optional[Offset] = None, p: float = 1.0):
         super().__init__(p)
         if (value_range is None) == (percent is None):
             raise ValueError("Give either value_range or percent")
@@ -318,7 +344,7 @@ class Number(Augmentation):
         self.value_range = value_range
         self.percent = percent
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
@@ -344,7 +370,8 @@ class Vector(Augmentation):
         so the value is restored.
     """
 
-    def __init__(self, data_path: str, value_range: tuple = None, percent=None, p: float = 1.0):
+    def __init__(self, data_path: str, value_range: Optional[tuple[Bound, Bound]] = None,
+                 percent: Union[float, tuple[Bound, Bound], None] = None, p: float = 1.0):
         super().__init__(p)
         if (value_range is None) == (percent is None):
             raise ValueError("Give either value_range or percent")
@@ -352,7 +379,7 @@ class Vector(Augmentation):
         self.value_range = value_range
         self.percent = percent
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
@@ -375,13 +402,13 @@ class Boolean(Augmentation):
         super().__init__(p)
         self.data_path = data_path
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
         self.actual = bpy_a.boolean(obj, self.data_path, True)
 
-    def skip(self, obj):
+    def skip(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.boolean(obj, self.data_path, False)
 
 
@@ -402,7 +429,8 @@ class Menu(Augmentation):
         Pass it to State(fields=...) so the value is restored.
     """
 
-    def __init__(self, data_path: str, options: list = None, weights: list = None, p: float = 1.0):
+    def __init__(self, data_path: str, options: Optional[Sequence[Any]] = None,
+                 weights: Optional[Sequence[float]] = None, p: float = 1.0):
         super().__init__(p)
         if options is not None and weights is not None and len(options) != len(weights):
             raise ValueError("Give one weight per option")
@@ -410,7 +438,7 @@ class Menu(Augmentation):
         self.options = options
         self.weights = weights
 
-    def apply(self, obj):
+    def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """

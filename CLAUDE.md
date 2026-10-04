@@ -12,12 +12,12 @@ Packaging is in `pyproject.toml`; there is no linter config. The code depends on
 
 **Tests** are in `tests/` (pytest) and run with `bpy` as a Python module:
 ```sh
-uv venv --python 3.13 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[module,test]"   # bpy 5.x
+uv venv --python 3.13 .venv && VIRTUAL_ENV=.venv uv pip install -e ".[module,test,dev]"   # bpy 5.x
 uv venv --python 3.11 .venv311 && VIRTUAL_ENV=.venv311 uv pip install "bpy==4.5.14" -e ".[module,test]"  # bpy 4.x
 .venv/bin/python -m pytest                      # all
 .venv/bin/python -m pytest tests/test_generating.py::test_keypoints   # one test
 ```
-Run the suite on both. `conftest.py` resets to an empty factory scene (Workbench, Cycles at 1 CPU sample) with a camera at (0, -10, 0) looking along +Y before every test. The `cube` fixture's default size is 1 (half-extent 0.5), and `renders` records the engine of every render started. Without `bpy`, the conftest still loads and only the pure tests (export) run. Workbench and EEVEE need a GPU.
+Run the suite on both. The `dev` extra is `fake-bpy-module` (stub-only `bpy-stubs`, safe next to the real `bpy`), so Pylance/Pyright know the `bpy` types; check typing with `npx pyright --pythonpath .venv/bin/python <files>`. `conftest.py` resets to an empty factory scene (Workbench, Cycles at 1 CPU sample) with a camera at (0, -10, 0) looking along +Y before every test. The `cube` fixture's default size is 1 (half-extent 0.5), and `renders` records the engine of every render started. Without `bpy`, the conftest still loads and only the pure tests (export) run. Workbench and EEVEE need a GPU.
 
 There are no `bpy` wheels for 4.0/4.1, so 4.0 is only checked in the app. On this machine `Blender 4.app` is Blender 5.2 and `Blender.app` is 4.0, e.g. `"/Applications/Blender.app/Contents/MacOS/Blender" -b --factory-startup --python-exit-code 1 --python script.py`.
 
@@ -41,6 +41,7 @@ Keep this split: Blender-specific logic goes in the `bpy_*` modules, and the pub
 The subpackages:
 
 - **augmentations**: `Compose` applies a list of transforms to each object in a list. Every transform is a callable taking a single `bpy` object, and it **mutates in place**.
+  - The public classes are type-hinted with the aliases at the top of `augmentations.py` (`Offset`, `RangeOrValue`, `Target`, `Bound`); `bpy.types.Object` is imported under `TYPE_CHECKING` only, with `from __future__ import annotations`, so nothing extra is imported at runtime.
   - Every transform subclasses `Augmentation`, takes `p` (probability it runs, default 1, drawn per call, so per object in a `Compose`) and implements `apply(obj)`; `__call__` draws `p`, sets `applied`, and on a skip calls `skip()`, which sets `actual` (or `actual_x/y/z`) to `None`. `p=1` draws no random number. `Compose` also takes `p`, drawn once per call. `Boolean` overrides `skip()` to set False, so for it `p` is the probability of True.
   - `Translation`, `Rotation`, `Scale` (`AxisAugmentation`): each parameter is a number `v`, sampled from (-v, v), or a `(low, high)` pair. Translation is in blender units and rotation in degrees, both added; scale is in percent, multiplied. The sampled values are stored in `actual_x/y/z`.
   - `LookAt(target, distance, elevation, azimuth, roll, focal_length)`: places the object on a sphere around the target (object, list of objects → mean world bbox center, or point) and aims its -Z at it with Y up (`to_track_quat("-Z", "Y")`), then rolls around local Z. Each parameter is `(min, max)`, an exact number, or `None` (keep current; roll defaults to 0). It sets `matrix_world`, so parented cameras work. `focal_length` is cameras only.
@@ -95,7 +96,3 @@ Intended loop (see `example.py`): build `State` once → for N datapoints: apply
 - Blender 5 needs `image_settings.media_type` set alongside `file_format` (`set_file_format` in `bpy_generating.py`).
 - Blender 5.2 EEVEE bug: a VALUE AOV listed before a COLOR AOV in the view layer renders as 0 (Cycles is fine). Listing color AOVs first avoids it.
 - Blender 5.2 warns that `Material.use_nodes` and light node trees are going away in Blender 6.
-
-## Known gaps
-
-- Type hints on `Translation`/`Rotation`/`Scale` say `range`, but the values passed are numbers or `(low, high)` tuples.

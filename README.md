@@ -70,6 +70,10 @@ bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relat
 .venv/bin/python make_dataset.py
 ```
 
+For type hints in your editor (Blender objects in the augmentation signatures, `bpy`
+completions), install the `bpy` type stubs from the `dev` extra:
+`uv pip install -e "/path/to/Blendmentation[module,dev]"`.
+
 All features work the same way in the module. Note that Workbench (used by
 `Segmentation`) and EEVEE need a GPU; this has only been tested on macOS.
 
