@@ -36,7 +36,7 @@ mesh_transform = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
-        augmentations.Scale(x=60.0, y=60.0, z=10.0),
+        augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
         augmentations.Material(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
@@ -50,8 +50,9 @@ lamp_transforms = augmentations.Compose(
         augmentations.Number("data.energy", percent=40.0),
         augmentations.Number("data.shadow_soft_size", percent=20.0),
         augmentations.Vector("data.color", value_range=(0.8, 1.0)),
-        augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1]),
-        augmentations.Boolean("data.use_shadow", probability=0.8),
+        # change the light type in only 30% of the datapoints
+        augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1], p=0.3),
+        augmentations.Boolean("data.use_shadow", p=0.8),
     ]
 )
 
@@ -61,7 +62,7 @@ camera_transforms = augmentations.Compose(
     [
         augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360), roll=(-5, 5)),
         augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True),
-        augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), probability=0.5),
+        augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), p=0.5),
     ]
 )
 

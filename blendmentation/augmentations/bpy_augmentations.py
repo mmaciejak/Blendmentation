@@ -240,23 +240,18 @@ def focal_length(obj, focal_length_range, target, keep_size):
     return applied
 
 
-def depth_of_field(obj, target, f_stop, probability):
-    """Enables depth of field with given probability, focused at the target with a random f-stop,
-    otherwise disables it.
+def depth_of_field(obj, target, f_stop):
+    """Enables depth of field, focused at the target with a random f-stop.
 
     Args:
         target: object, list of objects or point (x, y, z) to focus on, None keeps the focus
         f_stop (tuple): aperture f-stop, (min, max), an exact number, or None to keep it
-        probability (float): probability of enabling depth of field
 
     Returns:
-        dict: enabled, and when enabled f_stop and focus_distance
+        dict: f_stop and focus_distance
     """
     check_camera(obj)
     dof = obj.data.dof
-    if random.random() >= probability:
-        dof.use_dof = False
-        return {"enabled": False}
     dof.use_dof = True
     if target is not None:
         # focus distance along the view axis to the target center, from where the camera is now
@@ -264,7 +259,7 @@ def depth_of_field(obj, target, f_stop, probability):
         dof.focus_object = None
         dof.focus_distance = max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0)
     dof.aperture_fstop = range_or_value(f_stop, dof.aperture_fstop)
-    return {"enabled": True, "f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
+    return {"f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
 
 
 def is_number(value):
@@ -294,8 +289,8 @@ def number(obj, data_path, value_range, percent):
     return new
 
 
-def boolean(obj, data_path, probability):
-    """Sets the boolean value at the data path to True with given probability.
+def boolean(obj, data_path, value):
+    """Sets the boolean value at the data path.
 
     Returns:
         bool: value that was set
@@ -303,7 +298,7 @@ def boolean(obj, data_path, probability):
     current = bpy_paths.get_value(data_path, obj)
     if not isinstance(current, bool) and not (isinstance(current, int) and current in (0, 1)):
         raise TypeError(f"'{data_path}' is not a boolean value")
-    new = random.random() < probability
+    new = bool(value)
     # old blender versions store some booleans as 0/1 ints
     bpy_paths.set_value(data_path, new if isinstance(current, bool) else int(new), obj)
     return new

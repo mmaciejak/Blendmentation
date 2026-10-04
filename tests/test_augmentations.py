@@ -61,6 +61,40 @@ def test_transforms(cube):
     assert 0 <= angle <= 30
 
 
+def test_probability(cube):
+    obj = cube("Cube")
+    never = A.Translation(x=1, p=0)
+    never(obj)
+    assert never.applied is False and never.actual_x is None and obj.location.x == 0
+
+    always = A.Number("location[1]", value_range=(1, 2))
+    always(obj)
+    assert always.applied is True and 1 <= obj.location.y <= 2
+
+    obj.hide_render = True
+    off = A.Boolean("hide_render", p=0)
+    off(obj)
+    assert off.applied is False and off.actual is False and obj.hide_render is False
+
+    skipped = A.Compose([A.Number("location[2]", value_range=(1, 2))], p=0)
+    skipped([obj])
+    assert skipped.applied is False and obj.location.z == 0
+
+    half = A.Rotation(z=10, p=0.5)
+    applied = []
+    for _ in range(200):
+        half(obj)
+        applied.append(half.applied)
+        assert (half.actual_z is None) != half.applied
+    assert 60 < sum(applied) < 140
+
+    for p in (-0.1, 1.5):
+        with pytest.raises(ValueError):
+            A.Boolean("hide_render", p=p)
+        with pytest.raises(ValueError):
+            A.Compose([], p=p)
+
+
 def test_material(cube):
     obj = cube("Cube")
     material = new_material(obj, "Mat")
@@ -98,8 +132,8 @@ def test_number_vector_boolean(cube):
     A.Vector(path("Offset"), value_range=(2, 3))(obj)
     assert all(2 <= c <= 3 for c in bpy_paths.get_value(path("Offset"), obj))
 
-    A.Boolean(path("Flag"), probability=1.0)(obj)
-    A.Boolean("hide_render", probability=1.0)(obj)
+    A.Boolean(path("Flag"), p=1.0)(obj)
+    A.Boolean("hide_render", p=1.0)(obj)
     assert bpy_paths.get_value(path("Flag"), obj) and obj.hide_render
 
 
@@ -244,8 +278,9 @@ def test_depth_of_field(scene, cube):
     assert dof.use_dof and 1.4 <= dof.aperture_fstop <= 4
     assert dof.focus_distance == pytest.approx(distance, rel=1e-5) and dof.focus_object is None
 
-    off = A.DepthOfField(target, f_stop=2.8, probability=0.0)
-    off(camera)
-    assert not dof.use_dof and off.actual == {"enabled": False}
+    dof.use_dof = False
+    skipped = A.DepthOfField(target, f_stop=2.8, p=0.0)
+    skipped(camera)
+    assert not dof.use_dof and dof.aperture_fstop != 2.8 and skipped.actual is None
     with pytest.raises(TypeError):
         A.DepthOfField(target)(bpy.data.objects.new("empty", None))
