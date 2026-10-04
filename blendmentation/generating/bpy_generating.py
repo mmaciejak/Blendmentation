@@ -34,6 +34,27 @@ PASSES = {
 # EXR stores channels sorted by name (U, V, A becomes A, U, V), this is their natural
 # order, which matters when they are written to formats without channel names, like PNG
 CHANNEL_ORDER = ("R", "G", "B", "X", "Y", "Z", "W", "U", "V", "A")
+BBOX_IMAGE_FORMATS = {"PNG": ".png", "JPEG": ".jpg"}
+# bbox colors, one per class in order of appearance
+BBOX_COLORS = (
+    (230, 25, 75), (60, 180, 75), (0, 130, 200), (255, 225, 25), (245, 130, 48),
+    (145, 30, 180), (70, 240, 240), (240, 50, 230), (210, 245, 60), (250, 190, 212),
+)
+# 3x5 pixel font for the class names, blender's OpenImageIO cannot render text.
+# Rows top to bottom, other characters are drawn as "?"
+FONT = {
+    "A": "010101111101101", "B": "110101110101110", "C": "011100100100011", "D": "110101101101110",
+    "E": "111100110100111", "F": "111100110100100", "G": "011100101101011", "H": "101101111101101",
+    "I": "111010010010111", "J": "001001001101010", "K": "101101110101101", "L": "100100100100111",
+    "M": "101111111101101", "N": "110101101101101", "O": "010101101101010", "P": "110101110100100",
+    "Q": "010101101110011", "R": "110101110101101", "S": "011100010001110", "T": "111010010010010",
+    "U": "101101101101111", "V": "101101101101010", "W": "101101111111101", "X": "101101010101101",
+    "Y": "101101010010010", "Z": "111001010100111", "0": "111101101101111", "1": "010110010010111",
+    "2": "110001010100111", "3": "110001010001110", "4": "101101111001001", "5": "111100110001110",
+    "6": "011100111101111", "7": "111001010010010", "8": "111101111101111", "9": "111101111001110",
+    " ": "000000000000000", "_": "000000000000111", "-": "000000111000000", ".": "000000000000010",
+    ":": "000010000010000", "?": "110001010000010",
+}
 # output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
@@ -505,6 +526,90 @@ def render_passes(frame, names, file_format):
             raise RuntimeError(f"Pass '{name}' was not rendered, {frame.scene.render.engine} may not support it{hint}")
         files[name] = file_name
     frame.label["passes"] = files
+
+
+def check_bbox_image(file_format, line_width):
+    if file_format not in BBOX_IMAGE_FORMATS:
+        raise ValueError(f"BBoxImage file_format must be one of {list(BBOX_IMAGE_FORMATS)}")
+    if not isinstance(line_width, int) or line_width < 1:
+        raise ValueError("BBoxImage line_width must be a whole number of pixels, at least 1")
+
+
+def text_pixels(text, scale):
+    """Boolean (height, width) array of the text in the 3x5 pixel font, scaled up."""
+    glyphs = [np.array([int(bit) for bit in FONT.get(char, FONT["?"])], dtype=bool).reshape(5, 3)
+              for char in text.upper()]
+    spaced = [np.pad(glyph, ((0, 0), (0, 1))) for glyph in glyphs]
+    pixels = np.concatenate(spaced, axis=1)[:, :-1] if spaced else np.zeros((5, 0), dtype=bool)
+    return np.kron(pixels, np.ones((scale, scale), dtype=bool))
+
+
+def paint(pixels, rows, columns, color):
+    """Paints the clipped area with an RGB color, opaque when the image has alpha."""
+    rows, columns = slice(max(rows.start, 0), max(rows.stop, 0)), slice(max(columns.start, 0), max(columns.stop, 0))
+    pixels[rows, columns, :3] = color
+    if pixels.shape[2] == 4:
+        pixels[rows, columns, 3] = 255
+
+
+def draw_bbox(pixels, box, color, line_width, text, text_scale):
+    """Draws a bbox outline, with the text on a filled tab above it (inside when at the top edge)."""
+    height, width = pixels.shape[:2]
+    x_min, y_min = int(np.floor(box[0])), int(np.floor(box[1]))
+    x_max, y_max = min(int(np.ceil(box[2])), width), min(int(np.ceil(box[3])), height)
+    paint(pixels, slice(y_min, y_max), slice(x_min, x_min + line_width), color)
+    paint(pixels, slice(y_min, y_max), slice(x_max - line_width, x_max), color)
+    paint(pixels, slice(y_min, y_min + line_width), slice(x_min, x_max), color)
+    paint(pixels, slice(y_max - line_width, y_max), slice(x_min, x_max), color)
+    if not text:
+        return
+
+    glyphs = text_pixels(text, text_scale)
+    padding = text_scale
+    tab_height, tab_width = glyphs.shape[0] + 2 * padding, glyphs.shape[1] + 2 * padding
+    top = y_min - tab_height if y_min - tab_height >= 0 else y_min
+    left = min(x_min, width - tab_width)
+    paint(pixels, slice(top, top + tab_height), slice(left, left + tab_width), color)
+    # dark text on bright colors
+    text_color = (0, 0, 0) if 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2] > 150 else (255, 255, 255)
+    rows, columns = np.nonzero(glyphs)
+    rows, columns = rows + top + padding, columns + left + padding
+    inside = (rows >= 0) & (rows < height) & (columns >= 0) & (columns < width)
+    pixels[rows[inside], columns[inside], :3] = text_color
+
+
+def bbox_image(frame, file_format, line_width, show_class):
+    """Saves a copy of the beauty render with the bboxes of the labels drawn on it, to
+    <path>/<index>_bboxes.<ext>. Reuses the render, the main image stays clean."""
+    if "bboxes" not in frame.label:
+        raise RuntimeError("BBoxImage draws the bboxes of a BBox step, add BBox to the steps")
+    frame.beauty()
+    # color managed 8 bit copy of the render result, like the main image
+    beauty_file = os.path.join(frame.temp_dir, "bbox_beauty.png")
+    image_settings = frame.scene.render.image_settings
+    set_file_format(image_settings, "PNG")
+    image_settings.color_mode = "RGBA"
+    image_settings.color_depth = "8"
+    bpy.data.images["Render Result"].save_render(beauty_file, scene=frame.scene)
+    pixels = oiio.ImageBuf(beauty_file).get_pixels(oiio.UINT8)
+    if file_format == "JPEG":
+        pixels = pixels[:, :, :3]
+    pixels = np.ascontiguousarray(pixels)
+
+    text_scale = max(2, frame.height // 160)
+    class_names = list(dict.fromkeys(entry["class"] for entry in frame.label["bboxes"]))
+    for entry in frame.label["bboxes"]:
+        if entry["bbox"] is not None:
+            color = BBOX_COLORS[class_names.index(entry["class"]) % len(BBOX_COLORS)]
+            draw_bbox(pixels, entry["bbox"], color, line_width, entry["class"] if show_class else "", text_scale)
+
+    file_name = frame.file_name(f"_bboxes{BBOX_IMAGE_FORMATS[file_format]}")
+    height, width, channels = pixels.shape
+    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, channels, oiio.UINT8))
+    buffer.set_pixels(oiio.ROI(), pixels)
+    if not buffer.write(os.path.join(frame.path, file_name)):
+        raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
+    frame.label["bbox_image"] = file_name
 
 
 def camera_intrinsics(scene, camera_data, width, height):

@@ -73,6 +73,7 @@ image_generator = generating.Compose(
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5),
+        generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
         generating.Segmentation(classes, per="both"),
         generating.RotationMatrix([obj1, obj2]),
         generating.CameraData(),

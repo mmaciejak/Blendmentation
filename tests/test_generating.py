@@ -83,6 +83,8 @@ def test_pass_not_supported_by_engine(scene, cube, out):
     [G.Render(), G.RotationMatrix([])],
     [G.Render(), G.OutputField("x", "location")],
     [G.Render(), G.Keypoints(["not a dict"])],
+    [G.Render(), G.BBox({}), G.BBoxImage("TIFF")],
+    [G.Render(), G.BBox({}), G.BBoxImage(line_width=0)],
 ])
 def test_config_errors_before_render(scene, out, renders, steps):
     scene.render.engine = "CYCLES"
@@ -123,6 +125,38 @@ def test_bboxes_masks_and_classes(scene, cube, out, renders):
     # the unlabeled blocker hides part of the table
     box = projected_bbox(scene, [blocker], 320, 240)
     assert not table_mask[int((box[1] + box[3]) / 2), int((box[0] + box[2]) / 2)]
+
+
+def test_bbox_image(scene, cube, out, renders):
+    car = cube("car", (-2, 0, 0))
+    table = cube("table", (2, 0, 0))
+    steps = [G.BBoxImage(line_width=3), G.Render(), G.BBox({"car": [car], "table": [table]})]
+    assert G.Compose(steps, out, (320, 240))()
+    assert renders == ["BLENDER_WORKBENCH"]
+    data = label(out)
+    assert data["image"] == "000000.png" and data["bbox_image"] == "000000_bboxes.png"
+    image = read_image(os.path.join(out, "000000.png"))
+    drawn = read_image(os.path.join(out, "000000_bboxes.png"))
+    for entry, color in zip(data["bboxes"], bpy_generating.BBOX_COLORS):
+        x_min, y_min, x_max, y_max = entry["bbox"]
+        middle_row = int((y_min + y_max) / 2)
+        edge = drawn[middle_row, int(x_min) + 1]
+        assert edge[:3] == pytest.approx(np.array(color) / 255, abs=1e-3) and edge[3] == 1
+        # the main image has no box, and inside the box the copy is unchanged
+        assert image[middle_row, int(x_min) + 1][:3] != pytest.approx(edge[:3], abs=0.05)
+        center = (middle_row, int((x_min + x_max) / 2))
+        assert drawn[center] == pytest.approx(image[center], abs=1 / 255)
+        # the class name tab sits above the box
+        assert drawn[int(y_min) - 2, int(x_min) + 1][:3] == pytest.approx(np.array(color) / 255, abs=1e-3)
+
+    # without Render, still one render and no main image, JPEG without class names
+    renders.clear()
+    assert G.Compose([G.BBoxImage("JPEG", show_class=False), G.BBox({"car": [car]})], out, (64, 48))()
+    assert renders == ["BLENDER_WORKBENCH"]
+    assert "000001_bboxes.jpg" in os.listdir(out) and "000001.png" not in os.listdir(out)
+
+    with pytest.raises(ValueError, match="BBox"):
+        G.Compose([G.Render(), G.BBoxImage()], out, (64, 48))
 
 
 def test_many_instances(scene, cube, out):

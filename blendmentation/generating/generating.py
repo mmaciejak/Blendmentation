@@ -2,8 +2,8 @@
 
 Steps run in a fixed order whatever order they are given in: labels (BBox,
 RotationMatrix, OutputField, CameraData, Keypoints) first, so a skipped datapoint
-is never rendered, then Render, AOVToImage / Passes and Segmentation.
-Render, AOVToImage and Passes share one render.
+is never rendered, then Render, AOVToImage / Passes / BBoxImage and Segmentation.
+Render, AOVToImage, Passes and BBoxImage share one render.
 
 BBox and Segmentation take classes as {class name: [instances]}, an instance is
 an object, or a sublist of objects labeled as one object, e.g.
@@ -24,6 +24,8 @@ class Compose:
     """
 
     def __init__(self, steps, path, resolution):
+        if any(isinstance(step, BBoxImage) for step in steps) and not any(isinstance(step, BBox) for step in steps):
+            raise ValueError("BBoxImage draws the bboxes of a BBox step, add BBox to the steps")
         self.steps = sorted(steps, key=lambda step: step.stage)
         self.path = path
         self.resolution = resolution
@@ -225,6 +227,31 @@ class Passes:
 
     def __call__(self, frame):
         bpy_g.render_passes(frame, self.names, self.file_format)
+
+
+class BBoxImage:
+    """Saves a copy of the rendered image with the bboxes of the BBox step drawn on it,
+    to <index>_bboxes.<ext>, for checking the labels. Uses the same render as Render,
+    the main image stays clean. Each class has its own color.
+
+    Args:
+        file_format (str): "PNG" or "JPEG"
+        line_width (int): outline width in pixels
+        show_class (bool): writes the class name above each box
+    """
+
+    stage = 2
+
+    def __init__(self, file_format: str = "PNG", line_width: int = 2, show_class: bool = True):
+        self.file_format = file_format
+        self.line_width = line_width
+        self.show_class = show_class
+
+    def check(self):
+        bpy_g.check_bbox_image(self.file_format, self.line_width)
+
+    def __call__(self, frame):
+        bpy_g.bbox_image(frame, self.file_format, self.line_width, self.show_class)
 
 
 class Segmentation:

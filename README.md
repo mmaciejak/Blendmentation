@@ -120,6 +120,7 @@ generator = generating.Compose(
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5),
+        generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
         generating.Segmentation(classes, per="both"),
         generating.RotationMatrix([car_1, car_2]),
         generating.CameraData(),
@@ -337,6 +338,7 @@ resolution divided by `factor`.
 | `AOVToImage(names, file_format="OPEN_EXR")` | `<index>_<aov>.exr`, or `.png` for `"PNG"` (8-bit, clamped to 0–1) |
 | `Passes(names, file_format="OPEN_EXR")` | `<index>_<pass>.exr` / `.png` for built-in passes (depth, normal…) |
 | `BBox(classes, iou_deconflict=None)` | `"bboxes"` in the label |
+| `BBoxImage(file_format="PNG", line_width=2, show_class=True)` | `<index>_bboxes.png` (or `.jpg`), the image with the bboxes drawn on it |
 | `Segmentation(classes, per="instance")` | mask PNGs and `"masks"` in the label |
 | `RotationMatrix(objects)` | `"rotation_matrices"` in the label |
 | `OutputField(name, data_path, objects=None)` | `name` in the label |
@@ -348,7 +350,7 @@ You can list the steps in any order. They always run in this order:
 1. Label steps (`BBox`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`).
    Because these come first, a datapoint skipped by `iou_deconflict` is never rendered.
 2. `Render`.
-3. `AOVToImage` and `Passes`.
+3. `AOVToImage`, `Passes` and `BBoxImage`.
 4. `Segmentation`.
 
 Settings are checked before anything renders, so a typo fails immediately.
@@ -417,6 +419,12 @@ corner. They are calculated from the geometry (modifiers included), so parts hid
 behind other objects are inside the box. An object out of frame gets `null`. With
 `iou_deconflict`, a datapoint where any two boxes overlap more than that IoU is skipped.
 
+**BBoxImage.** Saves a copy of the rendered image with the boxes of the `BBox` step
+drawn on it, for checking the labels by eye. Each class has its own color, and with
+`show_class` its name (in capitals) is written above the box. It reuses the render of
+`Render`, so it adds no render time, and the main image stays clean. It needs a `BBox`
+step in the same `Compose`.
+
 **Segmentation.** Masks are black-and-white PNGs of the **visible** pixels only.
 Objects that are not in `classes` still hide what is behind them.
 
@@ -449,6 +457,7 @@ objects…) become their name.
 {
   "resolution": [640, 480],
   "image": "000000.png",
+  "bbox_image": "000000_bboxes.png",
   "aovs": {"Albedo": "000000_Albedo.exr"},
   "bboxes": [
     {"class": "car", "objects": ["Car.001"], "bbox": [102.4, 87.1, 233.9, 190.2]},
