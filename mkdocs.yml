@@ -68,4 +68,4 @@ plugins:
             show_symbol_type_heading: true
             show_symbol_type_toc: true
             # internals the public classes implement for Compose
-            filters: ["!^_", "!^apply$", "!^skip$", "!^check$", "!^prepare$", "!^stage$", "!^check_p$", "!^happens$"]
+            filters: ["!^_", "!^apply$", "!^skip$", "!^check$", "!^prepare$", "!^stage$", "!^AxisAugmentation$", "!^check_p$", "!^happens$"]

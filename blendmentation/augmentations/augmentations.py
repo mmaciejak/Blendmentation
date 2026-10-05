@@ -1,13 +1,16 @@
-"""Augmentations that randomize Blender objects in place.
+"""Randomize objects, materials and any other value in the scene, in place.
 
-Every augmentation is a callable that takes one object and changes it. `Compose`
-applies a list of them to a list of objects. Save the scene with `State` before
-augmenting, and restore it after every datapoint.
+`Compose` applies a list of augmentations to every object it is called with. Each
+augmentation takes `p`, the probability that it runs, drawn per object. After a
+call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
+it set. Save the scene with `State` first, and restore it after every datapoint.
 
-`Number`, `Vector`, `Boolean` and `Menu` take a data path to the value they change.
-Paths starting with `bpy.` are absolute (right click > Copy Full Data Path), e.g.
-`'bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value'`.
-Other paths are relative to the augmented object, e.g. `'data.shape_keys.key_blocks["Key 1"].value'`.
+`Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
+starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
+Path. Any other path is relative to the augmented object, e.g. `data.energy`.
+Geometry nodes inputs moved in Blender 5, so their path depends on the version:
+`modifiers["GeometryNodes"]["Socket_2"]` in 4.x,
+`modifiers["GeometryNodes"].properties.inputs.Socket_2.value` in 5.x.
 """
 
 from __future__ import annotations
@@ -436,10 +439,12 @@ class Number(Augmentation):
     Raises:
         ValueError: neither or both of `value_range` and `percent` are given.
 
-    Note:
-        Pass it to `State(fields=...)` so the value is restored. An absolute path inside
-        a `Compose` runs once per object, so `percent` compounds; call it on its own
-        instead, as `aug()`.
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it. It runs once per object
+        the `Compose` is called with, so with `percent` the change builds up: call that
+        `Compose` with one object, or use `value_range`.
 
     Example:
         ```python
@@ -482,8 +487,12 @@ class Vector(Augmentation):
     Raises:
         ValueError: neither or both of `value_range` and `percent` are given.
 
-    Note:
-        Pass it to `State(fields=...)` so the value is restored.
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it. It runs once per object
+        the `Compose` is called with, so with `percent` the change builds up: call that
+        `Compose` with one object, or use `value_range`.
 
     Example:
         ```python
@@ -523,8 +532,10 @@ class Boolean(Augmentation):
             the object.
         p: probability of True.
 
-    Note:
-        Pass it to `State(fields=...)` so the value is restored.
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it.
 
     Example:
         ```python
@@ -563,8 +574,10 @@ class Menu(Augmentation):
     Raises:
         ValueError: the number of weights and options differ.
 
-    Note:
-        Pass it to `State(fields=...)` so the value is restored.
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it.
 
     Example:
         ```python

@@ -92,4 +92,4 @@ export.yolo("//dataset")
 ## Next steps
 
 - [Installation](installation.md): inside Blender, or as a Python module.
-- [Augmentations](augmentations.md), [State](state.md), [Generating](generating.md) and [Export](export.md): the guide and API reference for each module.
+- [Augmentations](augmentations.md), [State](state.md), [Generating](generating.md) and [Export](export.md): the reference for each module, with examples.

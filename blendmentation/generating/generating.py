@@ -1,15 +1,15 @@
-"""Generating steps, composed like augmentations: every call of `Compose` saves one
-datapoint (images, masks and a JSON label).
+"""Save a datapoint per call: the render, passes, AOVs, masks, preview images and a
+JSON label, `<index>.json`.
 
-Steps run in a fixed order whatever order they are given in: labels (`BBox`,
-`RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`) first, so a skipped
-datapoint is never rendered, then `Render`, then `AOVToImage` / `Passes` /
-`BBoxImage`, then `Segmentation`, then `SegmentationImage`. `Render`, `AOVToImage`,
-`Passes` and both preview images share one render.
+The steps can be listed in any order; they always run as: label steps (`BBox`,
+`RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
+by `iou_deconflict` is never rendered, then `Render`, then `AOVToImage`, `Passes`
+and `BBoxImage`, then `Segmentation`, then `SegmentationImage`. All steps except
+`Segmentation` share one render.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
-instance is an object, or a sublist of objects labeled as one object, e.g.
-`{"car": [car_1, car_2], "table": [[table_top, table_leg_1, table_leg_2]]}`.
+instance is an object, or a sublist of objects labeled as one:
+`{"car": [car_1, car_2], "table": [[table_top, table_legs]]}`.
 """
 
 from __future__ import annotations
