@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # the release workflow runs the tests before publishing
+  workflow_call:
+
+jobs:
+  blender:
+    name: bpy ${{ matrix.bpy }} (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # each bpy release supports one python version
+          - bpy: "5.x"
+            python: "3.13"
+            requirement: "bpy>=5.1"
+          - bpy: "4.5"
+            python: "3.11"
+            requirement: "bpy==4.5.14"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install OpenGL for headless rendering
+        # Workbench renders through EGL, mesa renders on the CPU when there is no GPU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libegl-mesa0 libxi6 libxxf86vm1 \
+            libxfixes3 libxrender1 libxkbcommon0 libsm6
+      - name: Install
+        run: pip install "${{ matrix.requirement }}" -e ".[module,test]"
+      - name: Test
+        run: python -m pytest
+
+  without-blender:
+    # export runs in a plain interpreter, the blender tests are skipped
+    name: Export only (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: pip install -e ".[test]"
+      - name: Test
+        run: python -m pytest

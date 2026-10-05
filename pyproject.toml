@@ -8,8 +8,20 @@ version = "0.1.0"
 description = "Synthetic, augmented training datasets from Blender scenes"
 readme = "README.md"
 requires-python = ">=3.10"
-# inside blender bpy, numpy and OpenImageIO are bundled, nothing is needed
-dependencies = []
+keywords = ["blender", "synthetic data", "data augmentation", "computer vision", "dataset"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+]
+# Blender bundles numpy with pip metadata (4.0: 1.23.5), so installing into Blender's python
+# downloads nothing. bpy and OpenImageIO are bundled too but invisible to pip, a dependency on
+# them would install a second copy (bpy is ~400 MB), so they are in the "module" extra
+dependencies = ["numpy>=1.23"]
+
+[project.urls]
+Homepage = "https://github.com/mmaciejak/Blendmentation"
+Issues = "https://github.com/mmaciejak/Blendmentation/issues"
 
 [project.optional-dependencies]
 # blender as a python module, bpy supports one python version per release (5.1+: 3.13, 4.2-5.0: 3.11)

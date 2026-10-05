@@ -13,13 +13,44 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 ## Requirements
 
 - Blender 4.0 or newer. It is tested on 4.0 and 5.2.
-- Nothing to install. The code runs in Blender's bundled Python, and uses `numpy` and
+- Nothing else. The code runs in Blender's bundled Python, and uses `numpy` and
   `OpenImageIO`, which ship with Blender.
 
 ## Setup
 
-Inside Blender, the simplest setup is to add the folder that contains
-`blendmentation/` to `sys.path` in your script, then import the modules as a package:
+It is not on PyPI yet, so pip installs it straight from GitHub (this needs `git`).
+
+There are three ways to use it: install it into Blender with pip, point your script at a
+copy of this repository, or use Blender as a Python module without the app.
+
+### Inside Blender, with pip
+
+Install it with Blender's own Python into your Blender user scripts folder, which
+Blender adds to `sys.path`. On macOS, for Blender 4.2:
+
+```sh
+"/Applications/Blender.app/Contents/Resources/4.2/python/bin/python3.11" -m pip install \
+    --no-deps --target "$HOME/Library/Application Support/Blender/4.2/scripts/modules" git+https://github.com/mmaciejak/Blendmentation
+```
+
+- **Paths:** use your Blender version in both paths. In Blender,
+  `bpy.utils.user_resource("SCRIPTS", path="modules")` prints the folder for your system.
+- **`--no-deps` matters:** `--target` doesn't see the numpy bundled with Blender and
+  would install a second copy, which Blender would then import instead of its own.
+- **Restart Blender** afterwards: it only adds the folder if it existed at startup.
+
+Then import it in any script:
+
+```python
+from blendmentation.augmentations import augmentations
+from blendmentation.generating import generating
+from blendmentation.state import state
+```
+
+### Inside Blender, from a copy of the repository
+
+Add the folder that contains `blendmentation/` to `sys.path` in your script, then
+import the modules as a package:
 
 ```python
 import sys
@@ -46,12 +77,17 @@ only one Python version:
 | 5.1, 5.2 | 3.13 |
 | 4.x, 5.0 | 3.11 |
 
-OpenImageIO is bundled with the Blender app but not with the module, so install it too:
+OpenImageIO is bundled with the Blender app but not with the module. The `module` extra
+installs both:
 
 ```sh
-uv venv --python 3.13 .venv                       # or: python3.13 -m venv .venv
-uv pip install -e "/path/to/Blendmentation[module]"  # installs bpy and OpenImageIO too
+uv venv --python 3.13 .venv                 # or: python3.13 -m venv .venv
+uv pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"   # installs bpy and OpenImageIO too
 ```
+
+Without the extra only `blendmentation.export` works;
+the other modules raise an error saying how to get Blender. Don't use the extra inside
+the Blender app, which already has both.
 
 The package is installed, so `sys.path` isn't needed. The script is otherwise the same
 as inside Blender, except that you open the `.blend` file yourself:
@@ -72,10 +108,11 @@ bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relat
 
 For type hints in your editor (Blender objects in the augmentation signatures, `bpy`
 completions), install the `bpy` type stubs from the `dev` extra:
-`uv pip install -e "/path/to/Blendmentation[module,dev]"`.
+`uv pip install "blendmentation[module,dev] @ git+https://github.com/mmaciejak/Blendmentation"`.
 
-All features work the same way in the module. Note that Workbench (used by
-`Segmentation`) and EEVEE need a GPU; this has only been tested on macOS.
+All features work the same way in the module. Workbench (used by `Segmentation`) and
+EEVEE need OpenGL: a GPU, or on Linux without one, Mesa's software rendering (as in CI).
+It is tested on macOS, and the test suite also runs on Linux.
 
 ## Quick start
 
@@ -515,7 +552,7 @@ export.voc("//dataset")    # <path>/Annotations/<index>.xml
 ## Tests
 
 The tests run with pytest and use Blender as a Python module, so they need a
-`bpy`-compatible Python and a GPU (for Workbench):
+`bpy`-compatible Python and OpenGL for Workbench (a GPU, or Mesa on Linux):
 
 ```sh
 uv venv --python 3.13 .venv
@@ -524,7 +561,24 @@ uv pip install -e ".[module,test]"
 ```
 
 Without `bpy`, only the tests that don't need Blender run, and the rest are skipped.
-The suite passes with `bpy` 5.2 (Python 3.13) and `bpy` 4.5 (Python 3.11).
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `main` and
+every pull request: with `bpy` 5.x (Python 3.13) and `bpy` 4.5 (Python 3.11) on Linux
+with Mesa software rendering, and without Blender on Python 3.10 and 3.12. Blender 4.0
+has no `bpy` wheel, so it is only checked in the app.
+
+## Releasing
+
+Releases are made by `.github/workflows/release.yml`:
+
+1. Set the new `version` in `pyproject.toml` and commit it.
+2. Tag the commit with the same version and push the tag:
+   `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow runs the tests, checks that the tag matches the version, builds the wheel
+and sdist, and creates a GitHub release with notes and both files attached. It is not
+published to PyPI yet; until then, install a release from its wheel, e.g.
+`pip install https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl`.
 
 ## Known issues
 
