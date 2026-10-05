@@ -30,6 +30,10 @@ The code also runs with `bpy` as a plain Python module (`pip install bpy OpenIma
 
 There are two usage examples: `example.py` and the "Quick start", which is in both the README and `docs/index.md` (keep them identical). **Every new user-facing feature (augmentation, generating step, export, option) must be added to both**, and both must still run. To check them, build a scene matching what each describes (the `example.py` docstring and the paragraph above the quick start), save it as a `.blend`, and run the example with fewer datapoints. Run it in the app and as a module. Keep the scene descriptions up to date when a feature needs something new in the scene.
 
+## Agent skill
+
+`skills/blendmentation/SKILL.md` is an agent skill for using the library through Blender MCP (documented in `docs/blender-mcp.md`). It covers the `sys.path` setup inside Blender, how the MCP code tool runs code (fresh `{"bpy": bpy}` namespace per call, printed output only, a time limit), batching and restoring, and has an API overview table. **Keep its pipeline example and overview in sync** when a user-facing feature is added or changed. Its `python` blocks are runnable in order (setup, header, inspect, pipeline, preview, batch, export); check them by running each from a `bpy.app.timers` callback with `exec(code, {"bpy": bpy})` in the Blender app, as the `blender-mcp` add-on does.
+
 ## Documentation
 
 The docs site (MkDocs Material + mkdocstrings, `mkdocs.yml`) is built from `docs/` and the docstrings, and `.github/workflows/docs.yml` deploys it to GitHub Pages (https://mmaciejak.github.io/Blendmentation/) on every push to `main`. The README is only a landing page: intro, installation, quick start and links.

@@ -118,6 +118,7 @@ export.yolo("//dataset")
 - [State](https://mmaciejak.github.io/Blendmentation/state/): saving and restoring the scene.
 - [Generating](https://mmaciejak.github.io/Blendmentation/generating/): renders, passes, AOVs, masks, labels and preview images.
 - [Export](https://mmaciejak.github.io/Blendmentation/export/): COCO, YOLO and Pascal VOC.
+- [Compatibility with Blender MCP](https://mmaciejak.github.io/Blendmentation/blender-mcp/): an agent skill ([`skills/blendmentation`](skills/blendmentation/SKILL.md)) for AI agents that control Blender through [Blender MCP](https://github.com/ahujasid/blender-mcp).
 - [Development](https://mmaciejak.github.io/Blendmentation/development/): tests, releases and known issues.
 
 The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]"` and

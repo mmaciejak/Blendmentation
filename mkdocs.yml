@@ -12,6 +12,7 @@ nav:
   - State: state.md
   - Generating: generating.md
   - Export: export.md
+  - Compatibility with Blender MCP: blender-mcp.md
   - Development: development.md
 
 theme:
