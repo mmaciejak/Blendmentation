@@ -282,16 +282,18 @@ def read_multilayer(file_path):
     return parts
 
 
-def save_layer(frame, layer_names, file_name, file_format, channel_names=None):
+def save_layer(frame, layer_names, file_name, file_format, channel_names=None, skip_empty=False):
     """Saves one layer of the beauty render (an AOV or a pass) to <path>/<file_name>.
     Channels are named <view layer>.<layer>.<channel>, in one or several EXR parts.
 
     Args:
         layer_names (tuple): names the layer may have in the EXR, the first found is used
         channel_names (function): number of channels -> new channel names, None keeps them
+        skip_empty (bool): don't write the layer when it is empty (see `layer_empty`)
 
     Returns:
-        str: file_name, or None if the layer is not in the render result
+        tuple: whether the layer is in the render result, and file_name, or None when
+            skip_empty skipped it
     """
     multilayer, parts = frame.multilayer()
     for layer in layer_names:
@@ -304,17 +306,26 @@ def save_layer(frame, layer_names, file_name, file_format, channel_names=None):
             continue
         break
     else:
-        return None
+        return False, None
 
     found.sort(key=lambda item: CHANNEL_ORDER.index(item[1]) if item[1] in CHANNEL_ORDER else len(CHANNEL_ORDER))
     indices = tuple(i for i, _ in found)
     new_names = channel_names(len(indices)) if channel_names else tuple(name for _, name in found)
     buffer = oiio.ImageBufAlgo.channels(oiio.ImageBuf(multilayer, part, 0), indices, new_names)
+    if skip_empty and layer_empty(buffer.get_pixels(oiio.FLOAT), new_names):
+        return True, None
     if file_format == "OPEN_EXR":
         buffer.set_write_format(oiio.FLOAT)
     if not buffer.write(os.path.join(frame.path, file_name)):
         raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
-    return file_name
+    return True, file_name
+
+
+def layer_empty(pixels, channel_names):
+    """Whether every pixel of a (height, width, channels) layer is 0 (black), ignoring
+    alpha unless it is the only channel."""
+    channels = [i for i, name in enumerate(channel_names) if name != "A"] or list(range(len(channel_names)))
+    return not pixels[:, :, channels].any()
 
 
 def aov_channel_names(count):
@@ -392,7 +403,7 @@ def render_ids(scene, groups, file_path, hide_others=False):
     return ids
 
 
-def mask_file(path, file_name, mask):
+def write_mask(path, file_name, mask):
     """Writes a boolean (height, width) mask as a black and white PNG."""
     height, width = mask.shape
     buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, 1, oiio.UINT8))
@@ -402,7 +413,7 @@ def mask_file(path, file_name, mask):
     return file_name
 
 
-def save_masks(ids, instances, path, index, per):
+def save_masks(ids, instances, path, index, per, skip_empty=False):
     """Saves black and white mask PNGs of the visible pixels, per instance as
     <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png
 
@@ -410,20 +421,25 @@ def save_masks(ids, instances, path, index, per):
         ids (np.ndarray): id image of the instances, from `render_ids`
         instances (list): (class name, [objects]) pairs
         per (str): "instance", "class" or "both"
+        skip_empty (bool): don't write empty masks, their "mask" is None
 
     Returns:
         list: {"class", "objects", "mask", "per"} for every mask
     """
+
+    def mask_file(file_name, mask):
+        return None if skip_empty and not mask.any() else write_mask(path, file_name, mask)
+
     entries = []
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
-            file_name = mask_file(path, f"{index:06d}_mask_{number}.png", ids == number + 1)
+            file_name = mask_file(f"{index:06d}_mask_{number}.png", ids == number + 1)
             entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name, "per": "instance"})
     if per in ("class", "both"):
         for class_name in dict.fromkeys(class_name for class_name, _ in instances):
             numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
             safe_name = re.sub(r"[^\w.-]", "_", class_name)
-            file_name = mask_file(path, f"{index:06d}_mask_{safe_name}.png", np.isin(ids, [n + 1 for n in numbers]))
+            file_name = mask_file(f"{index:06d}_mask_{safe_name}.png", np.isin(ids, [n + 1 for n in numbers]))
             objects = [obj.name for number in numbers for obj in instances[number][1]]
             entries.append({"class": class_name, "objects": objects, "mask": file_name, "per": "class"})
     return entries
@@ -641,14 +657,15 @@ def render_image(frame, file_format):
     frame.label["image"] = file_name
 
 
-def aov_images(frame, names, file_format):
-    """Saves the AOVs to <path>/<index>_<aov>.<ext>, from the beauty render."""
+def aov_images(frame, names, file_format, skip_empty=False):
+    """Saves the AOVs to <path>/<index>_<aov>.<ext>, from the beauty render.
+    With skip_empty, an empty AOV isn't written and its file is None."""
     files = {}
     for name in names:
         file_name = frame.file_name(f"_{name}{AOV_FORMATS[file_format]}")
-        if save_layer(frame, (name,), file_name, file_format, aov_channel_names) is None:
+        found, files[name] = save_layer(frame, (name,), file_name, file_format, aov_channel_names, skip_empty)
+        if not found:
             raise RuntimeError(f"AOV '{name}' is missing in the render result")
-        files[name] = file_name
     frame.label["aovs"] = files
 
 
@@ -666,15 +683,16 @@ def prepare_passes(frame, names):
         frame.set(frame.view_layer, PASSES[name][0], True)
 
 
-def render_passes(frame, names, file_format):
-    """Saves the built-in passes to <path>/<index>_<pass>.<ext>, from the beauty render."""
+def render_passes(frame, names, file_format, skip_empty=False):
+    """Saves the built-in passes to <path>/<index>_<pass>.<ext>, from the beauty render.
+    With skip_empty, an empty pass isn't written and its file is None."""
     files = {}
     for name in names:
         file_name = frame.file_name(f"_{name}{AOV_FORMATS[file_format]}")
-        if save_layer(frame, PASSES[name][1], file_name, file_format) is None:
+        found, files[name] = save_layer(frame, PASSES[name][1], file_name, file_format, skip_empty=skip_empty)
+        if not found:
             hint = ", Vector also needs motion blur off" if name == "Vector" else ""
             raise RuntimeError(f"Pass '{name}' was not rendered, {frame.scene.render.engine} may not support it{hint}")
-        files[name] = file_name
     frame.label["passes"] = files
 
 
@@ -791,7 +809,8 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
     per = "instance" if any(entry["per"] == "instance" for entry in entries) else "class"
     masks = []
     for entry in entries:
-        if entry["per"] == per:
+        # a mask skipped by skip_empty has no pixels to draw
+        if entry["per"] == per and entry["mask"] is not None:
             mask = oiio.ImageBuf(os.path.join(frame.path, entry["mask"])).get_pixels(oiio.UINT8)[:, :, 0] > 127
             masks.append((class_color(class_names, entry["class"]), mask, entry["class"]))
 
@@ -799,7 +818,7 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
     for color, mask, _ in masks:
         rgb[mask] = (1 - opacity) * rgb[mask] + opacity * np.array(color)
     pixels[:, :, :3] = np.rint(rgb).astype(np.uint8)
-    if pixels.shape[2] == 4:
+    if pixels.shape[2] == 4 and masks:
         # opaque where a mask is drawn, also over a transparent background
         pixels[np.any([mask for _, mask, _ in masks], axis=0), 3] = 255
     for color, mask, class_name in masks:
@@ -964,11 +983,11 @@ def check_segmentation(classes, per):
     to_instances(classes)
 
 
-def segmentation(frame, classes, per):
+def segmentation(frame, classes, per, skip_empty=False):
     """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
     instances = to_instances(classes)
     ids = frame.ids([group for _, group in instances])
-    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per))
+    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per, skip_empty))
 
 
 def generate(path, resolution, steps, custom_dict=None):

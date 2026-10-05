@@ -107,8 +107,9 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     """Writes a COCO detection and instance segmentation JSON.
 
     Masks are stored as uncompressed RLE from the instance masks. Instances whose mask
-    is empty (fully hidden) are skipped. Each annotation also has an `"objects"` field
-    with the object names.
+    is empty (fully hidden), or was not written because it was empty
+    (`Segmentation(skip_empty=True)`), are skipped. Each annotation also has an
+    `"objects"` field with the object names.
 
     Args:
         path: generating path with the `<index>.json` labels. `//` paths are relative
@@ -142,6 +143,9 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
         width, height = label["resolution"]
         images.append({"id": index, "file_name": label["image"], "width": width, "height": height})
         for (class_name, objects), instance in instances(label).items():
+            if "mask" in instance and instance["mask"] is None:
+                # empty mask not written, Segmentation(skip_empty=True)
+                continue
             mask = read_mask(path, instance["mask"]) if "mask" in instance else None
             if mask is not None and not mask.any():
                 # fully hidden behind other objects

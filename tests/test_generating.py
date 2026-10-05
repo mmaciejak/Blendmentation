@@ -57,6 +57,55 @@ def test_render_aovs_and_passes_share_one_render(scene, cube, out, renders):
     assert renders == ["CYCLES"] and "000001.png" not in os.listdir(out) and "000001_Albedo.png" in os.listdir(out)
 
 
+def test_aovs_and_passes_skip_empty(scene, cube, out):
+    scene.render.engine = "CYCLES"
+    obj = cube("Cube")  # pass_index 0, so the object index pass is all 0
+    material = new_material(obj, "Mat")
+    add_aov(material, "Albedo", "COLOR", (1, 0.25, 0, 1))
+    add_aov(material, "Empty", "VALUE", 0.0)
+    steps = [G.Render(), G.AOVToImage(["Albedo", "Empty"], skip_empty=True),
+             G.Passes(["Depth", "Normal", "ObjectIndex"], skip_empty=True)]
+    assert G.Compose(steps, out, (64, 48))()
+    data = label(out)
+    assert data["aovs"] == {"Albedo": "000000_Albedo.exr", "Empty": None}
+    assert data["passes"] == {"Depth": "000000_Depth.exr", "Normal": "000000_Normal.exr", "ObjectIndex": None}
+    assert "000000_Empty.exr" not in os.listdir(out) and "000000_ObjectIndex.exr" not in os.listdir(out)
+    # off by default
+    assert G.Compose([G.AOVToImage(["Empty"]), G.Passes(["ObjectIndex"])], out, (64, 48))()
+    assert label(out, 1)["aovs"] == {"Empty": "000001_Empty.exr"} and "000001_ObjectIndex.exr" in os.listdir(out)
+
+
+def test_layer_empty():
+    pixels = np.zeros((2, 2, 4))
+    pixels[..., 3] = 1
+    assert bpy_generating.layer_empty(pixels, ("R", "G", "B", "A"))
+    pixels[0, 0, 1] = 0.001
+    assert not bpy_generating.layer_empty(pixels, ("R", "G", "B", "A"))
+    assert bpy_generating.layer_empty(np.zeros((2, 2, 1)), ("A",))
+    assert not bpy_generating.layer_empty(np.full((2, 2, 1), -1.0), ("Y",))
+
+
+def test_segmentation_skip_empty(scene, cube, out):
+    visible = cube("visible")
+    hidden = cube("hidden", (0, 5, 0), 0.5)  # fully behind visible
+    far = cube("far", (60, 0, 0))
+    classes = {"car": [visible, hidden], "gone": [far]}
+    steps = [G.Render(), G.Segmentation(classes, per="both", skip_empty=True), G.SegmentationImage()]
+    assert G.Compose(steps, out, (64, 48))()
+    masks = [(m["objects"], m["per"], m["mask"]) for m in label(out)["masks"]]
+    assert masks == [
+        (["visible"], "instance", "000000_mask_0.png"),
+        (["hidden"], "instance", None),
+        (["far"], "instance", None),
+        (["visible", "hidden"], "class", "000000_mask_car.png"),
+        (["far"], "class", None),
+    ]
+    files = os.listdir(out)
+    assert "000000_mask_1.png" not in files and "000000_mask_gone.png" not in files and "000000_segmentation.png" in files
+    # only empty masks: the preview still works
+    assert G.Compose([G.Render(), G.Segmentation({"gone": [far]}, skip_empty=True), G.SegmentationImage()], out, (64, 48))()
+
+
 def test_preview_and_render_only(cube, out):
     cube("Cube")
     generator = G.Compose([G.Render()], out, (64, 48))

@@ -82,7 +82,7 @@ generator = generating.Compose(
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5),
         generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
-        generating.Segmentation(classes, per="both"),
+        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
         generating.SegmentationImage(),                # copy of the image with the masks drawn
         generating.RotationMatrix([car_1, car_2]),
         generating.CameraData(),

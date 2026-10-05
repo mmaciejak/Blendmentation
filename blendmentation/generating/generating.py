@@ -335,11 +335,14 @@ class AOVToImage:
     once, but no image is saved. Each AOV must be added in View Layer Properties >
     Passes > Shader AOV, and the engine must be Cycles or EEVEE.
 
-    Label: `"aovs": {name: file name}`.
+    Label: `"aovs": {name: file name}`, None for an AOV skipped by `skip_empty`.
 
     Args:
         names: names of the AOVs.
         file_format: `"OPEN_EXR"` (32-bit float) or `"PNG"` (8-bit, clamped to 0-1).
+        skip_empty: don't write an AOV that is empty, every pixel 0 (black) in the
+            render, alpha ignored; its file name in the label is None. The datapoint is
+            still generated.
 
     Example:
         ```python
@@ -349,15 +352,18 @@ class AOVToImage:
 
     stage = 2
 
-    def __init__(self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR"):
+    def __init__(
+        self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
+    ):
         self.names = names
         self.file_format = file_format
+        self.skip_empty = skip_empty
 
     def check(self):
         bpy_g.check_aov_images(self.names, self.file_format)
 
     def __call__(self, frame):
-        bpy_g.aov_images(frame, self.names, self.file_format)
+        bpy_g.aov_images(frame, self.names, self.file_format, self.skip_empty)
 
 
 class Passes:
@@ -367,13 +373,16 @@ class Passes:
     layer for that render only. Cycles has all passes, EEVEE no `UV` or index passes,
     and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off.
 
-    Label: `"passes": {name: file name}`.
+    Label: `"passes": {name: file name}`, None for a pass skipped by `skip_empty`.
 
     Args:
         names: any of `"Depth"`, `"Mist"`, `"Normal"`, `"Position"`, `"Vector"`,
             `"UV"`, `"ObjectIndex"` and `"MaterialIndex"`.
         file_format: `"OPEN_EXR"` (32-bit float) or `"PNG"` (8-bit, clamped to 0-1, so
             only useful for some passes like Normal).
+        skip_empty: don't write a pass that is empty, every pixel 0 (black) in the
+            render, alpha ignored; its file name in the label is None. The datapoint is
+            still generated. `Depth` is never empty, its background is far away.
 
     Example:
         ```python
@@ -383,9 +392,12 @@ class Passes:
 
     stage = 2
 
-    def __init__(self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR"):
+    def __init__(
+        self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
+    ):
         self.names = names
         self.file_format = file_format
+        self.skip_empty = skip_empty
 
     def check(self):
         bpy_g.check_passes(self.names, self.file_format)
@@ -394,7 +406,7 @@ class Passes:
         bpy_g.prepare_passes(frame, self.names)
 
     def __call__(self, frame):
-        bpy_g.render_passes(frame, self.names, self.file_format)
+        bpy_g.render_passes(frame, self.names, self.file_format, self.skip_empty)
 
 
 class BBoxImage:
@@ -441,31 +453,38 @@ class Segmentation:
     `<index>_mask_<class>.png` per class.
 
     Label: `"masks": [{"class", "objects", "mask", "per"}]`, with `per` `"instance"`
-    or `"class"`.
+    or `"class"`, and `mask` None for a mask skipped by `skip_empty`.
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
             objects labeled as one (one mask). A class given as a dict with
             `"instances"` (see `BBox`) works too; its skip settings are ignored here.
         per: `"instance"`, `"class"` or `"both"`.
+        skip_empty: don't write empty masks (an instance or class with no visible
+            pixel: out of frame or fully hidden); its `mask` in the label is None. The
+            datapoint is still generated, and export skips these instances like empty
+            masks.
 
     Example:
         ```python
-        generating.Segmentation({"car": [car_1, car_2]}, per="both")
+        generating.Segmentation({"car": [car_1, car_2]}, per="both", skip_empty=True)
         ```
     """
 
     stage = 3
 
-    def __init__(self, classes: Classes, per: Literal["instance", "class", "both"] = "instance"):
+    def __init__(
+        self, classes: Classes, per: Literal["instance", "class", "both"] = "instance", skip_empty: bool = False
+    ):
         self.classes = classes
         self.per = per
+        self.skip_empty = skip_empty
 
     def check(self):
         bpy_g.check_segmentation(self.classes, self.per)
 
     def __call__(self, frame):
-        bpy_g.segmentation(frame, self.classes, self.per)
+        bpy_g.segmentation(frame, self.classes, self.per, self.skip_empty)
 
 
 class SegmentationImage:

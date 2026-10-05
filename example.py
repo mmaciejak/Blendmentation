@@ -77,7 +77,7 @@ image_generator = generating.Compose(
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5),  # Clutter may hide half a part
         generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
-        generating.Segmentation(classes, per="both"),
+        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
         generating.SegmentationImage(opacity=0.5),  # extra image with the masks drawn on it
         generating.RotationMatrix([obj1, obj2]),
         generating.CameraData(),

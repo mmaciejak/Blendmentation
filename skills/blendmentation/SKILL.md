@@ -136,7 +136,7 @@ generator = generating.Compose(
         generating.Render(),
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
         generating.BBoxImage(),                 # preview copy with the boxes drawn
-        generating.Segmentation(classes, per="both"),
+        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
         generating.CameraData(),
     ],
     path="/absolute/output/folder",
@@ -228,9 +228,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `Render(file_format="PNG")` | `<index>.png` |
 | `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None)` | `bboxes`; the three settings skip the datapoint |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
-| `Segmentation(classes, per="instance" \| "class" \| "both")` | mask PNGs, `masks` |
-| `AOVToImage(["Albedo"])` | shader AOVs from the view layer (Cycles or EEVEE) |
-| `Passes(["Depth", "Normal"])` | render passes, enabled for you |
+| `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False)` | mask PNGs, `masks` |
+| `AOVToImage(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |
+| `Passes(["Depth", "Normal"], skip_empty=False)` | render passes, enabled for you |
 | `RotationMatrix(objects)` | rotation of each object relative to the camera |
 | `CameraData()` | camera, intrinsics, OpenCV extrinsics, depth of field |
 | `Keypoints({"name": obj \| (obj, vertex index or group) \| (armature, bone) \| (x, y, z)})` | projected points, visibility |
@@ -241,6 +241,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   instance hidden by objects that are in no class; costs two Workbench renders). Set them
   per class with `{"car": {"instances": [car_1, car_2], "max_occlusion": 0.3}}`; a class's
   own value wins over the `BBox` argument, even `None`. `Segmentation` ignores them.
+- **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
+  that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `LookAt`, `FocalLength`,
   `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`, `Boolean`,
   `Menu`. Every one takes `p`. Ranges are `(low, high)` or a single number.
