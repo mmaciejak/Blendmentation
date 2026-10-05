@@ -107,7 +107,7 @@ class BBox:
     into account, so hidden parts are inside the box. An instance out of frame gets
     None.
 
-    Label: `"bboxes": [{"class", "objects", "bbox"}]`.
+    In the label JSON: `"bboxes": [{"class", "objects", "bbox"}]`.
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
@@ -183,7 +183,7 @@ class RotationMatrix:
     """Adds the rotation of every object relative to the camera to the label, as a 3x3
     matrix with the scale removed.
 
-    Label: `"rotation_matrices": [{"object", "rotation_matrix"}]`.
+    In the label JSON: `"rotation_matrices": [{"object", "rotation_matrix"}]`.
 
     Args:
         objects: objects to save the rotation of.
@@ -212,8 +212,8 @@ class OutputField:
     Values are converted to JSON: datablocks become their name, menus the option name,
     and vectors and matrices nested lists.
 
-    Label: `name: value` for an absolute path, `name: {object name: value}` for a
-    relative one.
+    In the label JSON: `name: value` for an absolute path, `name: {object name: value}`
+    for a relative one.
 
     Args:
         name: key in the label.
@@ -256,7 +256,7 @@ class CameraData:
     pixels, top-left image origin, with sensor fit, lens shift and pixel aspect), an
     orthographic one `ortho_scale`.
 
-    Label: `"camera": {...}`.
+    In the label JSON: `"camera": {...}`.
 
     Example:
         ```python
@@ -276,8 +276,9 @@ class Keypoints:
     Vertices include deformations from armatures and modifiers. A point is visible when
     it is in frame and a ray cast from the camera reaches it.
 
-    Label: `"keypoints": [{"name", "position", "depth", "in_frame", "visible"}]`, with
-    `position` in pixels from the top-left corner and `depth` along the view axis.
+    In the label JSON: `"keypoints": [{"name", "position", "depth", "in_frame",
+    "visible"}]`, with `position` in pixels from the top-left corner and `depth` along the
+    view axis.
 
     Args:
         points: `{name: source}`, where a source is an object (its origin),
@@ -305,7 +306,7 @@ class Keypoints:
 class Render:
     """Renders the image with the scene's engine to `<index>.<ext>`.
 
-    Label: `"image": file name`.
+    In the label JSON: `"image": file name`.
 
     Args:
         file_format: `"PNG"`, `"JPEG"` or `"OPEN_EXR"`.
@@ -335,7 +336,8 @@ class AOVToImage:
     once, but no image is saved. Each AOV must be added in View Layer Properties >
     Passes > Shader AOV, and the engine must be Cycles or EEVEE.
 
-    Label: `"aovs": {name: file name}`, None for an AOV skipped by `skip_empty`.
+    In the label JSON: `"aovs": {name: file name}`, None for an AOV skipped by
+    `skip_empty`.
 
     Args:
         names: names of the AOVs.
@@ -373,7 +375,8 @@ class Passes:
     layer for that render only. Cycles has all passes, EEVEE no `UV` or index passes,
     and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off.
 
-    Label: `"passes": {name: file name}`, None for a pass skipped by `skip_empty`.
+    In the label JSON: `"passes": {name: file name}`, None for a pass skipped by
+    `skip_empty`.
 
     Args:
         names: any of `"Depth"`, `"Mist"`, `"Normal"`, `"Position"`, `"Vector"`,
@@ -417,7 +420,7 @@ class BBoxImage:
     its own color, and its name is written above each box in capitals. Needs a `BBox`
     step in the same `Compose`.
 
-    Label: `"bbox_image": file name`.
+    In the label JSON: `"bbox_image": file name`.
 
     Args:
         file_format: `"PNG"` or `"JPEG"`.
@@ -452,8 +455,8 @@ class Segmentation:
     instance, where `n` counts instances across all classes, and
     `<index>_mask_<class>.png` per class.
 
-    Label: `"masks": [{"class", "objects", "mask", "per"}]`, with `per` `"instance"`
-    or `"class"`, and `mask` None for a mask skipped by `skip_empty`.
+    In the label JSON: `"masks": [{"class", "objects", "mask", "per"}]`, with `per`
+    `"instance"` or `"class"`, and `mask` None for a mask skipped by `skip_empty`.
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
@@ -496,7 +499,7 @@ class SegmentationImage:
     and its class name written above. Instance masks are used when there are any,
     otherwise the class masks. Needs a `Segmentation` step in the same `Compose`.
 
-    Label: `"segmentation_image": file name`.
+    In the label JSON: `"segmentation_image": file name`.
 
     Args:
         file_format: `"PNG"` or `"JPEG"`.
