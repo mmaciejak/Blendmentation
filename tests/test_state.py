@@ -42,7 +42,7 @@ def test_restore(scene, cube):
         A.Material("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
         A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
     ])
-    light_augs = A.Compose([A.Number("data.energy", percent=40), A.Vector("data.color", value_range=(0, 0.5))])
+    light_augs = A.Compose([A.Number("data.energy", value_range=(600, 1400)), A.Vector("data.color", value_range=(0, 0.5))])
     camera_augs = A.Compose([
         A.LookAt(obj, distance=(5, 6)),
         A.FocalLength((20, 30), target=obj, keep_size=True),

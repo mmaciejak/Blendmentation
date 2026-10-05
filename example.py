@@ -47,8 +47,8 @@ lamp_transforms = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
-        augmentations.Number("data.energy", percent=40.0),
-        augmentations.Number("data.shadow_soft_size", percent=20.0),
+        augmentations.Number("data.energy", value_range=(600.0, 1400.0)),
+        augmentations.Number("data.shadow_soft_size", value_range=(0.1, 0.5)),
         augmentations.Vector("data.color", value_range=(0.8, 1.0)),
         # change the light type in only 30% of the datapoints
         augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1], p=0.3),

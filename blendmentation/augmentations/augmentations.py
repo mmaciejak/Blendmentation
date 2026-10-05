@@ -425,74 +425,57 @@ class Number(Augmentation):
     """Sets any int or float value, given by its data path, to a random value.
 
     For shader node inputs, geometry nodes inputs, shape keys, light settings and so
-    on. Give either `value_range`, to set an absolute value, or `percent`, to scale the
-    current one. Ints are rounded.
+    on. Ints are rounded.
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
             the object. Use `[index]` for one vector component, e.g. `'location[2]'`.
         value_range: `(min, max)` range of the new value.
-        percent: change in percent, a number `v` samples from `(-v, v)`, or a pair
-            `(low, high)`.
         p: probability of applying the augmentation.
-
-    Raises:
-        ValueError: neither or both of `value_range` and `percent` are given.
 
     !!! info "Use it inside a Compose"
         With an absolute path (starting with `bpy.`) it doesn't use the object passed
         by `Compose`, but it still belongs in one: it runs with the rest of the list,
         and `State(fields=compose.augmentations)` restores it. It runs once per object
-        the `Compose` is called with, so with `percent` the change builds up: call that
-        `Compose` with one object, or use `value_range`.
+        the `Compose` is called with, and the last value set is kept.
 
     Example:
         ```python
-        augmentations.Number("data.energy", percent=40)
+        augmentations.Number("data.energy", value_range=(600, 1400))
         augmentations.Number('data.shape_keys.key_blocks["Smile"].value', value_range=(0, 1))
         ```
     """
 
-    def __init__(self, data_path: str, value_range: Optional[tuple[float, float]] = None,
-                 percent: Optional[Offset] = None, p: float = 1.0):
+    def __init__(self, data_path: str, value_range: tuple[float, float], p: float = 1.0):
         super().__init__(p)
-        if (value_range is None) == (percent is None):
-            raise ValueError("Give either value_range or percent")
         self.data_path = data_path
         self.value_range = value_range
-        self.percent = percent
 
     def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
-        self.actual = bpy_a.number(obj, self.data_path, self.value_range, self.percent)
+        self.actual = bpy_a.number(obj, self.data_path, self.value_range)
 
 
 class Vector(Augmentation):
     """Sets any vector value, given by its data path, to random values per component.
 
-    For locations, colors, vector node inputs and so on. Give either `value_range` or
-    `percent`, as for `Number`. Each bound is a number for all components, or a
-    sequence with one value per component, where None keeps that component.
+    For locations, colors, vector node inputs and so on. Each bound of `value_range` is
+    a number for all components, or a sequence with one value per component, where
+    None keeps that component. Int components are rounded.
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
             the object.
         value_range: `(min, max)` bounds of the new values.
-        percent: change in percent, a number `v` samples from `(-v, v)`, or a pair
-            `(low, high)` of bounds.
         p: probability of applying the augmentation.
-
-    Raises:
-        ValueError: neither or both of `value_range` and `percent` are given.
 
     !!! info "Use it inside a Compose"
         With an absolute path (starting with `bpy.`) it doesn't use the object passed
         by `Compose`, but it still belongs in one: it runs with the rest of the list,
         and `State(fields=compose.augmentations)` restores it. It runs once per object
-        the `Compose` is called with, so with `percent` the change builds up: call that
-        `Compose` with one object, or use `value_range`.
+        the `Compose` is called with, and the last value set is kept.
 
     Example:
         ```python
@@ -505,20 +488,16 @@ class Vector(Augmentation):
         ```
     """
 
-    def __init__(self, data_path: str, value_range: Optional[tuple[Bound, Bound]] = None,
-                 percent: Union[float, tuple[Bound, Bound], None] = None, p: float = 1.0):
+    def __init__(self, data_path: str, value_range: tuple[Bound, Bound], p: float = 1.0):
         super().__init__(p)
-        if (value_range is None) == (percent is None):
-            raise ValueError("Give either value_range or percent")
         self.data_path = data_path
         self.value_range = value_range
-        self.percent = percent
 
     def apply(self, obj: Optional[Object]) -> None:
         """Args:
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
-        self.actual = bpy_a.vector(obj, self.data_path, self.value_range, self.percent)
+        self.actual = bpy_a.vector(obj, self.data_path, self.value_range)
 
 
 class Boolean(Augmentation):

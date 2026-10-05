@@ -40,7 +40,7 @@ objects_aug = augmentations.Compose([
     augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6)),
 ])
 lamp_aug = augmentations.Compose([
-    augmentations.Number("data.energy", percent=40),
+    augmentations.Number("data.energy", value_range=(600, 1400)),
     augmentations.Vector("data.color", value_range=(0.8, 1.0)),
     augmentations.Menu("data.type", options=["POINT", "SPOT"]),
     augmentations.Boolean("data.use_shadow", p=0.8),

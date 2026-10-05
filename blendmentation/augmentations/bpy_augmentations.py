@@ -266,9 +266,9 @@ def is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def number(obj, data_path, value_range, percent):
-    """Sets the int or float value at the data path, either to a random value from
-    value_range (min, max), or scaled by a random percent.
+def number(obj, data_path, value_range):
+    """Sets the int or float value at the data path to a random value from
+    value_range (min, max).
 
     Returns:
         float | int: value that was set
@@ -277,13 +277,8 @@ def number(obj, data_path, value_range, percent):
     if not is_number(current):
         raise TypeError(f"'{data_path}' is not an int or float value")
 
-    if value_range is not None:
-        low, high = value_range
-        new = random.randint(round(low), round(high)) if isinstance(current, int) else random.uniform(low, high)
-    else:
-        new = current * percent_factor(percent)
-        if isinstance(current, int):
-            new = round(new)
+    low, high = value_range
+    new = random.randint(round(low), round(high)) if isinstance(current, int) else random.uniform(low, high)
 
     bpy_paths.set_value(data_path, new, obj)
     return new
@@ -314,11 +309,10 @@ def per_component(bound, size, data_path):
     return list(bound)
 
 
-def vector(obj, data_path, value_range, percent):
-    """Sets every component of the vector value at the data path, either to a random
-    value from value_range (min, max), or scaled by a random percent. min and max
-    are numbers for all components, or sequences with a value per component,
-    None in both keeps that component.
+def vector(obj, data_path, value_range):
+    """Sets every component of the vector value at the data path to a random value
+    from value_range (min, max). min and max are numbers for all components, or
+    sequences with a value per component, None in both keeps that component.
 
     Returns:
         tuple: vector that was set
@@ -329,12 +323,7 @@ def vector(obj, data_path, value_range, percent):
     current = tuple(current)
     size = len(current)
 
-    if value_range is not None:
-        low, high = value_range
-    elif is_number(percent):
-        low, high = -percent, percent
-    else:
-        low, high = percent
+    low, high = value_range
     lows = per_component(low, size, data_path)
     highs = per_component(high, size, data_path)
 
@@ -343,10 +332,7 @@ def vector(obj, data_path, value_range, percent):
         if component_low is None or component_high is None:
             new.append(component)
             continue
-        if value_range is not None:
-            value = random.uniform(component_low, component_high)
-        else:
-            value = component * (1.0 + random.uniform(component_low, component_high) / 100.0)
+        value = random.uniform(component_low, component_high)
         new.append(round(value) if isinstance(component, int) else value)
 
     new = tuple(new)

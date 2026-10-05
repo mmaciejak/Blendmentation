@@ -22,8 +22,7 @@ class State:
       `focus_distance`, `aperture_fstop`).
 
     It also saves the value at every data path in `fields`. A data path augmentation
-    that isn't passed in `fields` is not restored, and with `percent` its changes build
-    up from one datapoint to the next.
+    that isn't passed in `fields` is not restored.
 
     Args:
         objects: objects to save.

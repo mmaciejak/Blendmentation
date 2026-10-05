@@ -123,7 +123,7 @@ def test_number_vector_boolean(cube):
     assert abs(top - 3.5) < 1e-5, "geometry nodes input did not reach the evaluated mesh"  # 0.5 + 3
 
     bpy_paths.set_value(path("Count"), 10, obj)
-    count = A.Number(path("Count"), percent=(50, 50))
+    count = A.Number(path("Count"), value_range=(15, 15))
     count(obj)
     assert count.actual == 15 and isinstance(bpy_paths.get_value(path("Count"), obj), int)
 
@@ -153,7 +153,6 @@ def test_menu(cube):
 
 
 @pytest.mark.parametrize("make, error", [
-    (lambda obj: A.Number("location[0]"), ValueError),
     (lambda obj: A.Number("location", value_range=(0, 1))(obj), TypeError),
     (lambda obj: A.Vector("location[0]", value_range=(0, 1))(obj), TypeError),
     (lambda obj: A.Vector("location", value_range=((0, 0), (1, 1)))(obj), ValueError),
