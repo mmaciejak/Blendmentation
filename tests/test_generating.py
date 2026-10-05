@@ -217,6 +217,31 @@ def test_iou_deconflict_skips_before_render(scene, cube, out, renders):
     assert renders == [] and os.listdir(out) == []
 
 
+def test_truncation():
+    assert bpy_generating.truncation([0.2, 0.2, 0.8, 0.8], False) == 0.0
+    assert bpy_generating.truncation([0.5, 0.2, 1.5, 0.8], False) == pytest.approx(0.5)
+    assert bpy_generating.truncation([-0.5, -0.5, 0.5, 0.5], False) == pytest.approx(0.75)
+    assert bpy_generating.truncation([0.2, 0.2, 0.8, 0.8], True) == 1.0
+    assert bpy_generating.truncation([1.2, 0.2, 1.8, 0.8], False) == 1.0
+    assert bpy_generating.truncation(None, True) == 1.0
+
+
+def test_max_truncation_skips_before_render(scene, cube, out, renders):
+    inside = cube("inside", (-1, 0, 0), 0.5)
+    # about 55% of its box is right of the frame
+    edge = cube("edge", (3.6, 0, 0), 2)
+    steps = [G.Render(), G.BBox({"x": [inside, edge]}, max_truncation=0.3)]
+    assert G.Compose(steps, out, (64, 48))() is False
+    assert renders == [] and os.listdir(out) == []
+    assert G.Compose([G.BBox({"x": [inside, edge]}, max_truncation=0.7)], out, (64, 48))()
+    assert G.Compose([G.BBox({"x": [inside]}, max_truncation=0)], out, (64, 48))()
+    # partly behind the camera counts as fully out of frame
+    behind = cube("behind", (0, -10, 0), 2)
+    assert G.Compose([G.BBox({"x": [inside, behind]}, max_truncation=0.99)], out, (64, 48))() is False
+    with pytest.raises(ValueError, match="max_truncation"):
+        G.Compose([G.BBox({"x": [inside]}, max_truncation=2)], out, (64, 48))()
+
+
 def test_output_fields_and_rotation(scene, cube, out):
     obj = cube("Cube", (1, 2, 3))
     material = new_material(obj, "Mat")

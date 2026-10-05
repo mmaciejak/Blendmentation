@@ -24,7 +24,10 @@ shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV.
 
 ```python
 import bpy
+from blendmentation.augmentations import augmentations
 from blendmentation.export import export
+from blendmentation.generating import generating
+from blendmentation.state import state
 
 car_1 = bpy.data.objects["Car.001"]
 car_2 = bpy.data.objects["Car.002"]
@@ -58,7 +61,7 @@ generator = generating.Compose(
         generating.Render(),
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
-        generating.BBox(classes, iou_deconflict=0.5),
+        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
         generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
         generating.Segmentation(classes, per="both"),
         generating.SegmentationImage(),                # copy of the image with the masks drawn

@@ -72,7 +72,7 @@ image_generator = generating.Compose(
         generating.Render(),
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
-        generating.BBox(classes, iou_deconflict=0.5),
+        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
         generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
         generating.Segmentation(classes, per="both"),
         generating.SegmentationImage(opacity=0.5),  # extra image with the masks drawn on it

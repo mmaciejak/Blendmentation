@@ -90,7 +90,8 @@ def camera_view_coords(scene, camera, obj, depsgraph):
     """Projects the evaluated object's vertices to normalized camera view coordinates.
 
     Returns:
-        np.ndarray: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the camera
+        tuple: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the
+            camera, and whether any vertex is behind it
     """
     obj_eval = obj.evaluated_get(depsgraph)
     mesh = obj_eval.to_mesh()
@@ -104,7 +105,9 @@ def camera_view_coords(scene, camera, obj, depsgraph):
     to_camera = np.array(camera.matrix_world.inverted() @ obj_eval.matrix_world)
     coords = coords @ to_camera[:3, :3].T + to_camera[:3, 3]
     # the camera looks down its -z axis, drop everything behind it
-    coords = coords[coords[:, 2] < 0]
+    in_front = coords[:, 2] < 0
+    behind = not in_front.all()
+    coords = coords[in_front]
 
     frame = camera.data.view_frame(scene=scene)
     frame_min_x, frame_max_x = min(v.x for v in frame), max(v.x for v in frame)
@@ -118,7 +121,58 @@ def camera_view_coords(scene, camera, obj, depsgraph):
 
     x = (coords[:, 0] - frame_min_x * scale) / ((frame_max_x - frame_min_x) * scale)
     y = (coords[:, 1] - frame_min_y * scale) / ((frame_max_y - frame_min_y) * scale)
-    return np.stack([x, y], axis=1)
+    return np.stack([x, y], axis=1), behind
+
+
+def view_bounds(scene, camera, group, depsgraph):
+    """Unclipped normalized bounds of the list of objects, as one object.
+
+    Returns:
+        tuple: [x_min, y_min, x_max, y_max] in camera view coordinates (bottom-left origin,
+            the frame is 0-1) or None if nothing is in front of the camera, and whether any
+            vertex is behind the camera
+    """
+    projected = [camera_view_coords(scene, camera, obj, depsgraph) for obj in group]
+    view = np.concatenate([coords for coords, _ in projected])
+    behind = any(obj_behind for _, obj_behind in projected)
+    if len(view) == 0:
+        return None, behind
+    return [view[:, 0].min(), view[:, 1].min(), view[:, 0].max(), view[:, 1].max()], behind
+
+
+def clip_bounds(bounds):
+    """Bounds clipped to the frame, or None if nothing of them is in it."""
+    if bounds is None:
+        return None
+    x_min, y_min, x_max, y_max = np.clip(bounds, 0.0, 1.0)
+    if x_min >= x_max or y_min >= y_max:
+        return None
+    return [x_min, y_min, x_max, y_max]
+
+
+def truncation(bounds, behind):
+    """Fraction of the bounds' area outside the frame. An instance partly behind the
+    camera has no meaningful bounds, so it counts as fully truncated (1)."""
+    clipped = clip_bounds(bounds)
+    if behind or clipped is None:
+        return 1.0
+    area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+    return float(1.0 - (clipped[2] - clipped[0]) * (clipped[3] - clipped[1]) / area)
+
+
+def to_pixels(bounds, width, height):
+    """Normalized bounds to a pixel bbox [x_min, y_min, x_max, y_max] with top-left origin,
+    clipped to the frame, or None if out of it."""
+    clipped = clip_bounds(bounds)
+    if clipped is None:
+        return None
+    x_min, y_min, x_max, y_max = clipped
+    return [
+        float(x_min * width),
+        float((1.0 - y_max) * height),
+        float(x_max * width),
+        float((1.0 - y_min) * height),
+    ]
 
 
 def bbox(scene, camera, group, depsgraph, width, height):
@@ -126,21 +180,7 @@ def bbox(scene, camera, group, depsgraph, width, height):
     [x_min, y_min, x_max, y_max] with top-left image origin, or None if it is not in the frame.
     Occlusion by other objects is not taken into account.
     """
-    view = np.concatenate([camera_view_coords(scene, camera, obj, depsgraph) for obj in group])
-    if len(view) == 0:
-        return None
-
-    x_min, x_max = np.clip([view[:, 0].min(), view[:, 0].max()], 0.0, 1.0)
-    y_min, y_max = np.clip([view[:, 1].min(), view[:, 1].max()], 0.0, 1.0)
-    if x_min >= x_max or y_min >= y_max:
-        return None
-
-    return [
-        float(x_min * width),
-        float((1.0 - y_max) * height),
-        float(x_max * width),
-        float((1.0 - y_min) * height),
-    ]
+    return to_pixels(view_bounds(scene, camera, group, depsgraph)[0], width, height)
 
 
 def iou(box_a, box_b):
@@ -450,15 +490,26 @@ class Frame:
         return self.multilayer_file
 
 
-def bboxes(frame, classes, iou_deconflict):
+def check_bboxes(classes, iou_deconflict, max_truncation):
+    to_instances(classes)
+    for name, value in (("iou_deconflict", iou_deconflict), ("max_truncation", max_truncation)):
+        if value is not None and not (isinstance(value, (int, float)) and 0 <= value <= 1):
+            raise ValueError(f"BBox {name} must be None or a number in 0-1, got {value!r}")
+
+
+def bboxes(frame, classes, iou_deconflict, max_truncation):
     """Adds {"class", "objects", "bbox"} of every instance to the labels under "bboxes".
 
     Returns:
-        bool: False if two bboxes overlap over iou_deconflict and the datapoint should be skipped
+        bool: False if two bboxes overlap over iou_deconflict, or an instance is more than
+            max_truncation out of frame, and the datapoint should be skipped
     """
     entries = []
     for class_name, group in to_instances(classes):
-        box = bbox(frame.scene, frame.camera, group, frame.depsgraph, frame.width, frame.height)
+        bounds, behind = view_bounds(frame.scene, frame.camera, group, frame.depsgraph)
+        if max_truncation is not None and truncation(bounds, behind) > max_truncation:
+            return False
+        box = to_pixels(bounds, frame.width, frame.height)
         entries.append({"class": class_name, "objects": [obj.name for obj in group], "bbox": box})
     boxes = [entry["bbox"] for entry in entries if entry["bbox"] is not None]
     if iou_deconflict is not None and max_iou(boxes) > iou_deconflict:

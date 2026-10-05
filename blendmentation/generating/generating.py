@@ -3,7 +3,7 @@ JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
 `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
-by `iou_deconflict` is never rendered, then `Render`, then `AOVToImage`, `Passes`
+by `iou_deconflict` or `max_truncation` is never rendered, then `Render`, then `AOVToImage`, `Passes`
 and `BBoxImage`, then `Segmentation`, then `SegmentationImage`. All steps except
 `Segmentation` share one render.
 
@@ -108,24 +108,32 @@ class BBox:
             objects labeled as one (its box is the union of the members).
         iou_deconflict: skip the datapoint, before rendering, when any two boxes
             overlap more than this IoU. None = never skip.
+        max_truncation: skip the datapoint, before rendering, when more than this
+            fraction (0-1) of any instance's box is out of frame, measured on its
+            unclipped box. An instance partly behind the camera or fully out of frame
+            counts as 1, so `max_truncation=0` keeps only datapoints with every instance
+            fully in frame. None = never skip.
 
     Example:
         ```python
-        generating.BBox({"car": [car_1, car_2], "table": [[top, legs]]}, iou_deconflict=0.5)
+        generating.BBox({"car": [car_1, car_2], "table": [[top, legs]]}, iou_deconflict=0.5, max_truncation=0.3)
         ```
     """
 
     stage = 0
 
-    def __init__(self, classes: Classes, iou_deconflict: Optional[float] = None):
+    def __init__(
+        self, classes: Classes, iou_deconflict: Optional[float] = None, max_truncation: Optional[float] = None
+    ):
         self.classes = classes
         self.iou_deconflict = iou_deconflict
+        self.max_truncation = max_truncation
 
     def check(self):
-        bpy_g.to_instances(self.classes)
+        bpy_g.check_bboxes(self.classes, self.iou_deconflict, self.max_truncation)
 
     def __call__(self, frame):
-        return bpy_g.bboxes(frame, self.classes, self.iou_deconflict)
+        return bpy_g.bboxes(frame, self.classes, self.iou_deconflict, self.max_truncation)
 
 
 class RotationMatrix:
