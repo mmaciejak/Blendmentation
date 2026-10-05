@@ -28,7 +28,7 @@ jobs:
           path: site/
 
   deploy:
-    # publishes https://mmaciejak.github.io/Blendmentation/
+    # publishes https://docs.csmx.eu/
     # needs Settings > Pages > Source: GitHub Actions
     if: github.event_name != 'pull_request'
     needs: build

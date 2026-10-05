@@ -1,8 +1,9 @@
 site_name: Blendmentation
 site_description: Synthetic, augmented training datasets from Blender scenes
-site_url: https://mmaciejak.github.io/Blendmentation/
+site_url: https://docs.csmx.eu/
 repo_url: https://github.com/mmaciejak/Blendmentation
 repo_name: mmaciejak/Blendmentation
+copyright: Made by Maciej Maciejak · <a href="https://csmx.eu">csmx.eu</a> · <a href="mailto:contact@csmx.eu">contact@csmx.eu</a>
 edit_uri: edit/main/docs/
 
 nav:

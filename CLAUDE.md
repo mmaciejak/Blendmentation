@@ -36,7 +36,7 @@ There are two usage examples: `example.py` and the "Quick start", which is in bo
 
 ## Documentation
 
-The docs site (MkDocs Material + mkdocstrings, `mkdocs.yml`) is built from `docs/` and the docstrings, and `.github/workflows/docs.yml` deploys it to GitHub Pages (https://mmaciejak.github.io/Blendmentation/) on every push to `main`. The README is only a landing page: intro, installation, quick start and links.
+The docs site (MkDocs Material + mkdocstrings, `mkdocs.yml`) is built from `docs/` and the docstrings, and `.github/workflows/docs.yml` deploys it to GitHub Pages (https://docs.csmx.eu/) on every push to `main`. The README is only a landing page: intro, installation, quick start and links.
 
 - `docs/<module>.md` is only a title and `::: blendmentation.<module>.<module>`, which renders the API reference; the module docstring is the page's short intro. Don't add guide text above it, it belongs in the docstrings. mkdocstrings reads the source statically, so building needs no `bpy`.
 - Public docstrings are Google style: a summary line, details, `Args:` (no types; they come from the annotations), `Returns:`, `Raises:`, `Note:` and an `Example:` with a fenced code block. The label key a generating step writes goes in an `In the label JSON:` line. Internals (`apply`, `skip`, `check`, `prepare`, `stage`) are filtered out of the reference.

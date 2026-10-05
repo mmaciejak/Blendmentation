@@ -100,3 +100,7 @@ export.yolo("//dataset")
 - [Installation](installation.md): inside Blender, or as a Python module.
 - [Augmentations](augmentations.md), [State](state.md), [Generating](generating.md) and [Export](export.md): the reference for each module, with examples.
 - [Compatibility with Blender MCP](blender-mcp.md): an agent skill so AI agents can build datasets in your open Blender through Blender MCP.
+
+## Contact
+
+Made by Maciej Maciejak: [csmx.eu](https://csmx.eu), [contact@csmx.eu](mailto:contact@csmx.eu).

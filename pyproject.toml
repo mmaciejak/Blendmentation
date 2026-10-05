@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "Synthetic, augmented training datasets from Blender scenes"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{ name = "Maciej Maciejak", email = "contact@csmx.eu" }]
 keywords = ["blender", "synthetic data", "data augmentation", "computer vision", "dataset"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -21,6 +22,7 @@ dependencies = ["numpy>=1.23"]
 
 [project.urls]
 Homepage = "https://github.com/mmaciejak/Blendmentation"
+Documentation = "https://docs.csmx.eu/"
 Issues = "https://github.com/mmaciejak/Blendmentation/issues"
 
 [project.optional-dependencies]
