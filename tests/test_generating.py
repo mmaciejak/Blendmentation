@@ -85,6 +85,8 @@ def test_pass_not_supported_by_engine(scene, cube, out):
     [G.Render(), G.Keypoints(["not a dict"])],
     [G.Render(), G.BBox({}), G.BBoxImage("TIFF")],
     [G.Render(), G.BBox({}), G.BBoxImage(line_width=0)],
+    [G.Render(), G.Segmentation({}), G.SegmentationImage(opacity=2)],
+    [G.Render(), G.Segmentation({}), G.SegmentationImage("EXR")],
 ])
 def test_config_errors_before_render(scene, out, renders, steps):
     scene.render.engine = "CYCLES"
@@ -137,7 +139,7 @@ def test_bbox_image(scene, cube, out, renders):
     assert data["image"] == "000000.png" and data["bbox_image"] == "000000_bboxes.png"
     image = read_image(os.path.join(out, "000000.png"))
     drawn = read_image(os.path.join(out, "000000_bboxes.png"))
-    for entry, color in zip(data["bboxes"], bpy_generating.BBOX_COLORS):
+    for entry, color in zip(data["bboxes"], bpy_generating.CLASS_COLORS):
         x_min, y_min, x_max, y_max = entry["bbox"]
         middle_row = int((y_min + y_max) / 2)
         edge = drawn[middle_row, int(x_min) + 1]
@@ -157,6 +159,44 @@ def test_bbox_image(scene, cube, out, renders):
 
     with pytest.raises(ValueError, match="BBox"):
         G.Compose([G.Render(), G.BBoxImage()], out, (64, 48))
+
+
+def test_segmentation_image(scene, cube, out, renders):
+    car1, car2 = cube("car1", (-2.5, 0, 0)), cube("car2", (-1.2, 0, 0))
+    table = cube("table", (2, 0, 0))
+    classes = {"car": [car1, car2], "table": [table]}
+    steps = [G.SegmentationImage(opacity=0.5, line_width=2), G.Segmentation(classes), G.Render()]
+    assert G.Compose(steps, out, (320, 240))()
+    # the beauty render and the mask render, the preview draws on the kept beauty render
+    assert renders == ["BLENDER_WORKBENCH", "BLENDER_WORKBENCH"]
+    data = label(out)
+    assert data["segmentation_image"] == "000000_segmentation.png"
+    image = read_image(os.path.join(out, "000000.png"))
+    drawn = read_image(os.path.join(out, "000000_segmentation.png"))
+    masks = [mask(out, entry["mask"]) for entry in data["masks"]]
+    colors = [np.array(bpy_generating.CLASS_COLORS[i]) / 255 for i in (0, 0, 1)]
+    for m, color in zip(masks, colors):
+        rows, columns = np.nonzero(m)
+        center = (int(rows.mean()), int(columns.mean()))
+        assert drawn[center][:3] == pytest.approx(0.5 * image[center][:3] + 0.5 * color, abs=2 / 255)
+        # outline on the left edge
+        assert drawn[center[0], columns[rows == center[0]].min()][:3] == pytest.approx(color, abs=1e-3)
+    background = ~np.any(masks, axis=0)
+    for m in masks:  # class name tabs above the masks
+        rows, columns = np.nonzero(m)
+        background[max(rows.min() - 30, 0):rows.min(), columns.min():columns.min() + 80] = False
+    assert drawn[~background][:, :3] != pytest.approx(image[~background][:, :3], abs=1 / 255)
+    assert drawn[background] == pytest.approx(image[background], abs=1 / 255)
+
+    # without Render the beauty render happens after the masks, class masks only, JPEG
+    renders.clear()
+    steps = [G.SegmentationImage("JPEG", line_width=0, show_class=False), G.Segmentation(classes, per="class")]
+    assert G.Compose(steps, out, (64, 48))()
+    assert renders == ["BLENDER_WORKBENCH", "BLENDER_WORKBENCH"]
+    assert "000001_segmentation.jpg" in os.listdir(out) and "000001.png" not in os.listdir(out)
+
+    with pytest.raises(ValueError, match="Segmentation"):
+        G.Compose([G.Render(), G.SegmentationImage()], out, (64, 48))
 
 
 def test_many_instances(scene, cube, out):

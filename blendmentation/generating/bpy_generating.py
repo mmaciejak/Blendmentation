@@ -34,9 +34,9 @@ PASSES = {
 # EXR stores channels sorted by name (U, V, A becomes A, U, V), this is their natural
 # order, which matters when they are written to formats without channel names, like PNG
 CHANNEL_ORDER = ("R", "G", "B", "X", "Y", "Z", "W", "U", "V", "A")
-BBOX_IMAGE_FORMATS = {"PNG": ".png", "JPEG": ".jpg"}
-# bbox colors, one per class in order of appearance
-BBOX_COLORS = (
+PREVIEW_FORMATS = {"PNG": ".png", "JPEG": ".jpg"}
+# preview colors, one per class in order of appearance
+CLASS_COLORS = (
     (230, 25, 75), (60, 180, 75), (0, 130, 200), (255, 225, 25), (245, 130, 48),
     (145, 30, 180), (70, 240, 240), (240, 50, 230), (210, 245, 60), (250, 190, 212),
 )
@@ -381,6 +381,9 @@ class Frame:
         self.label = {"resolution": [width, height]}
         self.rendered = False
         self.multilayer_file = None
+        # set by steps that draw on the beauty render after Segmentation replaced it
+        self.keep_beauty = False
+        self.beauty_rgba = None
         self.changed = []
 
     def file_name(self, suffix):
@@ -410,6 +413,26 @@ class Frame:
             self.scene.render.filepath = file_path
         bpy.ops.render.render(write_still=bool(file_path))
         self.rendered = True
+
+    def beauty_pixels(self):
+        """Color managed 8 bit RGBA copy of the beauty render, like the saved image, as a
+        (height, width, 4) array. Saved once, every call returns a new copy to draw on."""
+        if self.beauty_rgba is None:
+            self.beauty()
+            file_path = os.path.join(self.temp_dir, "beauty.png")
+            image_settings = self.scene.render.image_settings
+            set_file_format(image_settings, "PNG")
+            image_settings.color_mode = "RGBA"
+            image_settings.color_depth = "8"
+            bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+            self.beauty_rgba = oiio.ImageBuf(file_path).get_pixels(oiio.UINT8)
+        return np.array(self.beauty_rgba)
+
+    def replace_render(self):
+        """Call before a render that replaces the beauty Render Result, like the segmentation."""
+        if self.rendered and self.keep_beauty:
+            self.beauty_pixels()
+        self.rendered = False
 
     def multilayer(self):
         """Saves the beauty render with all its passes as a multilayer EXR, once.
@@ -528,11 +551,13 @@ def render_passes(frame, names, file_format):
     frame.label["passes"] = files
 
 
-def check_bbox_image(file_format, line_width):
-    if file_format not in BBOX_IMAGE_FORMATS:
-        raise ValueError(f"BBoxImage file_format must be one of {list(BBOX_IMAGE_FORMATS)}")
-    if not isinstance(line_width, int) or line_width < 1:
-        raise ValueError("BBoxImage line_width must be a whole number of pixels, at least 1")
+def check_preview(step_name, file_format, line_width, min_line_width, opacity=None):
+    if file_format not in PREVIEW_FORMATS:
+        raise ValueError(f"{step_name} file_format must be one of {list(PREVIEW_FORMATS)}")
+    if not isinstance(line_width, int) or line_width < min_line_width:
+        raise ValueError(f"{step_name} line_width must be a whole number of pixels, at least {min_line_width}")
+    if opacity is not None and not 0 <= opacity <= 1:
+        raise ValueError(f"{step_name} opacity must be between 0 and 1")
 
 
 def text_pixels(text, scale):
@@ -552,23 +577,14 @@ def paint(pixels, rows, columns, color):
         pixels[rows, columns, 3] = 255
 
 
-def draw_bbox(pixels, box, color, line_width, text, text_scale):
-    """Draws a bbox outline, with the text on a filled tab above it (inside when at the top edge)."""
+def draw_tab(pixels, x, y, text, color, scale):
+    """Draws the text on a filled tab above the point (below it when at the top edge)."""
     height, width = pixels.shape[:2]
-    x_min, y_min = int(np.floor(box[0])), int(np.floor(box[1]))
-    x_max, y_max = min(int(np.ceil(box[2])), width), min(int(np.ceil(box[3])), height)
-    paint(pixels, slice(y_min, y_max), slice(x_min, x_min + line_width), color)
-    paint(pixels, slice(y_min, y_max), slice(x_max - line_width, x_max), color)
-    paint(pixels, slice(y_min, y_min + line_width), slice(x_min, x_max), color)
-    paint(pixels, slice(y_max - line_width, y_max), slice(x_min, x_max), color)
-    if not text:
-        return
-
-    glyphs = text_pixels(text, text_scale)
-    padding = text_scale
+    glyphs = text_pixels(text, scale)
+    padding = scale
     tab_height, tab_width = glyphs.shape[0] + 2 * padding, glyphs.shape[1] + 2 * padding
-    top = y_min - tab_height if y_min - tab_height >= 0 else y_min
-    left = min(x_min, width - tab_width)
+    top = y - tab_height if y - tab_height >= 0 else y
+    left = min(x, width - tab_width)
     paint(pixels, slice(top, top + tab_height), slice(left, left + tab_width), color)
     # dark text on bright colors
     text_color = (0, 0, 0) if 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2] > 150 else (255, 255, 255)
@@ -578,38 +594,94 @@ def draw_bbox(pixels, box, color, line_width, text, text_scale):
     pixels[rows[inside], columns[inside], :3] = text_color
 
 
+def draw_bbox(pixels, box, color, line_width):
+    """Draws a bbox outline."""
+    height, width = pixels.shape[:2]
+    x_min, y_min = int(np.floor(box[0])), int(np.floor(box[1]))
+    x_max, y_max = min(int(np.ceil(box[2])), width), min(int(np.ceil(box[3])), height)
+    paint(pixels, slice(y_min, y_max), slice(x_min, x_min + line_width), color)
+    paint(pixels, slice(y_min, y_max), slice(x_max - line_width, x_max), color)
+    paint(pixels, slice(y_min, y_min + line_width), slice(x_min, x_max), color)
+    paint(pixels, slice(y_max - line_width, y_max), slice(x_min, x_max), color)
+
+
+def erode(mask, steps):
+    """Shrinks a boolean mask by steps pixels (4-neighborhood)."""
+    for _ in range(steps):
+        padded = np.pad(mask, 1)
+        mask = mask & padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:]
+    return mask
+
+
+def text_scale(frame):
+    return max(2, frame.height // 160)
+
+
+def class_color(class_names, class_name):
+    """Color of a class, by its position among the classes in the labels."""
+    return CLASS_COLORS[class_names.index(class_name) % len(CLASS_COLORS)]
+
+
+def write_preview(frame, pixels, suffix, file_format, label_key):
+    """Writes 8 bit pixels to <path>/<index><suffix>.<ext> and adds the file to the labels."""
+    if file_format == "JPEG":
+        pixels = pixels[:, :, :3]
+    file_name = frame.file_name(f"{suffix}{PREVIEW_FORMATS[file_format]}")
+    height, width, channels = pixels.shape
+    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, channels, oiio.UINT8))
+    buffer.set_pixels(oiio.ROI(), np.ascontiguousarray(pixels))
+    if not buffer.write(os.path.join(frame.path, file_name)):
+        raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
+    frame.label[label_key] = file_name
+
+
 def bbox_image(frame, file_format, line_width, show_class):
     """Saves a copy of the beauty render with the bboxes of the labels drawn on it, to
     <path>/<index>_bboxes.<ext>. Reuses the render, the main image stays clean."""
     if "bboxes" not in frame.label:
         raise RuntimeError("BBoxImage draws the bboxes of a BBox step, add BBox to the steps")
-    frame.beauty()
-    # color managed 8 bit copy of the render result, like the main image
-    beauty_file = os.path.join(frame.temp_dir, "bbox_beauty.png")
-    image_settings = frame.scene.render.image_settings
-    set_file_format(image_settings, "PNG")
-    image_settings.color_mode = "RGBA"
-    image_settings.color_depth = "8"
-    bpy.data.images["Render Result"].save_render(beauty_file, scene=frame.scene)
-    pixels = oiio.ImageBuf(beauty_file).get_pixels(oiio.UINT8)
-    if file_format == "JPEG":
-        pixels = pixels[:, :, :3]
-    pixels = np.ascontiguousarray(pixels)
-
-    text_scale = max(2, frame.height // 160)
-    class_names = list(dict.fromkeys(entry["class"] for entry in frame.label["bboxes"]))
-    for entry in frame.label["bboxes"]:
+    pixels = frame.beauty_pixels()
+    entries = frame.label["bboxes"]
+    class_names = list(dict.fromkeys(entry["class"] for entry in entries))
+    for entry in entries:
         if entry["bbox"] is not None:
-            color = BBOX_COLORS[class_names.index(entry["class"]) % len(BBOX_COLORS)]
-            draw_bbox(pixels, entry["bbox"], color, line_width, entry["class"] if show_class else "", text_scale)
+            color = class_color(class_names, entry["class"])
+            draw_bbox(pixels, entry["bbox"], color, line_width)
+            if show_class:
+                draw_tab(pixels, int(entry["bbox"][0]), int(entry["bbox"][1]), entry["class"], color, text_scale(frame))
+    write_preview(frame, pixels, "_bboxes", file_format, "bbox_image")
 
-    file_name = frame.file_name(f"_bboxes{BBOX_IMAGE_FORMATS[file_format]}")
-    height, width, channels = pixels.shape
-    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, channels, oiio.UINT8))
-    buffer.set_pixels(oiio.ROI(), pixels)
-    if not buffer.write(os.path.join(frame.path, file_name)):
-        raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
-    frame.label["bbox_image"] = file_name
+
+def segmentation_image(frame, file_format, opacity, line_width, show_class):
+    """Saves a copy of the beauty render with the masks of the labels drawn over it in
+    their class color, each instance outlined, to <path>/<index>_segmentation.<ext>."""
+    if "masks" not in frame.label:
+        raise RuntimeError("SegmentationImage draws the masks of a Segmentation step, add Segmentation to the steps")
+    pixels = frame.beauty_pixels()
+    entries = frame.label["masks"]
+    class_names = list(dict.fromkeys(entry["class"] for entry in entries))
+    # instance masks separate touching instances, class masks are used when there are none
+    per = "instance" if any(entry["per"] == "instance" for entry in entries) else "class"
+    masks = []
+    for entry in entries:
+        if entry["per"] == per:
+            mask = oiio.ImageBuf(os.path.join(frame.path, entry["mask"])).get_pixels(oiio.UINT8)[:, :, 0] > 127
+            masks.append((class_color(class_names, entry["class"]), mask, entry["class"]))
+
+    rgb = pixels[:, :, :3].astype(np.float64)
+    for color, mask, _ in masks:
+        rgb[mask] = (1 - opacity) * rgb[mask] + opacity * np.array(color)
+    pixels[:, :, :3] = np.rint(rgb).astype(np.uint8)
+    if pixels.shape[2] == 4:
+        # opaque where a mask is drawn, also over a transparent background
+        pixels[np.any([mask for _, mask, _ in masks], axis=0), 3] = 255
+    for color, mask, class_name in masks:
+        if line_width:
+            pixels[mask & ~erode(mask, line_width), :3] = color
+        if show_class and mask.any():
+            rows, columns = np.nonzero(mask)
+            draw_tab(pixels, int(columns.min()), int(rows.min()), class_name, color, text_scale(frame))
+    write_preview(frame, pixels, "_segmentation", file_format, "segmentation_image")
 
 
 def camera_intrinsics(scene, camera_data, width, height):
@@ -738,6 +810,7 @@ def check_segmentation(classes, per):
 
 def segmentation(frame, classes, per):
     """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
+    frame.replace_render()
     frame.add("masks", save_masks(frame.scene, to_instances(classes), frame.path, frame.index, per))
 
 

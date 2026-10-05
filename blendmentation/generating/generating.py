@@ -2,8 +2,8 @@
 
 Steps run in a fixed order whatever order they are given in: labels (BBox,
 RotationMatrix, OutputField, CameraData, Keypoints) first, so a skipped datapoint
-is never rendered, then Render, AOVToImage / Passes / BBoxImage and Segmentation.
-Render, AOVToImage, Passes and BBoxImage share one render.
+is never rendered, then Render, AOVToImage / Passes / BBoxImage, Segmentation and
+SegmentationImage. Render, AOVToImage, Passes, BBoxImage and SegmentationImage share one render.
 
 BBox and Segmentation take classes as {class name: [instances]}, an instance is
 an object, or a sublist of objects labeled as one object, e.g.
@@ -24,8 +24,9 @@ class Compose:
     """
 
     def __init__(self, steps, path, resolution):
-        if any(isinstance(step, BBoxImage) for step in steps) and not any(isinstance(step, BBox) for step in steps):
-            raise ValueError("BBoxImage draws the bboxes of a BBox step, add BBox to the steps")
+        for preview, source in ((BBoxImage, BBox), (SegmentationImage, Segmentation)):
+            if any(isinstance(step, preview) for step in steps) and not any(isinstance(step, source) for step in steps):
+                raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, add {source.__name__} to the steps")
         self.steps = sorted(steps, key=lambda step: step.stage)
         self.path = path
         self.resolution = resolution
@@ -248,7 +249,7 @@ class BBoxImage:
         self.show_class = show_class
 
     def check(self):
-        bpy_g.check_bbox_image(self.file_format, self.line_width)
+        bpy_g.check_preview("BBoxImage", self.file_format, self.line_width, 1)
 
     def __call__(self, frame):
         bpy_g.bbox_image(frame, self.file_format, self.line_width, self.show_class)
@@ -277,3 +278,34 @@ class Segmentation:
 
     def __call__(self, frame):
         bpy_g.segmentation(frame, self.classes, self.per)
+
+
+class SegmentationImage:
+    """Saves a copy of the rendered image with the masks of the Segmentation step drawn
+    over it, to <index>_segmentation.<ext>, for checking the labels. Uses the same render
+    as Render, the main image stays clean. Each class has its own color, the same as in
+    BBoxImage, and each instance is outlined (with only class masks, each class).
+
+    Args:
+        file_format (str): "PNG" or "JPEG"
+        opacity (float): 0-1, how much the class color covers the image
+        line_width (int): outline width in pixels, 0 = no outline
+        show_class (bool): writes the class name above each mask
+    """
+
+    stage = 4
+
+    def __init__(self, file_format: str = "PNG", opacity: float = 0.5, line_width: int = 2, show_class: bool = True):
+        self.file_format = file_format
+        self.opacity = opacity
+        self.line_width = line_width
+        self.show_class = show_class
+
+    def check(self):
+        bpy_g.check_preview("SegmentationImage", self.file_format, self.line_width, 0, self.opacity)
+
+    def prepare(self, frame):
+        frame.keep_beauty = True
+
+    def __call__(self, frame):
+        bpy_g.segmentation_image(frame, self.file_format, self.opacity, self.line_width, self.show_class)

@@ -122,6 +122,7 @@ generator = generating.Compose(
         generating.BBox(classes, iou_deconflict=0.5),
         generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
         generating.Segmentation(classes, per="both"),
+        generating.SegmentationImage(),                # copy of the image with the masks drawn
         generating.RotationMatrix([car_1, car_2]),
         generating.CameraData(),
         generating.Keypoints({"car_1": car_1, "car_1_corner": (car_1, 0)}),
@@ -340,6 +341,7 @@ resolution divided by `factor`.
 | `BBox(classes, iou_deconflict=None)` | `"bboxes"` in the label |
 | `BBoxImage(file_format="PNG", line_width=2, show_class=True)` | `<index>_bboxes.png` (or `.jpg`), the image with the bboxes drawn on it |
 | `Segmentation(classes, per="instance")` | mask PNGs and `"masks"` in the label |
+| `SegmentationImage(file_format="PNG", opacity=0.5, line_width=2, show_class=True)` | `<index>_segmentation.png` (or `.jpg`), the image with the masks drawn on it |
 | `RotationMatrix(objects)` | `"rotation_matrices"` in the label |
 | `OutputField(name, data_path, objects=None)` | `name` in the label |
 | `CameraData()` | `"camera"` in the label |
@@ -352,6 +354,7 @@ You can list the steps in any order. They always run in this order:
 2. `Render`.
 3. `AOVToImage`, `Passes` and `BBoxImage`.
 4. `Segmentation`.
+5. `SegmentationImage`.
 
 Settings are checked before anything renders, so a typo fails immediately.
 
@@ -436,6 +439,13 @@ Objects that are not in `classes` still hide what is behind them.
 
 Segmentation uses one extra, fast Workbench render, whatever engine you render with.
 
+**SegmentationImage.** Saves a copy of the rendered image with the masks of the
+`Segmentation` step laid over it in their class color (`opacity` 0–1), each instance
+outlined (`line_width`, 0 for none) and, with `show_class`, its class name written
+above. Class colors match `BBoxImage`. Instance masks are used when there are any,
+otherwise the class masks. It reuses the render of `Render`, so it adds no render time,
+and the main image stays clean. It needs a `Segmentation` step in the same `Compose`.
+
 **RotationMatrix.** Saves each object's 3×3 rotation relative to the camera.
 
 **OutputField.** Saves the value at a data path to the label:
@@ -458,6 +468,7 @@ objects…) become their name.
   "resolution": [640, 480],
   "image": "000000.png",
   "bbox_image": "000000_bboxes.png",
+  "segmentation_image": "000000_segmentation.png",
   "aovs": {"Albedo": "000000_Albedo.exr"},
   "bboxes": [
     {"class": "car", "objects": ["Car.001"], "bbox": [102.4, 87.1, 233.9, 190.2]},
