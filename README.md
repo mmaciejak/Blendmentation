@@ -71,7 +71,10 @@ camera_aug = augmentations.Compose([
 ])
 
 # 2. what to save for every datapoint
-classes = {"car": [car_1, car_2], "table": [table]}
+classes = {
+    "car": [car_1, car_2],
+    "table": {"instances": [table], "max_truncation": 0.8},  # wins over the BBox argument
+}
 generator = generating.Compose(
     [
         generating.Render(),

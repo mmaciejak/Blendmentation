@@ -242,6 +242,64 @@ def test_max_truncation_skips_before_render(scene, cube, out, renders):
         G.Compose([G.BBox({"x": [inside]}, max_truncation=2)], out, (64, 48))()
 
 
+def test_class_settings_win_over_bbox_arguments():
+    classes = {
+        "plain": ["a"],
+        "loose": {"instances": ["b"], "max_truncation": 0.9},
+        "free": {"instances": ["c"], "max_truncation": None, "iou_deconflict": None},
+    }
+    settings = bpy_generating.class_settings(classes, {"iou_deconflict": 0.5, "max_truncation": 0.3})
+    assert settings["plain"] == {"iou_deconflict": 0.5, "max_truncation": 0.3}
+    assert settings["loose"] == {"iou_deconflict": 0.5, "max_truncation": 0.9}
+    assert settings["free"] == {"iou_deconflict": None, "max_truncation": None}
+
+
+def test_iou_conflict_uses_the_lower_limit():
+    a, b = [0, 0, 10, 10], [5, 0, 15, 10]  # IoU 1/3
+    assert bpy_generating.iou_conflict([a, b], [0.2, 0.9])
+    assert bpy_generating.iou_conflict([a, b], [None, 0.2])
+    assert not bpy_generating.iou_conflict([a, b], [0.5, 0.9])
+    assert not bpy_generating.iou_conflict([a, b], [None, None])
+
+
+def test_per_class_skip_settings(scene, cube, out, renders):
+    inside = cube("inside", (-1, 0, 0), 0.5)
+    edge = cube("edge", (3.6, 0, 0), 2)  # about 55% out of frame
+
+    def generate(classes, **kwargs):
+        return G.Compose([G.BBox(classes, **kwargs)], out, (64, 48))()
+
+    # a class's own max_truncation, even None, wins over the global one
+    assert generate({"in": [inside], "edge": {"instances": [edge], "max_truncation": 0.7}}, max_truncation=0.1)
+    assert generate({"in": [inside], "edge": {"instances": [edge], "max_truncation": None}}, max_truncation=0.1)
+    assert generate({"in": [inside], "edge": {"instances": [edge], "max_truncation": 0.3}}, max_truncation=0.9) is False
+    assert generate({"in": [inside], "edge": {"instances": [edge]}}, max_truncation=0.3) is False
+
+    a, b = cube("a", (0, 0, 1)), cube("b", (0.2, 0, 1))
+    assert generate({"a": {"instances": [a], "iou_deconflict": None}, "b": [b]}, iou_deconflict=0.1) is False
+    assert generate({"a": {"instances": [a], "iou_deconflict": None}, "b": {"instances": [b], "iou_deconflict": None}},
+                    iou_deconflict=0.1)
+    assert generate({"a": {"instances": [a], "iou_deconflict": 0.1}, "b": [b]}) is False
+    assert renders == []
+
+    # Segmentation takes the same classes dict and ignores the settings
+    seg_out = os.path.join(out, "segmentation")
+    os.makedirs(seg_out)
+    assert G.Compose([G.Segmentation({"a": {"instances": [a], "max_truncation": 0}})], seg_out, (64, 48))()
+    assert label(seg_out)["masks"][0]["class"] == "a"
+
+
+@pytest.mark.parametrize("value, match", [
+    ({"objects": []}, "unknown keys"),
+    ({"max_truncation": 0.5}, "needs an 'instances' list"),
+    ({"instances": [], "iou_deconflict": 1.5}, "iou_deconflict"),
+    ({"instances": "not a list"}, "must map to a list"),
+])
+def test_class_dict_errors(scene, out, value, match):
+    with pytest.raises((TypeError, ValueError), match=match):
+        G.Compose([G.BBox({"x": value})], out, (64, 48))()
+
+
 def test_output_fields_and_rotation(scene, cube, out):
     obj = cube("Cube", (1, 2, 3))
     material = new_material(obj, "Mat")

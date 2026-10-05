@@ -9,7 +9,10 @@ and `BBoxImage`, then `Segmentation`, then `SegmentationImage`. All steps except
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
-`{"car": [car_1, car_2], "table": [[table_top, table_legs]]}`.
+`{"car": [car_1, car_2], "table": [[table_top, table_legs]]}`. A class can also be a
+dict with its own `BBox` skip settings, `{"instances": [...], "max_truncation": 0.5}`,
+which win over the `BBox` arguments; `Segmentation` ignores them, so both steps can
+share one classes dict.
 """
 
 from __future__ import annotations
@@ -22,8 +25,10 @@ from . import bpy_generating as bpy_g
 if TYPE_CHECKING:
     from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
-#: {class name: [instances]}, an instance is an object or a sublist of objects labeled as one
-Classes = dict[str, Sequence[Union["Object", Sequence["Object"]]]]
+#: an object, or a sublist of objects labeled as one instance
+Instances = Sequence[Union["Object", Sequence["Object"]]]
+#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ..., "max_truncation": ...}}
+Classes = dict[str, Union[Instances, dict[str, Any]]]
 #: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
 KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
 
@@ -105,7 +110,9 @@ class BBox:
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
-            objects labeled as one (its box is the union of the members).
+            objects labeled as one (its box is the union of the members). A class can
+            instead be `{"instances": [instances], "iou_deconflict": ...,
+            "max_truncation": ...}` to set its own skip settings (both keys optional).
         iou_deconflict: skip the datapoint, before rendering, when any two boxes
             overlap more than this IoU. None = never skip.
         max_truncation: skip the datapoint, before rendering, when more than this
@@ -114,9 +121,21 @@ class BBox:
             counts as 1, so `max_truncation=0` keeps only datapoints with every instance
             fully in frame. None = never skip.
 
+    Note:
+        The `BBox` arguments are the defaults for every class. A setting a class sets
+        in its dict wins over them, even when it is None (no limit for that class).
+        A class's `max_truncation` applies to each of its instances. For
+        `iou_deconflict`, two boxes conflict when their IoU is over the lower of their
+        two classes' limits, so a strict class can't overlap anything, and a pair is
+        only free when both classes have no limit.
+
     Example:
         ```python
-        generating.BBox({"car": [car_1, car_2], "table": [[top, legs]]}, iou_deconflict=0.5, max_truncation=0.3)
+        classes = {
+            "car": [car_1, car_2],                                       # uses the BBox arguments
+            "table": {"instances": [[top, legs]], "max_truncation": 0.8},  # may be cut more
+        }
+        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3)
         ```
     """
 
@@ -402,7 +421,8 @@ class Segmentation:
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
-            objects labeled as one (one mask).
+            objects labeled as one (one mask). A class given as a dict with
+            `"instances"` (see `BBox`) works too; its skip settings are ignored here.
         per: `"instance"`, `"class"` or `"both"`.
 
     Example:

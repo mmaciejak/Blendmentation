@@ -59,13 +59,39 @@ FONT = {
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
 
+CLASS_SETTINGS = ("iou_deconflict", "max_truncation")
+
+
+def check_threshold(name, value, owner):
+    if value is not None and not (isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1):
+        raise ValueError(f"{owner} {name} must be None or a number in 0-1, got {value!r}")
+
+
+def split_class(class_name, value):
+    """Splits a class value, a list of instances or {"instances": [...], setting: value},
+    into the list of instances and the dict of the settings it sets."""
+    if not isinstance(value, dict):
+        return value, {}
+    unknown = sorted(set(value) - {"instances", *CLASS_SETTINGS})
+    if unknown:
+        raise ValueError(f"Class '{class_name}' has unknown keys {unknown}, allowed: instances, {', '.join(CLASS_SETTINGS)}")
+    if "instances" not in value:
+        raise ValueError(f"Class '{class_name}' is a dict, so it needs an 'instances' list")
+    settings = {name: value[name] for name in CLASS_SETTINGS if name in value}
+    for name, setting in settings.items():
+        check_threshold(name, setting, f"Class '{class_name}'")
+    return value["instances"], settings
+
+
 def to_instances(classes):
     """Normalizes {class name: [objects or sublists]} to a list of (class name, [objects]).
-    An object alone is an instance of one object, the objects of a sublist are one instance."""
+    An object alone is an instance of one object, the objects of a sublist are one instance.
+    A class can also be {"instances": [...], setting: value}, see `class_settings`."""
     if not isinstance(classes, dict):
         raise TypeError("classes must be a dict {class name: [objects or sublists of objects]}")
     instances = []
-    for class_name, entries in classes.items():
+    for class_name, value in classes.items():
+        entries, _ = split_class(class_name, value)
         if not isinstance(entries, (list, tuple)):
             raise TypeError(f"Class '{class_name}' must map to a list of objects or sublists of objects")
         for entry in entries:
@@ -78,6 +104,12 @@ def to_instances(classes):
     if duplicates:
         raise ValueError(f"Objects {duplicates} are in more than one instance")
     return instances
+
+
+def class_settings(classes, defaults):
+    """{class name: {setting: value}}, where a setting the class sets wins (even None),
+    otherwise it is the default (the global BBox argument)."""
+    return {name: {**defaults, **split_class(name, value)[1]} for name, value in classes.items()}
 
 
 def next_index(path):
@@ -195,12 +227,15 @@ def iou(box_a, box_b):
     return intersection / (area_a + area_b - intersection)
 
 
-def max_iou(boxes):
-    """Highest IoU between any two boxes."""
-    return max(
-        (iou(boxes[i], boxes[j]) for i in range(len(boxes)) for j in range(i + 1, len(boxes))),
-        default=0.0,
-    )
+def iou_conflict(boxes, limits):
+    """Whether two boxes overlap more than their limit, the lower of the two limits
+    (a None limit sets none; two None limits mean the pair is never a conflict)."""
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            pair = [limit for limit in (limits[i], limits[j]) if limit is not None]
+            if pair and iou(boxes[i], boxes[j]) > min(pair):
+                return True
+    return False
 
 
 def rotation_to_camera(camera, obj):
@@ -492,9 +527,8 @@ class Frame:
 
 def check_bboxes(classes, iou_deconflict, max_truncation):
     to_instances(classes)
-    for name, value in (("iou_deconflict", iou_deconflict), ("max_truncation", max_truncation)):
-        if value is not None and not (isinstance(value, (int, float)) and 0 <= value <= 1):
-            raise ValueError(f"BBox {name} must be None or a number in 0-1, got {value!r}")
+    check_threshold("iou_deconflict", iou_deconflict, "BBox")
+    check_threshold("max_truncation", max_truncation, "BBox")
 
 
 def bboxes(frame, classes, iou_deconflict, max_truncation):
@@ -504,15 +538,19 @@ def bboxes(frame, classes, iou_deconflict, max_truncation):
         bool: False if two bboxes overlap over iou_deconflict, or an instance is more than
             max_truncation out of frame, and the datapoint should be skipped
     """
-    entries = []
+    settings = class_settings(classes, {"iou_deconflict": iou_deconflict, "max_truncation": max_truncation})
+    entries, boxes, limits = [], [], []
     for class_name, group in to_instances(classes):
         bounds, behind = view_bounds(frame.scene, frame.camera, group, frame.depsgraph)
-        if max_truncation is not None and truncation(bounds, behind) > max_truncation:
+        limit = settings[class_name]["max_truncation"]
+        if limit is not None and truncation(bounds, behind) > limit:
             return False
         box = to_pixels(bounds, frame.width, frame.height)
         entries.append({"class": class_name, "objects": [obj.name for obj in group], "bbox": box})
-    boxes = [entry["bbox"] for entry in entries if entry["bbox"] is not None]
-    if iou_deconflict is not None and max_iou(boxes) > iou_deconflict:
+        if box is not None:
+            boxes.append(box)
+            limits.append(settings[class_name]["iou_deconflict"])
+    if iou_conflict(boxes, limits):
         return False
     frame.add("bboxes", entries)
     return True
