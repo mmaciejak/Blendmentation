@@ -103,4 +103,4 @@ export.yolo("//dataset")
 
 ## Contact
 
-Made by Maciej Maciejak: [csmx.eu](https://csmx.eu), [contact@csmx.eu](mailto:contact@csmx.eu).
+[csmx.eu](https://csmx.eu)  ·    [contact@csmx.eu](mailto:contact@csmx.eu).

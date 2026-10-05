@@ -126,7 +126,7 @@ The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]
 
 ## Contact
 
-Made by Maciej Maciejak: [csmx.eu](https://csmx.eu), [contact@csmx.eu](mailto:contact@csmx.eu).
+[csmx.eu](https://csmx.eu), [contact@csmx.eu](mailto:contact@csmx.eu).
 
 ## License
 
