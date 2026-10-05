@@ -273,6 +273,24 @@ def test_camera_data_ortho(scene, out):
     assert "intrinsics" not in info and info["ortho_scale"] == scene.camera.data.ortho_scale
 
 
+def test_camera_data_depth_of_field(scene, out):
+    dof = scene.camera.data.dof
+    dof.use_dof, dof.focus_distance, dof.aperture_fstop, dof.aperture_blades = True, 7.5, 2.8, 6
+    G.Compose([G.CameraData()], out, (16, 12))()
+    info = label(out)["camera"]["depth_of_field"]
+    assert info["use_dof"] is True and info["focus_object"] is None and info["aperture_blades"] == 6
+    assert info["focus_distance"] == pytest.approx(7.5) and info["f_stop"] == pytest.approx(2.8)
+
+    # with a focus object, the distance is along the view axis (camera at y=-10 looking along +y)
+    target = bpy.data.objects.new("Target", None)
+    scene.collection.objects.link(target)
+    target.location = (3, 2, -1)
+    dof.focus_object = target
+    G.Compose([G.CameraData()], out, (16, 12))()
+    info = label(out, 1)["camera"]["depth_of_field"]
+    assert info["focus_object"] == "Target" and info["focus_distance"] == pytest.approx(12)
+
+
 def test_keypoints(scene, cube, out):
     body = cube("Cube")
     empties = {}

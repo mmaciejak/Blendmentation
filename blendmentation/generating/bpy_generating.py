@@ -702,8 +702,36 @@ def camera_intrinsics(scene, camera_data, width, height):
     ]
 
 
+def focus_distance(camera):
+    """Distance from the camera to its focal plane, as Blender computes it: along the view
+    axis to the focus object (or its bone), otherwise the focus distance setting."""
+    dof = camera.data.dof
+    target = dof.focus_object
+    if target is None:
+        return dof.focus_distance
+    location = target.matrix_world.translation
+    bone = getattr(dof, "focus_subtarget", "")
+    if bone and target.pose and bone in target.pose.bones:
+        location = target.matrix_world @ target.pose.bones[bone].head
+    forward = camera.matrix_world.col[2].xyz.normalized()
+    return max(abs(forward.dot(camera.matrix_world.translation - location)), 1e-5)
+
+
+def depth_of_field(camera):
+    dof = camera.data.dof
+    return {
+        "use_dof": dof.use_dof,
+        "focus_object": to_json(dof.focus_object),
+        "focus_distance": focus_distance(camera),
+        "f_stop": dof.aperture_fstop,
+        "aperture_blades": dof.aperture_blades,
+        "aperture_rotation": dof.aperture_rotation,
+        "aperture_ratio": dof.aperture_ratio,
+    }
+
+
 def camera_data(frame):
-    """Adds the camera settings, intrinsics and extrinsics to the labels under "camera"."""
+    """Adds the camera settings, depth of field, intrinsics and extrinsics to the labels under "camera"."""
     camera = frame.camera
     data = camera.data
     location, rotation, _ = camera.matrix_world.decompose()
@@ -717,6 +745,7 @@ def camera_data(frame):
         "extrinsics_opencv": [list(row) + [translation[i]] for i, row in enumerate(world_to_camera)],
         "clip_start": data.clip_start,
         "clip_end": data.clip_end,
+        "depth_of_field": depth_of_field(camera),
     }
     if data.type == "PERSP":
         info.update(

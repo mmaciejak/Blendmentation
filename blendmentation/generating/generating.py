@@ -196,7 +196,11 @@ class CameraData:
     """Adds the active camera to the label.
 
     Saves the name, type, `matrix_world`, `extrinsics_opencv` (3x4 world-to-camera
-    `[R|t]` with OpenCV axes: x right, y down, z forward), `clip_start` and `clip_end`.
+    `[R|t]` with OpenCV axes: x right, y down, z forward), `clip_start`, `clip_end` and
+    `depth_of_field` (`use_dof`, `focus_object`, `focus_distance`, `f_stop`,
+    `aperture_blades`, `aperture_rotation` in radians and `aperture_ratio`).
+    `focus_distance` is the distance to the focal plane Blender uses, so with a focus
+    object it is the distance to that object along the view axis.
     A perspective camera adds the lens, sensor size and fit and `intrinsics` (3x3 `K` in
     pixels, top-left image origin, with sensor fit, lens shift and pixel aspect), an
     orthographic one `ortho_scale`.
