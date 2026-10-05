@@ -1,29 +1,65 @@
-"""Generating steps, composed like augmentations.
+"""Save a datapoint per call: the render, passes, AOVs, masks, preview images and a
+JSON label, `<index>.json`.
 
-Steps run in a fixed order whatever order they are given in: labels (BBox,
-RotationMatrix, OutputField, CameraData, Keypoints) first, so a skipped datapoint
-is never rendered, then Render, AOVToImage / Passes / BBoxImage, Segmentation and
-SegmentationImage. Render, AOVToImage, Passes, BBoxImage and SegmentationImage share one render.
+The steps can be listed in any order; they always run as: label steps (`BBox`,
+`RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
+by `iou_deconflict` is never rendered, then `Render`, then `AOVToImage`, `Passes`
+and `BBoxImage`, then `Segmentation`, then `SegmentationImage`. All steps except
+`Segmentation` share one render.
 
-BBox and Segmentation take classes as {class name: [instances]}, an instance is
-an object, or a sublist of objects labeled as one object, e.g.
-{"car": [car_1, car_2], "table": [[table_top, table_leg_1, table_leg_2]]}
+`BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
+instance is an object, or a sublist of objects labeled as one:
+`{"car": [car_1, car_2], "table": [[table_top, table_legs]]}`.
 """
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from . import bpy_generating as bpy_g
 
+if TYPE_CHECKING:
+    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+
+#: {class name: [instances]}, an instance is an object or a sublist of objects labeled as one
+Classes = dict[str, Sequence[Union["Object", Sequence["Object"]]]]
+#: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
+KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
+
 
 class Compose:
-    """Compose generating steps together. Every call generates one datapoint in path:
-    <index>.png, <index>.json with the labels, and the files of the other steps.
+    """Generates one datapoint per call from a list of steps.
+
+    Every call saves `<index>.png`, `<index>.json` with the labels, and the files of
+    the other steps to `path`. The index is the next free number in the folder, so
+    generating can be stopped and resumed. The settings of every step are checked
+    before anything renders, and the scene's resolution and output settings are
+    restored afterwards.
 
     Args:
-        steps (list): list of generating steps
-        path (str): directory to save the files to, "" = next to the .blend file
-        resolution (tuple): (width, height) of the images
+        steps: generating steps, in any order.
+        path: folder to save the files to. `//` paths are relative to the .blend file,
+            and `""` is its folder.
+        resolution: `(width, height)` of the images in pixels.
+
+    Raises:
+        ValueError: a `BBoxImage` without a `BBox` step, or a `SegmentationImage`
+            without a `Segmentation` step.
+
+    Example:
+        ```python
+        classes = {"car": [car_1, car_2], "table": [[table_top, table_legs]]}
+        generator = generating.Compose(
+            [generating.Render(), generating.BBox(classes), generating.Segmentation(classes)],
+            path="//dataset",
+            resolution=(640, 480),
+        )
+        generator()
+        ```
     """
 
-    def __init__(self, steps, path, resolution):
+    def __init__(self, steps: Sequence[Any], path: str, resolution: tuple[int, int]):
         for preview, source in ((BBoxImage, BBox), (SegmentationImage, Segmentation)):
             if any(isinstance(step, preview) for step in steps) and not any(isinstance(step, source) for step in steps):
                 raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, add {source.__name__} to the steps")
@@ -31,43 +67,57 @@ class Compose:
         self.path = path
         self.resolution = resolution
 
-    def __call__(self, custom_dict: dict = None):
+    def __call__(self, custom_dict: Optional[dict[str, Any]] = None) -> bool:
         """Generates one datapoint.
 
         Args:
-            custom_dict (dict): optional - key and values to be saved in the labels,
-            apart from the standard data
+            custom_dict: extra keys and values to save in the label.
 
         Returns:
-            bool: False if the datapoint was skipped, e.g. by BBox iou_deconflict
+            False if the datapoint was skipped, e.g. by `BBox(iou_deconflict=...)`,
+                otherwise True.
         """
         return bpy_g.generate(self.path, self.resolution, self.steps, custom_dict)
 
-    def preview(self, scaling_factor, custom_dict: dict = None):
-        """Generates one datapoint with limited image resolution, for a quick preview.
+    def preview(self, scaling_factor: float, custom_dict: Optional[dict[str, Any]] = None) -> bool:
+        """Generates one datapoint at a reduced resolution, for a quick look.
 
         Args:
-            scaling_factor (float): resolution is divided by this factor
+            scaling_factor: the resolution is divided by this factor.
+            custom_dict: extra keys and values to save in the label.
+
+        Returns:
+            False if the datapoint was skipped, otherwise True.
         """
         resolution = tuple(int(size / scaling_factor) for size in self.resolution)
         return bpy_g.generate(self.path, resolution, self.steps, custom_dict)
 
 
 class BBox:
-    """Adds the 2D bbox of every instance to the labels under "bboxes", as
-    {"class", "objects", "bbox"}. bbox is in pixels [x_min, y_min, x_max, y_max]
-    from the top left corner, None when out of frame. Occlusion by other objects
-    is not taken into account.
+    """Adds the 2D bounding box of every instance to the label.
+
+    Boxes are in pixels as `[x_min, y_min, x_max, y_max]` from the top-left corner,
+    computed from the evaluated geometry (modifiers included). Occlusion is not taken
+    into account, so hidden parts are inside the box. An instance out of frame gets
+    None.
+
+    Label: `"bboxes": [{"class", "objects", "bbox"}]`.
 
     Args:
-        classes (dict): {class name: [objects or sublists of objects]}
-        iou_deconflict (float): datapoints with bboxes overlapping over this IoU
-            are skipped, before rendering. None = never skip
+        classes: `{class name: [instances]}`, an instance is an object or a sublist of
+            objects labeled as one (its box is the union of the members).
+        iou_deconflict: skip the datapoint, before rendering, when any two boxes
+            overlap more than this IoU. None = never skip.
+
+    Example:
+        ```python
+        generating.BBox({"car": [car_1, car_2], "table": [[top, legs]]}, iou_deconflict=0.5)
+        ```
     """
 
     stage = 0
 
-    def __init__(self, classes: dict, iou_deconflict: float = None):
+    def __init__(self, classes: Classes, iou_deconflict: Optional[float] = None):
         self.classes = classes
         self.iou_deconflict = iou_deconflict
 
@@ -79,16 +129,23 @@ class BBox:
 
 
 class RotationMatrix:
-    """Adds the 3x3 rotation of every object relative to the camera to the labels
-    under "rotation_matrices", as {"object", "rotation_matrix"}.
+    """Adds the rotation of every object relative to the camera to the label, as a 3x3
+    matrix with the scale removed.
+
+    Label: `"rotation_matrices": [{"object", "rotation_matrix"}]`.
 
     Args:
-        objects (list): objects to output the rotation of
+        objects: objects to save the rotation of.
+
+    Example:
+        ```python
+        generating.RotationMatrix([car_1, car_2])
+        ```
     """
 
     stage = 0
 
-    def __init__(self, objects: list):
+    def __init__(self, objects: Sequence[Object]):
         self.objects = objects
 
     def check(self):
@@ -99,20 +156,31 @@ class RotationMatrix:
 
 
 class OutputField:
-    """Saves the value at a data path to the labels under name.
+    """Saves the value at a data path to the label.
+
+    Values are converted to JSON: datablocks become their name, menus the option name,
+    and vectors and matrices nested lists.
+
+    Label: `name: value` for an absolute path, `name: {object name: value}` for a
+    relative one.
 
     Args:
-        name (str): key in the labels
-        data_path (str): path to the value. Paths starting with "bpy." are absolute
-            (right click > Copy Full Data Path) and saved once, e.g.
-            'bpy.data.lights["Light"].energy'. Other paths are relative to objects
-            and saved as {object name: value}, e.g. 'data.shape_keys.key_blocks["Key 1"].value'
-        objects (list): objects relative paths are resolved on
+        name: key in the label.
+        data_path: path to the value. Paths starting with `bpy.` are absolute (right
+            click > Copy Full Data Path) and saved once, e.g.
+            `'bpy.data.lights["Light"].energy'`. Other paths are relative to `objects`.
+        objects: objects a relative path is resolved on.
+
+    Example:
+        ```python
+        generating.OutputField("light_energy", 'bpy.data.lights["Light"].energy')
+        generating.OutputField("smile", 'data.shape_keys.key_blocks["Smile"].value', objects=[face])
+        ```
     """
 
     stage = 0
 
-    def __init__(self, name: str, data_path: str, objects: list = None):
+    def __init__(self, name: str, data_path: str, objects: Optional[Sequence[Object]] = None):
         self.name = name
         self.data_path = data_path
         self.objects = objects
@@ -125,10 +193,21 @@ class OutputField:
 
 
 class CameraData:
-    """Adds the active camera to the labels under "camera": name, type, matrix_world,
-    extrinsics_opencv (3x4 world to camera [R|t], OpenCV axes: x right, y down, z forward),
-    clip_start and clip_end, and for perspective cameras lens, sensor size and fit and
-    intrinsics (3x3 K in pixels, top-left image origin), for orthographic ones ortho_scale."""
+    """Adds the active camera to the label.
+
+    Saves the name, type, `matrix_world`, `extrinsics_opencv` (3x4 world-to-camera
+    `[R|t]` with OpenCV axes: x right, y down, z forward), `clip_start` and `clip_end`.
+    A perspective camera adds the lens, sensor size and fit and `intrinsics` (3x3 `K` in
+    pixels, top-left image origin, with sensor fit, lens shift and pixel aspect), an
+    orthographic one `ortho_scale`.
+
+    Label: `"camera": {...}`.
+
+    Example:
+        ```python
+        generating.CameraData()
+        ```
+    """
 
     stage = 0
 
@@ -137,21 +216,28 @@ class CameraData:
 
 
 class Keypoints:
-    """Projects 3D points to the image and adds them to the labels under "keypoints", as
-    {"name", "position", "depth", "in_frame", "visible"}. position is in pixels from the
-    top left corner, depth the distance along the camera view, visible is False when
-    the point is out of frame or hidden behind geometry.
+    """Projects 3D points to the image and adds them to the label.
+
+    Vertices include deformations from armatures and modifiers. A point is visible when
+    it is in frame and a ray cast from the camera reaches it.
+
+    Label: `"keypoints": [{"name", "position", "depth", "in_frame", "visible"}]`, with
+    `position` in pixels from the top-left corner and `depth` along the view axis.
 
     Args:
-        points (dict) : {name: source}, a source is an object (its origin),
-            (mesh object, vertex index), (mesh object, "vertex group") for the center
-            of the group, (armature, "bone") for the bone head, or a point (x, y, z).
-            Vertices include deformations like armatures and modifiers.
+        points: `{name: source}`, where a source is an object (its origin),
+            `(mesh object, vertex index)`, `(mesh object, "vertex group")` for the center
+            of the group, `(armature, "bone")` for the bone head, or a point `(x, y, z)`.
+
+    Example:
+        ```python
+        generating.Keypoints({"car_origin": car_1, "car_corner": (car_1, 0), "hand": (rig, "hand.L")})
+        ```
     """
 
     stage = 0
 
-    def __init__(self, points: dict):
+    def __init__(self, points: dict[str, KeypointSource]):
         self.points = points
 
     def check(self):
@@ -162,15 +248,22 @@ class Keypoints:
 
 
 class Render:
-    """Renders the image with the scene engine to <index>.<ext>.
+    """Renders the image with the scene's engine to `<index>.<ext>`.
+
+    Label: `"image": file name`.
 
     Args:
-        file_format (str): "PNG", "JPEG" or "OPEN_EXR"
+        file_format: `"PNG"`, `"JPEG"` or `"OPEN_EXR"`.
+
+    Example:
+        ```python
+        generating.Render("JPEG")
+        ```
     """
 
     stage = 1
 
-    def __init__(self, file_format: str = "PNG"):
+    def __init__(self, file_format: Literal["PNG", "JPEG", "OPEN_EXR"] = "PNG"):
         self.file_format = file_format
 
     def check(self):
@@ -181,17 +274,27 @@ class Render:
 
 
 class AOVToImage:
-    """Saves shader AOVs as images <index>_<aov>.<ext>. Uses the same render as Render,
-    without Render it renders the scene once without saving the image. Needs Cycles or EEVEE.
+    """Saves shader AOVs as images `<index>_<aov>.<ext>`.
+
+    Uses the same render as `Render`; without `Render`, the scene is still rendered
+    once, but no image is saved. Each AOV must be added in View Layer Properties >
+    Passes > Shader AOV, and the engine must be Cycles or EEVEE.
+
+    Label: `"aovs": {name: file name}`.
 
     Args:
-        names (list): names of the AOVs, as in View Layer > Passes > Shader AOV
-        file_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped to 0-1)
+        names: names of the AOVs.
+        file_format: `"OPEN_EXR"` (32-bit float) or `"PNG"` (8-bit, clamped to 0-1).
+
+    Example:
+        ```python
+        generating.AOVToImage(["Albedo"])
+        ```
     """
 
     stage = 2
 
-    def __init__(self, names: list, file_format: str = "OPEN_EXR"):
+    def __init__(self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR"):
         self.names = names
         self.file_format = file_format
 
@@ -203,20 +306,29 @@ class AOVToImage:
 
 
 class Passes:
-    """Saves built-in render passes as images <index>_<pass>.<ext>. Uses the same render
-    as Render and AOVToImage, the passes are enabled in the view layer only for that render.
+    """Saves built-in render passes as images `<index>_<pass>.<ext>`.
+
+    Uses the same render as `Render` and `AOVToImage`. Each pass is enabled in the view
+    layer for that render only. Cycles has all passes, EEVEE no `UV` or index passes,
+    and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off.
+
+    Label: `"passes": {name: file name}`.
 
     Args:
-        names (list): any of "Depth", "Mist", "Normal", "Position", "Vector", "UV",
-            "ObjectIndex", "MaterialIndex". Engines support different passes, EEVEE has
-            no UV and index passes, workbench only Depth
-        file_format (str): "OPEN_EXR" (32 bit float) or "PNG" (8 bit, values clamped
-            to 0-1, so only useful for some passes like Normal)
+        names: any of `"Depth"`, `"Mist"`, `"Normal"`, `"Position"`, `"Vector"`,
+            `"UV"`, `"ObjectIndex"` and `"MaterialIndex"`.
+        file_format: `"OPEN_EXR"` (32-bit float) or `"PNG"` (8-bit, clamped to 0-1, so
+            only useful for some passes like Normal).
+
+    Example:
+        ```python
+        generating.Passes(["Depth", "Normal"])
+        ```
     """
 
     stage = 2
 
-    def __init__(self, names: list, file_format: str = "OPEN_EXR"):
+    def __init__(self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR"):
         self.names = names
         self.file_format = file_format
 
@@ -231,19 +343,29 @@ class Passes:
 
 
 class BBoxImage:
-    """Saves a copy of the rendered image with the bboxes of the BBox step drawn on it,
-    to <index>_bboxes.<ext>, for checking the labels. Uses the same render as Render,
-    the main image stays clean. Each class has its own color.
+    """Saves a copy of the rendered image with the boxes of the `BBox` step drawn on it,
+    to `<index>_bboxes.<ext>`, for checking the labels.
+
+    Uses the same render as `Render`, and the main image stays clean. Each class has
+    its own color, and its name is written above each box in capitals. Needs a `BBox`
+    step in the same `Compose`.
+
+    Label: `"bbox_image": file name`.
 
     Args:
-        file_format (str): "PNG" or "JPEG"
-        line_width (int): outline width in pixels
-        show_class (bool): writes the class name above each box
+        file_format: `"PNG"` or `"JPEG"`.
+        line_width: outline width in pixels, at least 1.
+        show_class: write the class name above each box.
+
+    Example:
+        ```python
+        generating.BBoxImage(line_width=3)
+        ```
     """
 
     stage = 2
 
-    def __init__(self, file_format: str = "PNG", line_width: int = 2, show_class: bool = True):
+    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", line_width: int = 2, show_class: bool = True):
         self.file_format = file_format
         self.line_width = line_width
         self.show_class = show_class
@@ -256,20 +378,30 @@ class BBoxImage:
 
 
 class Segmentation:
-    """Saves black and white masks of the visible pixels and adds them to the labels
-    under "masks", as {"class", "objects", "mask", "per"}, per is "instance" or "class". Uses a separate, fast workbench
-    render. Objects that are not in classes still occlude.
+    """Saves black-and-white masks of the visible pixels of every instance or class.
+
+    Uses one extra, fast Workbench render whatever the engine. Objects that are not in
+    `classes` still hide what is behind them. Files are `<index>_mask_<n>.png` per
+    instance, where `n` counts instances across all classes, and
+    `<index>_mask_<class>.png` per class.
+
+    Label: `"masks": [{"class", "objects", "mask", "per"}]`, with `per` `"instance"`
+    or `"class"`.
 
     Args:
-        classes (dict): {class name: [objects or sublists of objects]}
-        per (str): "instance" - a mask per instance, <index>_mask_<n>.png, n is the
-            position of the instance counting through all classes, "class" - a mask per
-            class, <index>_mask_<class>.png, or "both"
+        classes: `{class name: [instances]}`, an instance is an object or a sublist of
+            objects labeled as one (one mask).
+        per: `"instance"`, `"class"` or `"both"`.
+
+    Example:
+        ```python
+        generating.Segmentation({"car": [car_1, car_2]}, per="both")
+        ```
     """
 
     stage = 3
 
-    def __init__(self, classes: dict, per: str = "instance"):
+    def __init__(self, classes: Classes, per: Literal["instance", "class", "both"] = "instance"):
         self.classes = classes
         self.per = per
 
@@ -281,21 +413,32 @@ class Segmentation:
 
 
 class SegmentationImage:
-    """Saves a copy of the rendered image with the masks of the Segmentation step drawn
-    over it, to <index>_segmentation.<ext>, for checking the labels. Uses the same render
-    as Render, the main image stays clean. Each class has its own color, the same as in
-    BBoxImage, and each instance is outlined (with only class masks, each class).
+    """Saves a copy of the rendered image with the masks of the `Segmentation` step drawn
+    over it, to `<index>_segmentation.<ext>`, for checking the labels.
+
+    Uses the same render as `Render`, and the main image stays clean. Each mask is
+    laid over in its class color (the same as in `BBoxImage`), each instance outlined,
+    and its class name written above. Instance masks are used when there are any,
+    otherwise the class masks. Needs a `Segmentation` step in the same `Compose`.
+
+    Label: `"segmentation_image": file name`.
 
     Args:
-        file_format (str): "PNG" or "JPEG"
-        opacity (float): 0-1, how much the class color covers the image
-        line_width (int): outline width in pixels, 0 = no outline
-        show_class (bool): writes the class name above each mask
+        file_format: `"PNG"` or `"JPEG"`.
+        opacity: how much the class color covers the image, 0-1.
+        line_width: outline width in pixels, 0 = no outline.
+        show_class: write the class name above each mask.
+
+    Example:
+        ```python
+        generating.SegmentationImage(opacity=0.4)
+        ```
     """
 
     stage = 4
 
-    def __init__(self, file_format: str = "PNG", opacity: float = 0.5, line_width: int = 2, show_class: bool = True):
+    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", opacity: float = 0.5, line_width: int = 2,
+                 show_class: bool = True):
         self.file_format = file_format
         self.opacity = opacity
         self.line_width = line_width

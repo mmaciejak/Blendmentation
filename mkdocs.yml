@@ -1,0 +1,73 @@
+site_name: Blendmentation
+site_description: Synthetic, augmented training datasets from Blender scenes
+site_url: https://mmaciejak.github.io/Blendmentation/
+repo_url: https://github.com/mmaciejak/Blendmentation
+repo_name: mmaciejak/Blendmentation
+edit_uri: edit/main/docs/
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Augmentations: augmentations.md
+  - State: state.md
+  - Generating: generating.md
+  - Export: export.md
+  - Development: development.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          # the source is read without importing it, so bpy is not needed
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_section_style: list
+            heading_level: 3
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            show_source: false
+            show_bases: false
+            show_root_heading: false
+            show_root_toc_entry: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            # internals the public classes implement for Compose
+            filters: ["!^_", "!^apply$", "!^skip$", "!^check$", "!^prepare$", "!^stage$", "!^AxisAugmentation$", "!^check_p$", "!^happens$"]

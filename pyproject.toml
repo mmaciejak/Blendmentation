@@ -29,6 +29,9 @@ module = ["bpy", "OpenImageIO"]
 test = ["pytest", "pycocotools"]
 # type stubs for bpy, so editors show the blender types in the hints
 dev = ["fake-bpy-module"]
+# the documentation site, built with: mkdocs serve
+# mkdocs 2 removes plugins (mkdocstrings), stay on 1.x; ruff formats the signatures
+docs = ["mkdocs<2", "mkdocs-material", "mkdocstrings[python]", "ruff"]
 
 [tool.setuptools.packages.find]
 include = ["blendmentation*"]

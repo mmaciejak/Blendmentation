@@ -1,17 +1,49 @@
+"""Saves the scene state, so it can be restored after augmenting."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Union
+
 from . import bpy_states as bpy_s
+
+if TYPE_CHECKING:
+    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
 
 class State:
-    """Saves and restors states of blender objects properties for reverting after augmentation
+    """Saves the scene when created, so it can be restored after every datapoint.
+
+    It saves, for each object:
+
+    - the transforms;
+    - all unlinked node input values of its materials;
+    - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
+      `focus_distance`, `aperture_fstop`).
+
+    It also saves the value at every data path in `fields`. A data path augmentation
+    that isn't passed in `fields` is not restored, and with `percent` its changes build
+    up from one datapoint to the next.
 
     Args:
-        objects (list) : list of bpy objects to save the state from
-        fields (list) : Number, Vector, Boolean and Menu augmentations or data paths to save, absolute paths
-            are saved once, relative paths for every object they exist on.
-            Other augmentations in the list are ignored.
+        objects: objects to save.
+        fields: `Number`, `Vector`, `Boolean` and `Menu` augmentations, or data path
+            strings. Absolute paths are saved once, relative paths for every object they
+            exist on. Other entries are ignored, so a whole `Compose.augmentations` list
+            can be passed.
+
+    Example:
+        ```python
+        initial = state.State([car_1, car_2, lamp, camera],
+                              fields=objects_aug.augmentations + lamp_aug.augmentations)
+        for _ in range(1000):
+            objects_aug([car_1, car_2])
+            generator()
+            initial.restore()
+        ```
     """
 
-    def __init__(self, objects, fields=()):
+    def __init__(self, objects: Sequence[Object], fields: Sequence[Union[Any, str]] = ()):
         self.state_dict = {}
         self.objects = objects
         for object in objects:
@@ -21,15 +53,15 @@ class State:
                       if isinstance(field, str) or hasattr(field, "data_path")]
         self.field_state = bpy_s.create_field_state(data_paths, objects)
 
-    def restore(self):
-        """Restores transforms and values from previously saved state_dict"""
+    def restore(self) -> None:
+        """Puts the saved transforms and values back."""
 
         for object in self.objects:
             bpy_s.load_from_state_dict(object, self.state_dict)
         bpy_s.load_field_state(self.field_state)
 
-    def clear(self):
-        """Clears the state dict"""
+    def clear(self) -> None:
+        """Forgets the saved state."""
 
         self.state_dict = {}
         self.field_state = []

@@ -1,14 +1,17 @@
 """Exports a generated dataset to standard formats: COCO, YOLO and Pascal VOC.
 
-Run it once after generating, on the generating path. It reads the <index>.json labels,
-only datapoints with an image (a Render step) and with bboxes or instance masks are exported.
-Works without blender. COCO with masks needs numpy and OpenImageIO, which come with blender.
+Run it once after generating, on the generating path. It reads the `<index>.json`
+labels; only datapoints with an image (a `Render` step) and with bboxes or instance
+masks are exported. It works without Blender. COCO with masks needs numpy and
+OpenImageIO, which come with Blender.
 """
 
 import json
 import os
 import re
 import xml.etree.ElementTree as ElementTree
+from collections.abc import Sequence
+from typing import Literal, Optional
 
 LABEL = re.compile(r"^(\d+)\.json$")
 
@@ -99,19 +102,33 @@ def instances(label):
     return found
 
 
-def coco(path, output=None, classes=None, bbox_from="label"):
-    """Writes a COCO detection / instance segmentation json.
+def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]] = None,
+         bbox_from: Literal["label", "mask"] = "label") -> str:
+    """Writes a COCO detection and instance segmentation JSON.
+
+    Masks are stored as uncompressed RLE from the instance masks. Instances whose mask
+    is empty (fully hidden) are skipped. Each annotation also has an `"objects"` field
+    with the object names.
 
     Args:
-        path (str): generating path with the <index>.json labels
-        output (str): json file to write, None = <path>/coco.json
-        classes (list): class names in category id order (ids start at 1),
-            None = in order of first appearance
-        bbox_from (str): "label" - the BBox step bboxes, which include hidden parts,
-            "mask" - the extent of the visible pixels in the instance masks
+        path: generating path with the `<index>.json` labels. `//` paths are relative
+            to the .blend file when running in Blender.
+        output: JSON file to write. None = `<path>/coco.json`.
+        classes: class names in category id order (ids start at 1). None = in order of
+            first appearance.
+        bbox_from: `"label"` for the boxes of the `BBox` step, which include hidden
+            parts, or `"mask"` for the extent of the visible pixels in the instance masks.
 
     Returns:
-        str: path of the written file
+        Path of the written file.
+
+    Raises:
+        ValueError: an unknown `bbox_from`, or a class in the labels missing from `classes`.
+
+    Example:
+        ```python
+        export.coco("//dataset", classes=["car", "table"])
+        ```
     """
     if bbox_from not in ("label", "mask"):
         raise ValueError('bbox_from must be "label" or "mask"')
@@ -162,18 +179,28 @@ def coco(path, output=None, classes=None, bbox_from="label"):
     return output
 
 
-def yolo(path, classes=None):
-    """Writes YOLO detection labels: <index>.txt next to every image with a line
-    "class x_center y_center width height" (normalized 0-1) per bbox,
-    classes.txt and dataset.yaml with the class names.
+def yolo(path: str, classes: Optional[Sequence[str]] = None) -> str:
+    """Writes YOLO detection labels.
+
+    Writes `<index>.txt` next to every image, with one `class x_center y_center width
+    height` line per bbox (normalized to 0-1), `classes.txt`, and `dataset.yaml`
+    pointing at the folder, ready for Ultralytics.
 
     Args:
-        path (str): generating path with the <index>.json labels
-        classes (list): class names in class id order (ids start at 0),
-            None = in order of first appearance
+        path: generating path with the `<index>.json` labels.
+        classes: class names in class id order (ids start at 0). None = in order of
+            first appearance.
 
     Returns:
-        str: path of dataset.yaml
+        Path of `dataset.yaml`.
+
+    Raises:
+        ValueError: a class in the labels missing from `classes`.
+
+    Example:
+        ```python
+        export.yolo("//dataset")
+        ```
     """
     path = dataset_path(path)
     labels = load_labels(path)
@@ -204,15 +231,22 @@ def yolo(path, classes=None):
     return yaml
 
 
-def voc(path, output_dir=None):
-    """Writes Pascal VOC xml annotations, one per image, with 1-based pixel bboxes.
+def voc(path: str, output_dir: Optional[str] = None) -> str:
+    """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
+
+    Boxes touching the image border are marked `truncated`.
 
     Args:
-        path (str): generating path with the <index>.json labels
-        output_dir (str): directory for the xml files, None = <path>/Annotations
+        path: generating path with the `<index>.json` labels.
+        output_dir: folder for the XML files. None = `<path>/Annotations`.
 
     Returns:
-        str: the output directory
+        The output folder.
+
+    Example:
+        ```python
+        export.voc("//dataset")
+        ```
     """
     path = dataset_path(path)
     output_dir = output_dir or os.path.join(path, "Annotations")

@@ -1,9 +1,16 @@
-"""Augmentations, applied in place to blender objects.
+"""Randomize objects, materials and any other value in the scene, in place.
 
-Number, Vector, Boolean and Menu take a data path to the value they augment.
-Paths starting with "bpy." are absolute (right click > Copy Full Data Path), e.g.
-'bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value'.
-Other paths are relative to the augmented object, e.g. 'data.shape_keys.key_blocks["Key 1"].value'.
+`Compose` applies a list of augmentations to every object it is called with. Each
+augmentation takes `p`, the probability that it runs, drawn per object. After a
+call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
+it set. Save the scene with `State` first, and restore it after every datapoint.
+
+`Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
+starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
+Path. Any other path is relative to the augmented object, e.g. `data.energy`.
+Geometry nodes inputs moved in Blender 5, so their path depends on the version:
+`modifiers["GeometryNodes"]["Socket_2"]` in 4.x,
+`modifiers["GeometryNodes"].properties.inputs.Socket_2.value` in 5.x.
 """
 
 from __future__ import annotations
@@ -39,12 +46,26 @@ def happens(p: float) -> bool:
 
 
 class Compose:
-    """Compose augmentations together. Changes the object in place.
-    Save the objects state before applying.
+    """Applies a list of augmentations to every object it is called with, in place.
+
+    Each augmentation runs once per object, in list order. Save the scene with `State`
+    before augmenting, so it can be restored.
 
     Args:
-        augmentations (list): list of augmentations to compose together
-        p (float): probability of applying the whole composition, drawn once per call
+        augmentations: augmentations to apply, each a callable taking one object.
+        p: probability of applying the whole list, drawn once per call.
+
+    Attributes:
+        applied (bool | None): whether the last call applied the augmentations.
+
+    Example:
+        ```python
+        objects_aug = augmentations.Compose([
+            augmentations.Translation(x=0.5, y=0.5),
+            augmentations.Rotation(z=180),
+        ])
+        objects_aug([car_1, car_2])
+        ```
     """
 
     def __init__(self, augmentations: list[Callable[[Object], Any]], p: float = 1.0):
@@ -53,10 +74,10 @@ class Compose:
         self.applied: Optional[bool] = None
 
     def __call__(self, blender_objects: Sequence[Object]) -> None:
-        """Performs the augmentation on objects.
+        """Applies the augmentations to the objects.
 
         Args:
-            blender_objects (list) = list of objects to augment
+            blender_objects: objects to augment.
         """
         self.applied = happens(self.p)
         if not self.applied:
@@ -67,13 +88,20 @@ class Compose:
 
 
 class Augmentation:
-    """Base of the augmentations. Applies the augmentation with probability p, drawn on
-    every call (so once per object in a Compose). After a call, ``applied`` says whether
-    it ran; a skipped augmentation leaves the object unchanged and ``actual`` None.
-    Boolean instead sets the value to False when skipped.
+    """Base class of the augmentations.
+
+    It runs with probability `p`, drawn on every call, so once per object in a
+    `Compose`. A skipped augmentation leaves the object unchanged. `Boolean` is the
+    exception, it sets False when skipped.
+
+    Subclasses implement `apply(obj)` and store what they sampled in `actual`.
 
     Args:
-        p (float): probability of applying the augmentation
+        p: probability of applying the augmentation, 0-1.
+
+    Attributes:
+        applied (bool | None): whether the last call applied it.
+        actual (Any): the values set by the last call, None when it was skipped.
     """
 
     def __init__(self, p: float = 1.0):
@@ -82,8 +110,10 @@ class Augmentation:
         self.actual: Any = None
 
     def __call__(self, obj: Optional[Object] = None) -> None:
-        """Args:
-        obj (bpy.object) : Object to be augmented, not needed for absolute data paths
+        """Applies the augmentation with probability `p`.
+
+        Args:
+            obj: object to augment, not needed for absolute data paths.
         """
         self.applied = happens(self.p)
         if self.applied:
@@ -99,7 +129,21 @@ class Augmentation:
 
 
 class AxisAugmentation(Augmentation):
-    """Base of Translation, Rotation and Scale, sampled per axis into actual_x/y/z."""
+    """Base class of `Translation`, `Rotation` and `Scale`, sampled per axis.
+
+    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`.
+
+    Args:
+        x: offset on the X axis.
+        y: offset on the Y axis.
+        z: offset on the Z axis.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual_x (float | None): value sampled for X in the last call, None when skipped.
+        actual_y (float | None): value sampled for Y.
+        actual_z (float | None): value sampled for Z.
+    """
 
     def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0):
         super().__init__(p)
@@ -115,14 +159,21 @@ class AxisAugmentation(Augmentation):
 
 
 class Translation(AxisAugmentation):
-    """Augument the object translation, in given ranges for each axis.
-    For mesh objects and lamps.
+    """Moves the object by a random offset per axis, in Blender units.
+
+    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`.
+    The offset is added to the location.
 
     Args:
-        x (range) : range of augmentation in x axis in blender units
-        y (range) : range of augmentation in y axis in  blender units
-        z (range) : range of augmentation in z axis in  blender units
-        p (float) : probability of applying the augmentation
+        x: offset on X in Blender units.
+        y: offset on Y in Blender units.
+        z: offset on Z in Blender units.
+        p: probability of applying the augmentation.
+
+    Example:
+        ```python
+        augmentations.Translation(x=0.5, y=0.5, z=(0, 1))
+        ```
     """
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -133,14 +184,21 @@ class Translation(AxisAugmentation):
 
 
 class Rotation(AxisAugmentation):
-    """Augument the object rotation, in given ranges for each axis.
-    For mesh objects and lamps.
+    """Rotates the object by a random angle per axis, in degrees.
+
+    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`. The
+    angle is added to the rotation, in euler, quaternion and axis-angle modes.
 
     Args:
-        x (range) : range of augmentation in x axis in degrees
-        y (range) : range of augmentation in y axis in degrees
-        z (range) : range of augmentation in z axis in degrees
-        p (float) : probability of applying the augmentation
+        x: angle around X in degrees.
+        y: angle around Y in degrees.
+        z: angle around Z in degrees.
+        p: probability of applying the augmentation.
+
+    Example:
+        ```python
+        augmentations.Rotation(z=180)          # any heading
+        ```
     """
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -151,14 +209,21 @@ class Rotation(AxisAugmentation):
 
 
 class Scale(AxisAugmentation):
-    """Augument the object scale, in given ranges for each axis.
-    For mesh objects only.
+    """Scales the object by a random percentage per axis.
+
+    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`, in
+    percent: the scale is multiplied by `1 + sample / 100`.
 
     Args:
-        x (range) : range of augmentation in x
-        y (range) : range of augmentation in y
-        z (range) : range of augmentation in z
-        p (float) : probability of applying the augmentation
+        x: change of the X scale in percent.
+        y: change of the Y scale in percent.
+        z: change of the Z scale in percent.
+        p: probability of applying the augmentation.
+
+    Example:
+        ```python
+        augmentations.Scale(x=10, y=10, z=10, p=0.5)   # ±10 %, in half of the datapoints
+        ```
     """
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -169,25 +234,39 @@ class Scale(AxisAugmentation):
 
 
 class LookAt(Augmentation):
-    """Moves a camera (or a light, or any object) on a sphere around a target and points
-    it at the target, upright. The target stays in the center of the camera view.
+    """Moves a camera (or a light, or any object) on a sphere around a target and points it
+    at the target, upright.
+
+    The target stays in the center of the camera view. It sets `matrix_world`, so
+    parented cameras work too. Each parameter is a `(min, max)` range, an exact number,
+    or None to keep the current value.
 
     Args:
-        target : object, list of objects (the center of their bounding boxes),
-            or point (x, y, z)
-        distance (tuple) : distance from the target in blender units
-        elevation (tuple) : angle above the target's horizontal plane in degrees,
-            avoid exactly 90 / -90
-        azimuth (tuple) : angle around the world Z axis in degrees, 0 = +X
-        roll (tuple) : rotation around the camera's local Z axis (the view axis) in degrees,
-            like a local Z rotation in blender, None = upright
-        focal_length (tuple) : camera lens in mm, cameras only
-        p (float) : probability of applying the augmentation
+        target: an object, a list of objects (the center of their bounding boxes),
+            or a point `(x, y, z)`.
+        distance: distance from the target in Blender units.
+        elevation: angle above the target's horizontal plane in degrees. Avoid
+            exactly 90 / -90.
+        azimuth: angle around the world Z axis in degrees, 0 = +X.
+        roll: rotation around the camera's view axis in degrees. None = upright.
+        focal_length: camera lens in mm, cameras only.
+        p: probability of applying the augmentation.
 
-    Each is a (min, max) range, an exact number, or None to keep the current value.
+    Attributes:
+        actual (dict | None): the distance, elevation, azimuth, roll and focal length
+            set by the last call.
 
-    .. note::
-        Pass the camera to State, it restores the transform and the lens.
+    Note:
+        Pass the camera to `State`, it restores the transform and the lens.
+
+    Example:
+        ```python
+        camera_aug = augmentations.Compose([
+            augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45),
+                                 azimuth=(0, 360), roll=(-5, 5)),
+        ])
+        camera_aug([bpy.context.scene.camera])
+        ```
     """
 
     def __init__(
@@ -218,18 +297,28 @@ class LookAt(Augmentation):
 
 
 class FocalLength(Augmentation):
-    """Augument the camera focal length. Optionally moves the camera along the line to a
-    target by the same ratio as the lens (a dolly zoom), so the target keeps its size in
-    the image. That is exact for objects at the target's depth when the target is in the
-    center of the view, e.g. after LookAt; an off-center target also moves in the image.
-    For perspective cameras.
+    """Sets a random camera lens, optionally as a dolly zoom.
+
+    With `keep_size`, the camera also moves along the line to the target by the same
+    ratio as the lens, so the target keeps its size in the image while the perspective
+    changes. That is exact for parts at the target's depth when the target is in the
+    center of the view (e.g. after `LookAt`); an off-center target also moves in the
+    image. Perspective cameras only.
 
     Args:
-        focal_length (tuple) : lens in mm, (min, max) or an exact number
-        target : object, list of objects (the center of their bounding boxes),
-            or point (x, y, z), needed for keep_size
-        keep_size (bool) : move the camera so the target keeps its size in the image
-        p (float) : probability of applying the augmentation
+        focal_length: lens in mm, a `(min, max)` range or an exact number.
+        target: an object, a list of objects (the center of their bounding boxes),
+            or a point `(x, y, z)`. Needed for `keep_size`.
+        keep_size: move the camera so the target keeps its size in the image.
+        p: probability of applying the augmentation.
+
+    Raises:
+        ValueError: `keep_size` without a `target`.
+
+    Example:
+        ```python
+        augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True)
+        ```
     """
 
     def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
@@ -249,17 +338,24 @@ class FocalLength(Augmentation):
 
 
 class DepthOfField(Augmentation):
-    """Augument the camera depth of field: enable it and focus on a target with a random f-stop.
-    The focus distance is measured from where the camera is when this runs, so put it
-    after LookAt / FocalLength in a Compose.
+    """Turns on depth of field, focused on a target, with a random f-stop.
+
+    Focus is measured along the view axis from where the camera is when this runs, so
+    put it after `LookAt` / `FocalLength` in a `Compose`.
 
     Args:
-        target : object, list of objects (the center of their bounding boxes),
-            or point (x, y, z) to focus on, None keeps the current focus
-        f_stop (tuple) : aperture f-stop, lower is more blur, (min, max), an exact
-            number, or None to keep the current one
-        p (float) : probability of applying the augmentation, when skipped the depth of
-            field settings are left unchanged
+        target: an object, a list of objects (the center of their bounding boxes), or a
+            point `(x, y, z)` to focus on. None keeps the current focus.
+        f_stop: aperture f-stop, a `(min, max)` range or an exact number, lower gives
+            more blur. None keeps the current one.
+        p: probability of applying the augmentation. When skipped, the depth of field
+            settings are left unchanged, so with depth of field off in the scene only
+            some images are blurred.
+
+    Example:
+        ```python
+        augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5)
+        ```
     """
 
     def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None, p: float = 1.0):
@@ -275,19 +371,27 @@ class DepthOfField(Augmentation):
 
 
 class Material(Augmentation):
-    """Augument the basic material values: base color, roughness and metallic,
-    set to random values in given (min, max) ranges. None leaves the value unchanged.
-    For mesh objects only with principle shader and unconnected sockets
-    for the augmented values. Changes the material, so all objects using it are affected.
+    """Sets random Principled BSDF base color, roughness and metallic values.
+
+    Each parameter is an absolute `(min, max)` range, 0-1, and None leaves the value
+    unchanged. The base color is set through hue, saturation and value. The sockets
+    must not be connected to other nodes.
+
+    It changes the **material**, so every object using it is affected.
 
     Args:
-        material_id (str) : name of material to augment
-        hue (tuple) : range of base color hue, 0-1
-        saturation (tuple) : range of base color saturation, 0-1
-        value (tuple) : range of base color value, 0-1
-        roughness (tuple) : range of roughness, 0-1
-        metallic (tuple) : range of metallic, 0-1
-        p (float) : probability of applying the augmentation
+        material_id: name of the material.
+        hue: range of the base color hue.
+        saturation: range of the base color saturation.
+        value: range of the base color value (brightness).
+        roughness: range of the roughness.
+        metallic: range of the metallic.
+        p: probability of applying the augmentation.
+
+    Example:
+        ```python
+        augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6))
+        ```
     """
 
     def __init__(
@@ -318,21 +422,35 @@ class Material(Augmentation):
 
 
 class Number(Augmentation):
-    """Augument any int or float value given by its data path: shader node inputs,
-    geometry nodes inputs, shape keys, light settings etc.
-    Either sets the value to a random value in value_range, or scales it by a random percent.
-    Int values are rounded.
+    """Sets any int or float value, given by its data path, to a random value.
+
+    For shader node inputs, geometry nodes inputs, shape keys, light settings and so
+    on. Give either `value_range`, to set an absolute value, or `percent`, to scale the
+    current one. Ints are rounded.
 
     Args:
-        data_path (str) : path to the value, see the module docstring. Use [index] for
-            a single vector component, e.g. 'location[2]'
-        value_range (tuple) : (min, max) range to set the value in
-        percent (float | tuple) : range of augmentation in percents, v = (-v, v)
-        p (float) : probability of applying the augmentation
+        data_path: path to the value, absolute (starting with `bpy.`) or relative to
+            the object. Use `[index]` for one vector component, e.g. `'location[2]'`.
+        value_range: `(min, max)` range of the new value.
+        percent: change in percent, a number `v` samples from `(-v, v)`, or a pair
+            `(low, high)`.
+        p: probability of applying the augmentation.
 
-    .. note::
-        Give either value_range or percent. Pass it to State(fields=...)
-        so the value is restored.
+    Raises:
+        ValueError: neither or both of `value_range` and `percent` are given.
+
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it. It runs once per object
+        the `Compose` is called with, so with `percent` the change builds up: call that
+        `Compose` with one object, or use `value_range`.
+
+    Example:
+        ```python
+        augmentations.Number("data.energy", percent=40)
+        augmentations.Number('data.shape_keys.key_blocks["Smile"].value', value_range=(0, 1))
+        ```
     """
 
     def __init__(self, data_path: str, value_range: Optional[tuple[float, float]] = None,
@@ -352,22 +470,39 @@ class Number(Augmentation):
 
 
 class Vector(Augmentation):
-    """Augument any vector value given by its data path: locations, colors,
-    vector node inputs etc. Every component is augmented independently.
-    Either sets the components to random values in value_range, or scales them by random percents.
+    """Sets any vector value, given by its data path, to random values per component.
+
+    For locations, colors, vector node inputs and so on. Give either `value_range` or
+    `percent`, as for `Number`. Each bound is a number for all components, or a
+    sequence with one value per component, where None keeps that component.
 
     Args:
-        data_path (str) : path to the value, see the module docstring
-        value_range (tuple) : (min, max), each a number for all components or a
-            sequence with a value per component, e.g. ((0, 0, 0, None), (1, 1, 1, None))
-            for a random RGB color that keeps alpha. None keeps the component.
-        percent (float | tuple) : v = (-v, v) for all components, or (low, high)
-            with numbers or per component sequences like value_range
-        p (float) : probability of applying the augmentation
+        data_path: path to the value, absolute (starting with `bpy.`) or relative to
+            the object.
+        value_range: `(min, max)` bounds of the new values.
+        percent: change in percent, a number `v` samples from `(-v, v)`, or a pair
+            `(low, high)` of bounds.
+        p: probability of applying the augmentation.
 
-    .. note::
-        Give either value_range or percent. Pass it to State(fields=...)
-        so the value is restored.
+    Raises:
+        ValueError: neither or both of `value_range` and `percent` are given.
+
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it. It runs once per object
+        the `Compose` is called with, so with `percent` the change builds up: call that
+        `Compose` with one object, or use `value_range`.
+
+    Example:
+        ```python
+        augmentations.Vector("data.color", value_range=(0.8, 1.0))
+        # a random RGB color that keeps alpha
+        augmentations.Vector(
+            'bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value',
+            value_range=((0, 0, 0, None), (1, 1, 1, None)),
+        )
+        ```
     """
 
     def __init__(self, data_path: str, value_range: Optional[tuple[Bound, Bound]] = None,
@@ -387,15 +522,25 @@ class Vector(Augmentation):
 
 
 class Boolean(Augmentation):
-    """Augument any boolean value given by its data path: geometry nodes switches,
-    object visibility, modifier toggles etc.
+    """Sets any boolean value, given by its data path, to True with probability `p`,
+    otherwise to False.
+
+    For geometry nodes switches, object visibility, modifier toggles and so on.
 
     Args:
-        data_path (str) : path to the value, see the module docstring
-        p (float) : probability of setting the value to True, otherwise it is set to False
+        data_path: path to the value, absolute (starting with `bpy.`) or relative to
+            the object.
+        p: probability of True.
 
-    .. note::
-        Pass it to State(fields=...) so the value is restored.
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it.
+
+    Example:
+        ```python
+        augmentations.Boolean("data.use_shadow", p=0.8)
+        ```
     """
 
     def __init__(self, data_path: str, p: float = 0.5):
@@ -413,20 +558,31 @@ class Boolean(Augmentation):
 
 
 class Menu(Augmentation):
-    """Augument any menu (enum) value given by its data path: geometry nodes menu inputs,
-    node settings like the Principled BSDF distribution, light type etc.
-    Sets the value to a random option.
+    """Sets any menu (enum) value, given by its data path, to a random option.
+
+    For geometry nodes menu inputs, node settings like the Principled BSDF
+    distribution, the light type and so on.
 
     Args:
-        data_path (str) : path to the value, see the module docstring
-        options (list) : options to choose from, None = all options of the menu.
-            Required when blender doesn't list the options, e.g. for menu
-            sockets not on a menu switch node.
-        weights (list) : relative probability of each option, None = equal
-        p (float) : probability of applying the augmentation
+        data_path: path to the value, absolute (starting with `bpy.`) or relative to
+            the object.
+        options: options to choose from. None = all options of the menu; required when
+            Blender doesn't list them, e.g. for menu sockets not on a Menu Switch node.
+        weights: relative probability of each option. None = equal.
+        p: probability of applying the augmentation.
 
-    .. note::
-        Pass it to State(fields=...) so the value is restored.
+    Raises:
+        ValueError: the number of weights and options differ.
+
+    !!! info "Use it inside a Compose"
+        With an absolute path (starting with `bpy.`) it doesn't use the object passed
+        by `Compose`, but it still belongs in one: it runs with the rest of the list,
+        and `State(fields=compose.augmentations)` restores it.
+
+    Example:
+        ```python
+        augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1])
+        ```
     """
 
     def __init__(self, data_path: str, options: Optional[Sequence[Any]] = None,
