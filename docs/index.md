@@ -10,27 +10,11 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 3. **Restore:** put the scene back as it was, and repeat.
 4. **Export:** convert the dataset to COCO, YOLO or Pascal VOC.
 
-**Documentation: [mmaciejak.github.io/Blendmentation](https://mmaciejak.github.io/Blendmentation/)**
-
 ## Requirements
 
 - Blender 4.0 or newer. It is tested on 4.0 and 5.2.
 - Nothing else. The code runs in Blender's bundled Python, and uses `numpy` and
   `OpenImageIO`, which ship with Blender.
-
-## Installation
-
-It is not on PyPI yet, so pip installs it from GitHub (this needs `git`).
-
-- **Inside Blender:** install it with Blender's Python into your Blender user scripts
-  folder, with `--no-deps` so Blender keeps its own numpy. The exact command is in the
-  [installation guide](https://mmaciejak.github.io/Blendmentation/installation/).
-- **As a Python module, without the Blender app** (Python 3.13 for `bpy` 5.1+, 3.11
-  for `bpy` 4.2–5.0):
-
-  ```sh
-  pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"
-  ```
 
 ## Quick start
 
@@ -105,18 +89,7 @@ export.coco("//dataset")
 export.yolo("//dataset")
 ```
 
-## Documentation
+## Next steps
 
-- [Installation](https://mmaciejak.github.io/Blendmentation/installation/): inside Blender, or as a Python module.
-- [Augmentations](https://mmaciejak.github.io/Blendmentation/augmentations/): transforms, camera, materials and any value by data path.
-- [State](https://mmaciejak.github.io/Blendmentation/state/): saving and restoring the scene.
-- [Generating](https://mmaciejak.github.io/Blendmentation/generating/): renders, passes, AOVs, masks, labels and preview images.
-- [Export](https://mmaciejak.github.io/Blendmentation/export/): COCO, YOLO and Pascal VOC.
-- [Development](https://mmaciejak.github.io/Blendmentation/development/): tests, releases and known issues.
-
-The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]"` and
-`mkdocs serve`.
-
-## License
-
-[GNU AGPL v3](LICENSE).
+- [Installation](installation.md): inside Blender, or as a Python module.
+- [Augmentations](augmentations.md), [State](state.md), [Generating](generating.md) and [Export](export.md): the guide and API reference for each module.
