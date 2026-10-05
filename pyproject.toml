@@ -22,7 +22,7 @@ dependencies = ["numpy>=1.23"]
 
 [project.urls]
 Homepage = "https://github.com/mmaciejak/Blendmentation"
-Documentation = "https://docs.csmx.eu/"
+Documentation = "https://blendmentation.docs.csmx.eu/"
 Issues = "https://github.com/mmaciejak/Blendmentation/issues"
 
 [project.optional-dependencies]

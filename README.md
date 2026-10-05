@@ -10,7 +10,7 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 3. **Restore:** put the scene back as it was, and repeat.
 4. **Export:** convert the dataset to COCO, YOLO or Pascal VOC.
 
-**Documentation: [docs.csmx.eu](https://docs.csmx.eu/)**
+**Documentation: [blendmentation.docs.csmx.eu](https://blendmentation.docs.csmx.eu/)**
 
 ## Requirements
 
@@ -24,7 +24,7 @@ It is not on PyPI yet, so pip installs it from GitHub (this needs `git`).
 
 - **Inside Blender:** install it with Blender's Python into your Blender user scripts
   folder, with `--no-deps` so Blender keeps its own numpy. The exact command is in the
-  [installation guide](https://docs.csmx.eu/installation/).
+  [installation guide](https://blendmentation.docs.csmx.eu/installation/).
 - **As a Python module, without the Blender app** (Python 3.13 for `bpy` 5.1+, 3.11
   for `bpy` 4.2–5.0):
 
@@ -113,13 +113,13 @@ export.yolo("//dataset")
 
 ## Documentation
 
-- [Installation](https://docs.csmx.eu/installation/): inside Blender, or as a Python module.
-- [Augmentations](https://docs.csmx.eu/augmentations/): transforms, camera, materials and any value by data path.
-- [State](https://docs.csmx.eu/state/): saving and restoring the scene.
-- [Generating](https://docs.csmx.eu/generating/): renders, passes, AOVs, masks, labels and preview images.
-- [Export](https://docs.csmx.eu/export/): COCO, YOLO and Pascal VOC.
-- [Compatibility with Blender MCP](https://docs.csmx.eu/blender-mcp/): an agent skill ([`skills/blendmentation`](skills/blendmentation/SKILL.md)) for AI agents that control Blender through [Blender MCP](https://github.com/ahujasid/blender-mcp).
-- [Development](https://docs.csmx.eu/development/): tests, releases and known issues.
+- [Installation](https://blendmentation.docs.csmx.eu/installation/): inside Blender, or as a Python module.
+- [Augmentations](https://blendmentation.docs.csmx.eu/augmentations/): transforms, camera, materials and any value by data path.
+- [State](https://blendmentation.docs.csmx.eu/state/): saving and restoring the scene.
+- [Generating](https://blendmentation.docs.csmx.eu/generating/): renders, passes, AOVs, masks, labels and preview images.
+- [Export](https://blendmentation.docs.csmx.eu/export/): COCO, YOLO and Pascal VOC.
+- [Compatibility with Blender MCP](https://blendmentation.docs.csmx.eu/blender-mcp/): an agent skill ([`skills/blendmentation`](skills/blendmentation/SKILL.md)) for AI agents that control Blender through [Blender MCP](https://github.com/ahujasid/blender-mcp).
+- [Development](https://blendmentation.docs.csmx.eu/development/): tests, releases and known issues.
 
 The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]"` and
 `mkdocs serve`.

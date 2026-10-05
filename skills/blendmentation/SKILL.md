@@ -11,7 +11,7 @@ restore the scene, and repeat. Through Blender MCP you run that code in the user
 Blender with the MCP tool that executes Python (`execute_blender_code` in the
 `blender-mcp` server; other servers name it differently).
 
-Full API reference: https://docs.csmx.eu/
+Full API reference: https://blendmentation.docs.csmx.eu/
 
 ## How the MCP code tool behaves
 
@@ -59,7 +59,7 @@ Finding `REPO`:
    `git clone https://github.com/mmaciejak/Blendmentation`.
 
 Don't `pip install` into Blender's Python as a side effect. If the user wants it
-installed, follow https://docs.csmx.eu/installation/ (it needs
+installed, follow https://blendmentation.docs.csmx.eu/installation/ (it needs
 `--no-deps`, or a second numpy breaks Blender's). The library needs Blender 4.0 or newer,
 and only uses numpy and OpenImageIO, which ship with Blender.
 
