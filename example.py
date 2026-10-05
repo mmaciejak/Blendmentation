@@ -3,6 +3,8 @@
 The scene needs:
 - two mesh objects "Part.001" and "Part.002", using the material "material.001"
   (Principled BSDF), both with a shape key "Key 1"
+- a mesh object "Clutter" that is in no class and can hide the parts (it is not
+  needed, without it BBox max_occlusion never skips)
 - a point light "Light" and the scene camera
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
   Output node in the material
@@ -73,7 +75,7 @@ image_generator = generating.Compose(
         generating.Render(),
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
-        generating.BBox(classes, max_truncation=0.3),
+        generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5),  # Clutter may hide half a part
         generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
         generating.Segmentation(classes, per="both"),
         generating.SegmentationImage(opacity=0.5),  # extra image with the masks drawn on it

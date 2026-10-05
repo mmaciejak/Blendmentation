@@ -59,7 +59,7 @@ FONT = {
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
 
-CLASS_SETTINGS = ("iou_deconflict", "max_truncation")
+CLASS_SETTINGS = ("iou_deconflict", "max_truncation", "max_occlusion")
 
 
 def check_threshold(name, value, owner):
@@ -321,9 +321,10 @@ def aov_channel_names(count):
     return ("Y",) if count == 1 else tuple("RGBA"[:count])
 
 
-def render_ids(scene, groups, temp_dir):
+def render_ids(scene, groups, file_path, hide_others=False):
     """Renders every group of objects in a flat color encoding its id (1, 2, ...)
-    with workbench, other objects in black so they still occlude.
+    with workbench, other objects in black so they still occlude, or hidden with hide_others.
+    The id image is saved to file_path (an EXR).
 
     Returns:
         np.ndarray: (height, width) array of group ids, 0 = background or other objects
@@ -341,7 +342,11 @@ def render_ids(scene, groups, temp_dir):
     # instanced collections may use objects that are not in the scene, so all objects are recolored
     editable = [obj for obj in bpy.data.objects if obj.library is None]
     saved_colors = {obj: tuple(obj.color) for obj in editable}
+    in_groups = {obj for group in groups for obj in group}
+    hidden = [obj for obj in editable if hide_others and obj not in in_groups and not obj.hide_render]
     try:
+        for obj in hidden:
+            obj.hide_render = True
         scene.render.engine = "BLENDER_WORKBENCH"
         scene.render.film_transparent = True
         scene.render.use_compositing = False
@@ -368,19 +373,20 @@ def render_ids(scene, groups, temp_dir):
                 obj.color = color
 
         bpy.ops.render.render()
-        id_file = os.path.join(temp_dir, "ids.exr")
         set_file_format(scene.render.image_settings, "OPEN_EXR")
         scene.render.image_settings.color_mode = "RGBA"
         scene.render.image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(id_file, scene=scene)
+        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
     finally:
+        for obj in hidden:
+            obj.hide_render = False
         for owner, values in saved:
             for name, value in values.items():
                 setattr(owner, name, value)
         for obj, color in saved_colors.items():
             obj.color = color
 
-    pixels = oiio.ImageBuf(id_file).get_pixels(oiio.FLOAT)
+    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
     ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
     ids[pixels[:, :, 3] < 0.5] = 0
     return ids
@@ -396,20 +402,18 @@ def mask_file(path, file_name, mask):
     return file_name
 
 
-def save_masks(scene, instances, path, index, per):
+def save_masks(ids, instances, path, index, per):
     """Saves black and white mask PNGs of the visible pixels, per instance as
     <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png
 
     Args:
+        ids (np.ndarray): id image of the instances, from `render_ids`
         instances (list): (class name, [objects]) pairs
         per (str): "instance", "class" or "both"
 
     Returns:
         list: {"class", "objects", "mask", "per"} for every mask
     """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        ids = render_ids(scene, [group for _, group in instances], temp_dir)
-
     entries = []
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
@@ -459,6 +463,7 @@ class Frame:
         # set by steps that draw on the beauty render after Segmentation replaced it
         self.keep_beauty = False
         self.beauty_rgba = None
+        self.id_images = {}
         self.changed = []
 
     def file_name(self, suffix):
@@ -509,6 +514,16 @@ class Frame:
             self.beauty_pixels()
         self.rendered = False
 
+    def ids(self, groups, hide_others=False):
+        """Id image of the groups of objects (see `render_ids`), rendered once per groups
+        and hide_others, so BBox occlusion and Segmentation share it."""
+        key = (tuple(tuple(obj.name for obj in group) for group in groups), hide_others)
+        if key not in self.id_images:
+            self.replace_render()
+            file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
+            self.id_images[key] = render_ids(self.scene, groups, file_path, hide_others)
+        return self.id_images[key]
+
     def multilayer(self):
         """Saves the beauty render with all its passes as a multilayer EXR, once.
 
@@ -525,22 +540,39 @@ class Frame:
         return self.multilayer_file
 
 
-def check_bboxes(classes, iou_deconflict, max_truncation):
+def check_bboxes(classes, settings):
     to_instances(classes)
-    check_threshold("iou_deconflict", iou_deconflict, "BBox")
-    check_threshold("max_truncation", max_truncation, "BBox")
+    for name, value in settings.items():
+        check_threshold(name, value, "BBox")
 
 
-def bboxes(frame, classes, iou_deconflict, max_truncation):
+def occlusions(frame, groups):
+    """Fraction of each group's pixels that objects in no group cover: 1 - its pixels with
+    everything rendered / its pixels with only the groups rendered. Groups covering each
+    other count in both, so only other objects occlude. A group with no pixels without the
+    other objects (out of frame, or behind another group) is not occluded by them: 0."""
+    counts = [np.bincount(frame.ids(groups, hide_others).ravel(), minlength=len(groups) + 1)[1:]
+              for hide_others in (True, False)]
+    alone, visible = counts
+    return [max(0.0, 1.0 - float(visible[i] / alone[i])) if alone[i] else 0.0 for i in range(len(groups))]
+
+
+def bboxes(frame, classes, settings):
     """Adds {"class", "objects", "bbox"} of every instance to the labels under "bboxes".
 
+    Args:
+        settings (dict): the BBox arguments iou_deconflict, max_truncation and max_occlusion,
+            the defaults for the classes
+
     Returns:
-        bool: False if two bboxes overlap over iou_deconflict, or an instance is more than
-            max_truncation out of frame, and the datapoint should be skipped
+        bool: False if two bboxes overlap over iou_deconflict, an instance is more than
+            max_truncation out of frame or more than max_occlusion covered by objects in no
+            class, and the datapoint should be skipped
     """
-    settings = class_settings(classes, {"iou_deconflict": iou_deconflict, "max_truncation": max_truncation})
+    settings = class_settings(classes, settings)
+    instances = to_instances(classes)
     entries, boxes, limits = [], [], []
-    for class_name, group in to_instances(classes):
+    for class_name, group in instances:
         bounds, behind = view_bounds(frame.scene, frame.camera, group, frame.depsgraph)
         limit = settings[class_name]["max_truncation"]
         if limit is not None and truncation(bounds, behind) > limit:
@@ -552,6 +584,12 @@ def bboxes(frame, classes, iou_deconflict, max_truncation):
             limits.append(settings[class_name]["iou_deconflict"])
     if iou_conflict(boxes, limits):
         return False
+    # last, it needs two workbench renders
+    occlusion_limits = [settings[class_name]["max_occlusion"] for class_name, _ in instances]
+    if any(limit is not None for limit in occlusion_limits):
+        occluded = occlusions(frame, [group for _, group in instances])
+        if any(limit is not None and value > limit for value, limit in zip(occluded, occlusion_limits)):
+            return False
     frame.add("bboxes", entries)
     return True
 
@@ -928,8 +966,9 @@ def check_segmentation(classes, per):
 
 def segmentation(frame, classes, per):
     """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
-    frame.replace_render()
-    frame.add("masks", save_masks(frame.scene, to_instances(classes), frame.path, frame.index, per))
+    instances = to_instances(classes)
+    ids = frame.ids([group for _, group in instances])
+    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per))
 
 
 def generate(path, resolution, steps, custom_dict=None):

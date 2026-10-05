@@ -34,8 +34,8 @@ It is not on PyPI yet, so pip installs it from GitHub (this needs `git`).
 
 ## Quick start
 
-The scene here has two cars and a table made of two objects, a point light and a
-camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+The scene here has two cars and a table made of two objects, a plant that is in no
+class and may hide them, a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV.
 
 ```python
@@ -80,7 +80,7 @@ generator = generating.Compose(
         generating.Render(),
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
-        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
+        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5),
         generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
         generating.Segmentation(classes, per="both"),
         generating.SegmentationImage(),                # copy of the image with the masks drawn

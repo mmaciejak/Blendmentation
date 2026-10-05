@@ -3,9 +3,10 @@ JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
 `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
-by `iou_deconflict` or `max_truncation` is never rendered, then `Render`, then `AOVToImage`, `Passes`
-and `BBoxImage`, then `Segmentation`, then `SegmentationImage`. All steps except
-`Segmentation` share one render.
+by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
+then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
+`SegmentationImage`. All steps except `Segmentation` share one render; `Segmentation`
+reuses the id render of `BBox(max_occlusion=...)` when both have the same classes.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 
 #: an object, or a sublist of objects labeled as one instance
 Instances = Sequence[Union["Object", Sequence["Object"]]]
-#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ..., "max_truncation": ...}}
+#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ..., "max_truncation": ..., "max_occlusion": ...}}
 Classes = dict[str, Union[Instances, dict[str, Any]]]
 #: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
 KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
@@ -112,7 +113,8 @@ class BBox:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
             objects labeled as one (its box is the union of the members). A class can
             instead be `{"instances": [instances], "iou_deconflict": ...,
-            "max_truncation": ...}` to set its own skip settings (both keys optional).
+            "max_truncation": ..., "max_occlusion": ...}` to set its own skip settings
+            (all keys but `instances` optional).
         iou_deconflict: skip the datapoint, before rendering, when any two boxes
             overlap more than this IoU. None = never skip.
         max_truncation: skip the datapoint, before rendering, when more than this
@@ -120,11 +122,21 @@ class BBox:
             unclipped box. An instance partly behind the camera or fully out of frame
             counts as 1, so `max_truncation=0` keeps only datapoints with every instance
             fully in frame. None = never skip.
+        max_occlusion: skip the datapoint, before the beauty render, when objects in no
+            class (clutter, distractors) cover more than this fraction (0-1) of any
+            instance: 1 - its visible pixels / its pixels with those objects hidden.
+            Class objects covering each other don't count (that is `iou_deconflict`),
+            and an instance with no pixels even then (out of frame, or behind another
+            class object) counts as 0. None = never skip.
 
     Note:
         The `BBox` arguments are the defaults for every class. A setting a class sets
         in its dict wins over them, even when it is None (no limit for that class).
-        A class's `max_truncation` applies to each of its instances. For
+        A class's `max_truncation` and `max_occlusion` apply to each of its instances.
+        `max_occlusion` is measured with two flat Workbench renders, like
+        `Segmentation`, which only run when some class has a limit and the cheaper
+        checks passed; Workbench draws every object solid, so transparent objects
+        occlude fully and shadows don't count. For
         `iou_deconflict`, two boxes conflict when their IoU is over the lower of their
         two classes' limits, so a strict class can't overlap anything, and a pair is
         only free when both classes have no limit.
@@ -135,24 +147,36 @@ class BBox:
             "car": [car_1, car_2],                                       # uses the BBox arguments
             "table": {"instances": [[top, legs]], "max_truncation": 0.8},  # may be cut more
         }
-        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3)
+        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5)
         ```
     """
 
     stage = 0
 
     def __init__(
-        self, classes: Classes, iou_deconflict: Optional[float] = None, max_truncation: Optional[float] = None
+        self,
+        classes: Classes,
+        iou_deconflict: Optional[float] = None,
+        max_truncation: Optional[float] = None,
+        max_occlusion: Optional[float] = None,
     ):
         self.classes = classes
         self.iou_deconflict = iou_deconflict
         self.max_truncation = max_truncation
+        self.max_occlusion = max_occlusion
+
+    def _settings(self):
+        return {
+            "iou_deconflict": self.iou_deconflict,
+            "max_truncation": self.max_truncation,
+            "max_occlusion": self.max_occlusion,
+        }
 
     def check(self):
-        bpy_g.check_bboxes(self.classes, self.iou_deconflict, self.max_truncation)
+        bpy_g.check_bboxes(self.classes, self._settings())
 
     def __call__(self, frame):
-        return bpy_g.bboxes(frame, self.classes, self.iou_deconflict, self.max_truncation)
+        return bpy_g.bboxes(frame, self.classes, self._settings())
 
 
 class RotationMatrix:

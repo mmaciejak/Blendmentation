@@ -289,10 +289,45 @@ def test_per_class_skip_settings(scene, cube, out, renders):
     assert label(seg_out)["masks"][0]["class"] == "a"
 
 
+def test_max_occlusion(scene, cube, out, renders):
+    scene.render.engine = "CYCLES"
+    target = cube("target")
+    # a box in no class between the camera and the target, covering its right half
+    wall = cube("wall", (0.5, -3, 0))
+
+    def generate(classes, **kwargs):
+        return G.Compose([G.Render(), G.BBox(classes, **kwargs)], out, (320, 240))()
+
+    assert generate({"t": [target]}, max_occlusion=0.3) is False
+    # two workbench id renders, no beauty render, nothing written, the wall shown again
+    assert renders == ["BLENDER_WORKBENCH"] * 2 and os.listdir(out) == [] and not wall.hide_render
+    assert generate({"t": [target]}, max_occlusion=0.7)
+    # a class's own value wins
+    assert generate({"t": {"instances": [target], "max_occlusion": 0.7}}, max_occlusion=0.1)
+    assert generate({"t": {"instances": [target], "max_occlusion": 0.3}}, max_occlusion=0.9) is False
+    # class objects covering each other don't count
+    assert generate({"t": [target], "wall": [wall]}, max_occlusion=0)
+
+
+def test_segmentation_reuses_the_occlusion_render(scene, cube, out, renders):
+    target, wall = cube("target"), cube("wall", (0.5, -3, 0))
+    classes = {"t": [target]}
+    steps = [G.Segmentation(classes), G.BBox(classes, max_occlusion=0.7)]
+    assert G.Compose(steps, out, (320, 240))()
+    assert len(renders) == 2
+    visible = mask(out, "000000_mask_0.png")
+    # only the left half of the target is visible, so its mask stops at the image center
+    assert visible.any() and not visible[:, 161:].any()
+    renders.clear()
+    assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
+    assert len(renders) == 1 and (mask(out, "000001_mask_0.png") == visible).all() and not wall.hide_render
+
+
 @pytest.mark.parametrize("value, match", [
     ({"objects": []}, "unknown keys"),
     ({"max_truncation": 0.5}, "needs an 'instances' list"),
     ({"instances": [], "iou_deconflict": 1.5}, "iou_deconflict"),
+    ({"instances": [], "max_occlusion": -0.1}, "max_occlusion"),
     ({"instances": "not a list"}, "must map to a list"),
 ])
 def test_class_dict_errors(scene, out, value, match):
