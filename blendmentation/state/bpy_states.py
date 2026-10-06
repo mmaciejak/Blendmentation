@@ -43,13 +43,14 @@ def load_node_tree(node_tree, nodes):
 
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms, material node values, and the lens and depth of field of cameras.
+    transforms, render visibility, material node values, and the lens and depth of field of cameras.
 
     Args:
     object (bpy.object): object to get the parameters from
     """
     state = {
         "transforms": {name: to_plain(getattr(object, name)) for name in TRANSFORM_PROPERTIES},
+        "hide_render": object.hide_render,
         "materials": {},
     }
     for slot in object.material_slots:
@@ -77,6 +78,7 @@ def load_from_state_dict(object, state_dict: dict):
     # rotation mode first, so the rotation values are restored in the right mode
     for name, value in state["transforms"].items():
         setattr(object, name, value)
+    object.hide_render = state["hide_render"]
 
     for slot in object.material_slots:
         material = slot.material

@@ -284,6 +284,16 @@ def number(obj, data_path, value_range):
     return new
 
 
+def visibility(obj, visible):
+    """Shows or hides the object in renders, the viewport visibility is left unchanged.
+
+    Returns:
+        bool: whether the object is visible in renders
+    """
+    obj.hide_render = not visible
+    return visible
+
+
 def boolean(obj, data_path, value):
     """Sets the boolean value at the data path.
 

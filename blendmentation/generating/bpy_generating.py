@@ -583,18 +583,24 @@ def bboxes(frame, classes, settings):
     Returns:
         bool: False if two bboxes overlap over iou_deconflict, an instance is more than
             max_truncation out of frame or more than max_occlusion covered by objects in no
-            class, and the datapoint should be skipped
+            class, and the datapoint should be skipped. Objects hidden in the render are left
+            out, an instance with all of them hidden has bbox None and never skips.
     """
     settings = class_settings(classes, settings)
     instances = to_instances(classes)
     entries, boxes, limits = [], [], []
     for class_name, group in instances:
-        bounds, behind = view_bounds(frame.scene, frame.camera, group, frame.depsgraph)
+        entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
+        entries.append(entry)
+        # objects hidden in the render are not in the image, an instance of only them has no bbox
+        rendered = [obj for obj in group if not obj.hide_render]
+        if not rendered:
+            continue
+        bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
         limit = settings[class_name]["max_truncation"]
         if limit is not None and truncation(bounds, behind) > limit:
             return False
-        box = to_pixels(bounds, frame.width, frame.height)
-        entries.append({"class": class_name, "objects": [obj.name for obj in group], "bbox": box})
+        box = entry["bbox"] = to_pixels(bounds, frame.width, frame.height)
         if box is not None:
             boxes.append(box)
             limits.append(settings[class_name]["iou_deconflict"])
@@ -942,8 +948,18 @@ def keypoint_location(source, depsgraph):
     return obj_eval.matrix_world @ co
 
 
+def keypoint_object(source):
+    """Object a keypoint source is on, None for a point."""
+    if isinstance(source, bpy.types.Object):
+        return source
+    if isinstance(source, (list, tuple)) and source and isinstance(source[0], bpy.types.Object):
+        return source[0]
+    return None
+
+
 def keypoint_visible(frame, location):
-    """True if nothing is between the camera and the location."""
+    """True if nothing rendered is between the camera and the location. The depsgraph also
+    has the objects hidden in the render, rays pass through them."""
     camera_matrix = frame.camera.matrix_world
     if frame.camera.data.type == "ORTHO":
         forward = (camera_matrix.to_3x3() @ Vector((0, 0, -1))).normalized()
@@ -954,9 +970,20 @@ def keypoint_visible(frame, location):
     distance = direction.length
     if distance == 0:
         return True
-    hit, hit_location, *_ = frame.scene.ray_cast(frame.depsgraph, origin, direction.normalized(), distance=distance)
+    direction = direction.normalized()
     # a point on a surface hits that surface itself, at its own distance
-    return not hit or (hit_location - origin).length >= distance - max(1e-4, distance * 1e-4)
+    tolerance = max(1e-4, distance * 1e-4)
+    start = origin
+    while True:
+        remaining = distance - (start - origin).length
+        if remaining <= 0:
+            return True
+        hit, hit_location, _, _, hit_object, _ = frame.scene.ray_cast(frame.depsgraph, start, direction, distance=remaining)
+        if not hit or (hit_location - origin).length >= distance - tolerance:
+            return True
+        if not hit_object.original.hide_render:
+            return False
+        start = hit_location + direction * max(1e-5, distance * 1e-6)
 
 
 def keypoints(frame, points):
@@ -967,12 +994,15 @@ def keypoints(frame, points):
         location = keypoint_location(source, frame.depsgraph)
         view = world_to_camera_view(frame.scene, frame.camera, location)
         in_frame = 0.0 <= view.x <= 1.0 and 0.0 <= view.y <= 1.0 and view.z > 0
+        obj = keypoint_object(source)
+        # a keypoint on an object hidden in the render is not in the image
+        rendered = obj is None or not obj.hide_render
         entries.append({
             "name": name,
             "position": [view.x * frame.width, (1.0 - view.y) * frame.height],
             "depth": view.z,
             "in_frame": in_frame,
-            "visible": in_frame and keypoint_visible(frame, location),
+            "visible": in_frame and rendered and keypoint_visible(frame, location),
         })
     frame.add("keypoints", entries)
 

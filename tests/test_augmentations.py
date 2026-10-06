@@ -104,6 +104,24 @@ def test_probability(cube):
             A.Compose([])([obj], p=p)
 
 
+def test_visibility(cube):
+    obj = cube("Cube")
+    hide = A.Visibility(p=0)
+    hide(obj)
+    assert hide.applied is False and hide.actual is False and obj.hide_render and not obj.hide_viewport
+    show = A.Visibility(p=1)
+    show(obj)
+    assert show.applied is True and show.actual is True and not obj.hide_render
+
+    half = A.Visibility()
+    shown = []
+    for _ in range(200):
+        half(obj)
+        assert obj.hide_render is not half.actual
+        shown.append(half.actual)
+    assert 60 < sum(shown) < 140
+
+
 def test_material(cube):
     obj = cube("Cube")
     material = new_material(obj, "Mat")

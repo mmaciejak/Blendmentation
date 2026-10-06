@@ -17,6 +17,7 @@ class State:
     It saves, for each object:
 
     - the transforms;
+    - the render visibility (`hide_render`);
     - all unlinked node input values of its materials;
     - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
       `focus_distance`, `aperture_fstop`).

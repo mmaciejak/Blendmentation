@@ -18,6 +18,7 @@ def snapshot(obj, material, light, paths):
         "scale": tuple(obj.scale),
         "color": tuple(principled.inputs["Base Color"].default_value),
         "roughness": principled.inputs["Roughness"].default_value,
+        "hide_render": obj.hide_render,
         "lens": bpy.context.scene.camera.data.lens,
         "dof": (bpy.context.scene.camera.data.dof.use_dof, bpy.context.scene.camera.data.dof.aperture_fstop,
                 bpy.context.scene.camera.data.dof.focus_distance),
@@ -41,6 +42,7 @@ def test_restore(scene, cube):
         A.Translation(x=1, y=1, z=1), A.Rotation(x=30, z=30), A.Scale(x=20),
         A.Material("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
         A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
+        A.Visibility(p=0),
     ])
     light_augs = A.Compose([A.Number("data.energy", value_range=(600, 1400)), A.Vector("data.color", value_range=(0, 0.5))])
     camera_augs = A.Compose([

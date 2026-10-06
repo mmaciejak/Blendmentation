@@ -4,6 +4,7 @@
 augmentation takes `p`, the probability that it runs, drawn per object. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. Save the scene with `State` first, and restore it after every datapoint.
+`Visibility` shows or hides objects in the render, and the labels follow it.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -99,7 +100,7 @@ class Augmentation:
 
     It runs with probability `p`, drawn on every call, so once per object in a
     `Compose`. A skipped augmentation leaves the object unchanged. `Boolean` is the
-    exception, it sets False when skipped.
+    exception, it sets False when skipped, and so is `Visibility`, it hides the object.
 
     Subclasses implement `apply(obj)` and store what they sampled in `actual`.
 
@@ -238,6 +239,45 @@ class Scale(AxisAugmentation):
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
+
+
+class Visibility(Augmentation):
+    """Shows the object in the render with probability `p`, otherwise hides it.
+
+    It sets the object's render visibility (`hide_render`) both ways: an object hidden
+    in the scene is shown when the draw says visible, and a visible one is hidden when
+    it says not. The viewport visibility is left unchanged. Children are not affected,
+    pass them to the `Compose` too.
+
+    The labels follow the render: a hidden object has no pixels in the masks, passes
+    and AOVs, is left out of its instance's bbox (an instance with every object
+    hidden has bbox None and is ignored by the `BBox` skip settings), doesn't hide
+    keypoints behind it, and keypoints on it are not visible.
+
+    Args:
+        p: probability that the object is visible.
+
+    Attributes:
+        actual (bool | None): whether the last call made the object visible.
+
+    Example:
+        ```python
+        distractors_aug = augmentations.Compose([augmentations.Visibility(p=0.7)])
+        distractors_aug([box_1, box_2, box_3])   # each one in about 70 % of the images
+        ```
+    """
+
+    def __init__(self, p: float = 0.5):
+        super().__init__(p)
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object to be shown
+        """
+        self.actual = bpy_a.visibility(obj, True)
+
+    def skip(self, obj: Optional[Object]) -> None:
+        self.actual = bpy_a.visibility(obj, False)
 
 
 class LookAt(Augmentation):
