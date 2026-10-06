@@ -53,7 +53,8 @@ class Compose:
 
     Args:
         augmentations: augmentations to apply, each a callable taking one object.
-        p: probability of applying the whole list, drawn once per call.
+        p: probability of applying the whole list, drawn once per call. A call can
+            override it with its own `p`.
 
     Attributes:
         applied (bool | None): whether the last call applied the augmentations.
@@ -65,6 +66,7 @@ class Compose:
             augmentations.Rotation(z=180),
         ])
         objects_aug([car_1, car_2])
+        objects_aug([car_1, car_2], p=0.5)  # this call: the whole list half of the time
         ```
     """
 
@@ -73,13 +75,18 @@ class Compose:
         self.p = check_p(p)
         self.applied: Optional[bool] = None
 
-    def __call__(self, blender_objects: Sequence[Object]) -> None:
+    def __call__(self, blender_objects: Sequence[Object], p: Optional[float] = None) -> None:
         """Applies the augmentations to the objects.
 
         Args:
             blender_objects: objects to augment.
+            p: probability of applying the whole list for this call only, instead of
+                the `p` given at construction.
+
+        Raises:
+            ValueError: if `p` is not between 0 and 1.
         """
-        self.applied = happens(self.p)
+        self.applied = happens(self.p if p is None else check_p(p))
         if not self.applied:
             return
         for blender_object in blender_objects:

@@ -100,7 +100,7 @@ initial_state = state.State(
 
 def pipeline():
     mesh_transform([obj1, obj2])
-    lamp_transforms([lamp])
+    lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
     camera_transforms([camera])
     image_generator()
     initial_state.restore()

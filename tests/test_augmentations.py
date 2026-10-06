@@ -80,6 +80,13 @@ def test_probability(cube):
     skipped([obj])
     assert skipped.applied is False and obj.location.z == 0
 
+    skipped([obj], p=1)
+    assert skipped.applied is True and 1 <= obj.location.z <= 2
+    obj.location.z = 0
+    always_compose = A.Compose([A.Number("location[2]", value_range=(1, 2))])
+    always_compose([obj], p=0)
+    assert always_compose.applied is False and obj.location.z == 0
+
     half = A.Rotation(z=10, p=0.5)
     applied = []
     for _ in range(200):
@@ -93,6 +100,8 @@ def test_probability(cube):
             A.Boolean("hide_render", p=p)
         with pytest.raises(ValueError):
             A.Compose([], p=p)
+        with pytest.raises(ValueError):
+            A.Compose([])([obj], p=p)
 
 
 def test_material(cube):

@@ -153,7 +153,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 ```python
 import json, os, glob
 try:
-    objects_aug([car_1, car_2]); lamp_aug([lamp]); camera_aug([camera])
+    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); camera_aug([camera])
     print("generated:", generator.preview(4))   # resolution divided by 4; False = skipped
 finally:
     initial.restore()
@@ -182,7 +182,7 @@ done = skipped = 0
 start = time.perf_counter()
 try:
     for _ in range(BATCH):
-        objects_aug([car_1, car_2]); lamp_aug([lamp]); camera_aug([camera])
+        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); camera_aug([camera])
         if generator():
             done += 1
         else:

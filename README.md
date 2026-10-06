@@ -101,7 +101,7 @@ initial = state.State(
 
 for _ in range(1000):
     objects_aug([car_1, car_2])
-    lamp_aug([lamp])
+    lamp_aug([lamp], p=0.7)                           # the whole Compose 70% of the time
     camera_aug([camera])
     generator()
     initial.restore()
