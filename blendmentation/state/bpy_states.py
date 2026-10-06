@@ -21,14 +21,15 @@ def to_plain(value):
 def save_node_tree(node_tree):
     """Returns default values of all unconnected node inputs, by node name and input identifier."""
     nodes = {}
-    for node in node_tree.nodes:
+    # the collection key, node.name is the AOV name on AOV Output nodes in blender 4.0
+    for name, node in node_tree.nodes.items():
         inputs = {
             socket.identifier: to_plain(socket.default_value)
             for socket in node.inputs
             if hasattr(socket, "default_value") and not socket.is_linked
         }
         if inputs:
-            nodes[node.name] = inputs
+            nodes[name] = inputs
     return nodes
 
 
@@ -43,13 +44,14 @@ def load_node_tree(node_tree, nodes):
 
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms, material node values, and the lens and depth of field of cameras.
+    transforms, render visibility, material node values, and the lens and depth of field of cameras.
 
     Args:
     object (bpy.object): object to get the parameters from
     """
     state = {
         "transforms": {name: to_plain(getattr(object, name)) for name in TRANSFORM_PROPERTIES},
+        "hide_render": object.hide_render,
         "materials": {},
     }
     for slot in object.material_slots:
@@ -77,6 +79,7 @@ def load_from_state_dict(object, state_dict: dict):
     # rotation mode first, so the rotation values are restored in the right mode
     for name, value in state["transforms"].items():
         setattr(object, name, value)
+    object.hide_render = state["hide_render"]
 
     for slot in object.material_slots:
         material = slot.material

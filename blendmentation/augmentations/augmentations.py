@@ -4,6 +4,8 @@
 augmentation takes `p`, the probability that it runs, drawn per object. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. Save the scene with `State` first, and restore it after every datapoint.
+`Visibility` shows or hides objects in the render, and the labels follow it.
+`KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -99,7 +101,7 @@ class Augmentation:
 
     It runs with probability `p`, drawn on every call, so once per object in a
     `Compose`. A skipped augmentation leaves the object unchanged. `Boolean` is the
-    exception, it sets False when skipped.
+    exception, it sets False when skipped, and so is `Visibility`, it hides the object.
 
     Subclasses implement `apply(obj)` and store what they sampled in `actual`.
 
@@ -238,6 +240,99 @@ class Scale(AxisAugmentation):
         mesh obj (bpy.object.type == 'MESH') : Object to be augmented
         """
         self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
+
+
+class Visibility(Augmentation):
+    """Shows the object in the render with probability `p`, otherwise hides it.
+
+    It sets the object's render visibility (`hide_render`) both ways: an object hidden
+    in the scene is shown when the draw says visible, and a visible one is hidden when
+    it says not. The viewport visibility is left unchanged. Children are not affected,
+    pass them to the `Compose` too.
+
+    The labels follow the render: a hidden object has no pixels in the masks, passes
+    and AOVs, is left out of its instance's bbox (an instance with every object
+    hidden has bbox None and is ignored by the `BBox` skip settings), doesn't hide
+    keypoints behind it, and keypoints on it are not visible.
+
+    Args:
+        p: probability that the object is visible.
+
+    Attributes:
+        actual (bool | None): whether the last call made the object visible.
+
+    Example:
+        ```python
+        distractors_aug = augmentations.Compose([augmentations.Visibility(p=0.7)])
+        distractors_aug([box_1, box_2, box_3])   # each one in about 70 % of the images
+        ```
+    """
+
+    def __init__(self, p: float = 0.5):
+        super().__init__(p)
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object to be shown
+        """
+        self.actual = bpy_a.visibility(obj, True)
+
+    def skip(self, obj: Optional[Object]) -> None:
+        self.actual = bpy_a.visibility(obj, False)
+
+
+class KeepAbove(Augmentation):
+    """Moves the object up, if needed, so it stays above a surface, e.g. a floor or terrain.
+
+    It checks whether the object's lowest point is at least `margin` above the top of
+    the surface where they overlap seen from above, and if not, moves the object up
+    along world Z until it is. An object that is already high enough, or not over the
+    surface, is left where it is; it is never moved down. Both are compared as
+    evaluated meshes (modifiers included) in world space, so uneven surfaces work.
+    It sets `matrix_world`, so parented objects work too. Only the object's own
+    geometry counts, not its children's.
+
+    !!! warning "Put it after the transforms"
+        It checks the object where it is when it runs, so put it in the `Compose`
+        after `Translation`, `Rotation`, `Scale` and any other augmentation that moves
+        or deforms the object (e.g. a `Number` changing a modifier or shape key).
+        Augmentations after it can push the object into the surface again.
+
+    Args:
+        surface: object to stay above. It must have faces (a mesh, curve, text...).
+        margin: minimum gap between the surface and the object's lowest point, in
+            Blender units.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual (float | None): how far the last call moved the object up, 0 when it
+            was already above.
+
+    Raises:
+        ValueError: the object is the surface.
+        TypeError: the surface has no faces.
+
+    Example:
+        ```python
+        objects_aug = augmentations.Compose([
+            augmentations.Translation(x=0.5, y=0.5, z=(-0.3, 0.3)),
+            augmentations.Rotation(x=30, y=30, z=180),
+            augmentations.KeepAbove(floor, margin=0.01),   # after the transforms
+        ])
+        objects_aug([car_1, car_2])
+        ```
+    """
+
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0):
+        super().__init__(p)
+        self.surface = surface
+        self.margin = margin
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object to keep above the surface
+        """
+        self.actual = bpy_a.keep_above(obj, self.surface, self.margin)
 
 
 class LookAt(Augmentation):
@@ -394,6 +489,12 @@ class Material(Augmentation):
         roughness: range of the roughness.
         metallic: range of the metallic.
         p: probability of applying the augmentation.
+
+    Tip:
+        Use `Material` for negative data, secondary objects, or to make a model
+        generalize over shape while ignoring the material. For finer control over the
+        materials of hero objects, use [`Number`][blendmentation.augmentations.augmentations.Number]
+        to set individual shader node inputs.
 
     Example:
         ```python

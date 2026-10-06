@@ -112,6 +112,8 @@ from blendmentation.generating import generating
 from blendmentation.state import state
 
 car_1, car_2 = bpy.data.objects["Car.001"], bpy.data.objects["Car.002"]
+plant = bpy.data.objects["Plant"]                         # in no class
+floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 
@@ -120,9 +122,13 @@ objects_aug = augmentations.Compose([
     augmentations.Rotation(z=180),                        # degrees, added
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
     augmentations.Material("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),  # changes the material
+    augmentations.KeepAbove(floor, margin=0.01),          # after the transforms: lifts out of the floor
 ])
 lamp_aug = augmentations.Compose([
     augmentations.Number("data.energy", value_range=(600, 1400)),         # any value by data path
+])
+plant_aug = augmentations.Compose([
+    augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
 ])
 camera_aug = augmentations.Compose([
     augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
@@ -143,7 +149,7 @@ generator = generating.Compose(
     resolution=(640, 480),
 )
 # objects, lamp and camera are saved; data-path augmentations only if listed in fields
-initial = state.State([car_1, car_2, lamp, camera], fields=objects_aug.augmentations + lamp_aug.augmentations)
+initial = state.State([car_1, car_2, plant, lamp, camera], fields=objects_aug.augmentations + lamp_aug.augmentations)
 ```
 
 ## 4. Check with one preview first
@@ -153,7 +159,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 ```python
 import json, os, glob
 try:
-    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); camera_aug([camera])
+    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
     print("generated:", generator.preview(4))   # resolution divided by 4; False = skipped
 finally:
     initial.restore()
@@ -182,7 +188,7 @@ done = skipped = 0
 start = time.perf_counter()
 try:
     for _ in range(BATCH):
-        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); camera_aug([camera])
+        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
         if generator():
             done += 1
         else:
@@ -243,15 +249,23 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   own value wins over the `BBox` argument, even `None`. `Segmentation` ignores them.
 - **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
-- **Augmentations**: `Translation`, `Rotation`, `Scale`, `LookAt`, `FocalLength`,
-  `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`, `Boolean`,
-  `Menu`. Every one takes `p`. Ranges are `(low, high)` or a single number.
+- **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
+  `FocalLength`, `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`,
+  `Boolean`, `Menu`. Every one takes `p`. Ranges are `(low, high)` or a single number.
+- **`Visibility(p=0.5)`** shows the object in the render with probability `p` and hides
+  it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
+  out (an instance with all of them hidden gets `None`), masks have no pixels for them,
+  and they don't block keypoints.
+- **`KeepAbove(surface, margin=0)`** moves the object up along world Z, only when needed,
+  until its lowest point is `margin` above the surface (evaluated meshes, uneven surfaces
+  work). It checks the object where it is, so put it after every augmentation that moves
+  or deforms the object.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
   others are relative to each object (`"data.energy"`).
 
 ## Pitfalls
 
-- **Restore what you change.** `State` saves object transforms, the unlinked node
+- **Restore what you change.** `State` saves object transforms, render visibility, the unlinked node
   inputs of their materials and camera lens / depth of field. A data-path augmentation is
   restored only if it is in `State(fields=...)`. If you change anything else in the
   scene, change it back yourself.

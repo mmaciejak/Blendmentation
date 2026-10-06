@@ -338,6 +338,35 @@ def test_per_class_skip_settings(scene, cube, out, renders):
     assert label(seg_out)["masks"][0]["class"] == "a"
 
 
+def test_hidden_in_render(scene, cube, out):
+    car1 = cube("car1", (-2, 0, 0))
+    car2 = cube("car2", (2, 0, 0))
+    top = cube("top", (0, 0, 1), 0.8)
+    leg = cube("leg", (0, 0, -1), 0.6)
+    # in front of car1, hidden in the render but not in the viewport
+    wall = cube("wall", (-2, -3, 0), 2)
+    for obj in (car2, leg, wall):
+        obj.hide_render = True
+    classes = {"car": [car1, car2], "table": [[top, leg]]}
+    front = (car1, next(v.index for v in car1.data.vertices if v.co.y < 0))
+    steps = [G.Render(), G.BBox(classes, max_truncation=0, max_occlusion=0), G.Segmentation(classes),
+             G.Keypoints({"car1": front, "car2": car2})]
+    assert G.Compose(steps, out, (320, 240))()
+    data = label(out)
+    boxes = [b["bbox"] for b in data["bboxes"]]
+    assert boxes[0] == pytest.approx(projected_bbox(scene, [car1], 320, 240))
+    # a hidden instance has no box and doesn't skip, a hidden member is left out
+    assert boxes[1] is None and boxes[2] == pytest.approx(projected_bbox(scene, [top], 320, 240))
+    assert [mask(out, f"000000_mask_{i}.png").any() for i in range(3)] == [True, False, True]
+    found = {k["name"]: k for k in data["keypoints"]}
+    assert found["car1"]["visible"] and found["car2"]["in_frame"] and not found["car2"]["visible"]
+    assert car2.hide_render and wall.hide_render and not wall.hide_viewport
+
+    wall.hide_render = False
+    G.Compose([G.Keypoints({"car1": front})], out, (320, 240))()
+    assert not label(out, 1)["keypoints"][0]["visible"]
+
+
 def test_max_occlusion(scene, cube, out, renders):
     scene.render.engine = "CYCLES"
     target = cube("target")

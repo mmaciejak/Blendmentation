@@ -3,8 +3,9 @@
 The scene needs:
 - two mesh objects "Part.001" and "Part.002", using the material "material.001"
   (Principled BSDF), both with a shape key "Key 1"
-- a mesh object "Clutter" that is in no class and can hide the parts (it is not
-  needed, without it BBox max_occlusion never skips)
+- a mesh object "Clutter" that is in no class and can hide the parts, it is in the
+  render in 60% of the datapoints
+- a mesh object "Floor" under the parts, they are kept above it
 - a point light "Light" and the scene camera
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
   Output node in the material
@@ -29,6 +30,8 @@ from blendmentation.state import state  # noqa: E402
 
 obj1 = bpy.data.objects["Part.001"]
 obj2 = bpy.data.objects["Part.002"]
+clutter = bpy.data.objects["Clutter"]
+floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 output_path = "//dataset"
@@ -42,6 +45,8 @@ mesh_transform = augmentations.Compose(
         augmentations.Material(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
+        # after everything that moves or deforms the parts: lifts them out of the floor
+        augmentations.KeepAbove(floor, margin=0.01),
     ]
 )
 
@@ -57,6 +62,9 @@ lamp_transforms = augmentations.Compose(
         augmentations.Boolean("data.use_shadow", p=0.8),
     ]
 )
+
+# the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow
+clutter_transforms = augmentations.Compose([augmentations.Visibility(p=0.6)])
 
 # orbit the camera around both parts, always aimed at their center, zoom without changing
 # how big the parts are in the image, and sometimes blur what is not in focus
@@ -93,7 +101,7 @@ image_generator = generating.Compose(
 )
 
 initial_state = state.State(
-    [obj1, obj2, lamp, camera],
+    [obj1, obj2, clutter, lamp, camera],
     fields=mesh_transform.augmentations + lamp_transforms.augmentations,
 )
 
@@ -101,6 +109,7 @@ initial_state = state.State(
 def pipeline():
     mesh_transform([obj1, obj2])
     lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
+    clutter_transforms([clutter])
     camera_transforms([camera])
     image_generator()
     initial_state.restore()

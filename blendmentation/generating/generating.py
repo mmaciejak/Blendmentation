@@ -105,7 +105,8 @@ class BBox:
     Boxes are in pixels as `[x_min, y_min, x_max, y_max]` from the top-left corner,
     computed from the evaluated geometry (modifiers included). Occlusion is not taken
     into account, so hidden parts are inside the box. An instance out of frame gets
-    None.
+    None. Objects hidden in the render (e.g. by `Visibility`) are left out of the box,
+    and an instance with all its objects hidden gets None and never skips the datapoint.
 
     In the label JSON: `"bboxes": [{"class", "objects", "bbox"}]`.
 
@@ -274,7 +275,8 @@ class Keypoints:
     """Projects 3D points to the image and adds them to the label.
 
     Vertices include deformations from armatures and modifiers. A point is visible when
-    it is in frame and a ray cast from the camera reaches it.
+    it is in frame and a ray cast from the camera reaches it. Objects hidden in the render
+    don't block the ray, and a point on one of them is not visible.
 
     In the label JSON: `"keypoints": [{"name", "position", "depth", "in_frame",
     "visible"}]`, with `position` in pixels from the top-left corner and `depth` along the
