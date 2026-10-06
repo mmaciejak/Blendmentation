@@ -20,16 +20,25 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 
 ## Installation
 
-It is not on PyPI yet, so pip installs it from GitHub (this needs `git`).
+It is not on PyPI yet. Get it from GitHub: clone the repository, or pip install the
+wheel attached to the [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest)
+(the commands below use v0.2.0).
 
-- **Inside Blender:** install it with Blender's Python into your Blender user scripts
-  folder, with `--no-deps` so Blender keeps its own numpy. The exact command is in the
-  [installation guide](https://blendmentation.docs.csmx.eu/installation/).
+- **Inside Blender, from a copy of the repository:** clone it and add the cloned folder
+  to `sys.path` in your script (`sys.path.append("/path/to/Blendmentation")`):
+
+  ```sh
+  git clone https://github.com/mmaciejak/Blendmentation
+  ```
+
+- **Inside Blender, with pip:** install the release wheel with Blender's Python into your
+  Blender user scripts folder, with `--no-deps` so Blender keeps its own numpy. The exact
+  command is in the [installation guide](https://blendmentation.docs.csmx.eu/installation/).
 - **As a Python module, without the Blender app** (Python 3.13 for `bpy` 5.1+, 3.11
   for `bpy` 4.2–5.0):
 
   ```sh
-  pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"
+  pip install "blendmentation[module] @ https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl"
   ```
 
 ## Quick start

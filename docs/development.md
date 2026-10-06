@@ -23,6 +23,8 @@ has no `bpy` wheel, so it is only checked in the app.
 Releases are made by `.github/workflows/release.yml`:
 
 1. Set the new `version` in `pyproject.toml` and commit it.
+   Also update the version in the release wheel URLs in `README.md` and
+   `docs/installation.md`, which point at the latest release.
 2. Tag the commit with the same version and push the tag:
    `git tag v0.2.0 && git push origin v0.2.0`.
 

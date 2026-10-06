@@ -1,38 +1,22 @@
 # Installation
 
-It is not on PyPI yet, so pip installs it straight from GitHub (this needs `git`).
+It is not on PyPI yet. Get it from GitHub: clone the repository, or pip install the
+wheel attached to the [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest)
+(the commands below use v0.2.0).
 
-There are three ways to use it: install it into Blender with pip, point your script at a
-copy of this repository, or use Blender as a Python module without the app.
-
-## Inside Blender, with pip
-
-Install it with Blender's own Python into your Blender user scripts folder, which
-Blender adds to `sys.path`. On macOS, for Blender 4.2:
-
-```sh
-"/Applications/Blender.app/Contents/Resources/4.2/python/bin/python3.11" -m pip install \
-    --no-deps --target "$HOME/Library/Application Support/Blender/4.2/scripts/modules" git+https://github.com/mmaciejak/Blendmentation
-```
-
-- **Paths:** use your Blender version in both paths. In Blender,
-  `bpy.utils.user_resource("SCRIPTS", path="modules")` prints the folder for your system.
-- **`--no-deps` matters:** `--target` doesn't see the numpy bundled with Blender and
-  would install a second copy, which Blender would then import instead of its own.
-- **Restart Blender** afterwards: it only adds the folder if it existed at startup.
-
-Then import it in any script:
-
-```python
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
-```
+There are three ways to use it: point your script at a copy of this repository, install
+it into Blender with pip, or use Blender as a Python module without the app.
 
 ## Inside Blender, from a copy of the repository
 
-Add the folder that contains `blendmentation/` to `sys.path` in your script, then
-import the modules as a package:
+Clone the repository (or download and unpack it as a ZIP from GitHub):
+
+```sh
+git clone https://github.com/mmaciejak/Blendmentation
+```
+
+Then add the cloned folder, the one that contains `blendmentation/`, to `sys.path` in
+your script and import the modules as a package:
 
 ```python
 import sys
@@ -47,6 +31,31 @@ Run the script from Blender's Scripting tab, or headless:
 
 ```sh
 blender --background scene.blend --python make_dataset.py
+```
+
+## Inside Blender, with pip
+
+Install it with Blender's own Python into your Blender user scripts folder, which
+Blender adds to `sys.path`. On macOS, for Blender 4.2:
+
+```sh
+"/Applications/Blender.app/Contents/Resources/4.2/python/bin/python3.11" -m pip install \
+    --no-deps --target "$HOME/Library/Application Support/Blender/4.2/scripts/modules" \
+    https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl
+```
+
+- **Paths:** use your Blender version in both paths. In Blender,
+  `bpy.utils.user_resource("SCRIPTS", path="modules")` prints the folder for your system.
+- **`--no-deps` matters:** `--target` doesn't see the numpy bundled with Blender and
+  would install a second copy, which Blender would then import instead of its own.
+- **Restart Blender** afterwards: it only adds the folder if it existed at startup.
+
+Then import it in any script:
+
+```python
+from blendmentation.augmentations import augmentations
+from blendmentation.generating import generating
+from blendmentation.state import state
 ```
 
 ## As a Python module, without the Blender app
@@ -64,7 +73,7 @@ installs both:
 
 ```sh
 uv venv --python 3.13 .venv                 # or: python3.13 -m venv .venv
-uv pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"   # installs bpy and OpenImageIO too
+uv pip install "blendmentation[module] @ https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl"
 ```
 
 Without the extra only `blendmentation.export` works;
@@ -90,7 +99,8 @@ bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relat
 
 For type hints in your editor (Blender objects in the augmentation signatures, `bpy`
 completions), install the `bpy` type stubs from the `dev` extra:
-`uv pip install "blendmentation[module,dev] @ git+https://github.com/mmaciejak/Blendmentation"`.
+
+`uv pip install "blendmentation[module,dev] @ https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl"`.
 
 All features work the same way in the module. Workbench (used by `Segmentation`) and
 EEVEE need OpenGL: a GPU, or on Linux without one, Mesa's software rendering (as in CI).
