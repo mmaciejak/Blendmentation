@@ -1,8 +1,9 @@
 # Installation
 
-It is not on PyPI yet. Get it from GitHub: clone the repository, or pip install the
-wheel attached to the [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest)
-(the commands below use v0.2.0).
+It is not on PyPI yet, so get it from GitHub: clone the repository, or pip install it
+from there (this needs `git`). The `main` branch always holds the
+[latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), so both
+give you that.
 
 There are three ways to use it: point your script at a copy of this repository, install
 it into Blender with pip, or use Blender as a Python module without the app.
@@ -40,8 +41,7 @@ Blender adds to `sys.path`. On macOS, for Blender 4.2:
 
 ```sh
 "/Applications/Blender.app/Contents/Resources/4.2/python/bin/python3.11" -m pip install \
-    --no-deps --target "$HOME/Library/Application Support/Blender/4.2/scripts/modules" \
-    https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl
+    --no-deps --target "$HOME/Library/Application Support/Blender/4.2/scripts/modules" git+https://github.com/mmaciejak/Blendmentation
 ```
 
 - **Paths:** use your Blender version in both paths. In Blender,
@@ -73,7 +73,7 @@ installs both:
 
 ```sh
 uv venv --python 3.13 .venv                 # or: python3.13 -m venv .venv
-uv pip install "blendmentation[module] @ https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl"
+uv pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"   # installs bpy and OpenImageIO too
 ```
 
 Without the extra only `blendmentation.export` works;
@@ -99,8 +99,7 @@ bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relat
 
 For type hints in your editor (Blender objects in the augmentation signatures, `bpy`
 completions), install the `bpy` type stubs from the `dev` extra:
-
-`uv pip install "blendmentation[module,dev] @ https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl"`.
+`uv pip install "blendmentation[module,dev] @ git+https://github.com/mmaciejak/Blendmentation"`.
 
 All features work the same way in the module. Workbench (used by `Segmentation`) and
 EEVEE need OpenGL: a GPU, or on Linux without one, Mesa's software rendering (as in CI).
