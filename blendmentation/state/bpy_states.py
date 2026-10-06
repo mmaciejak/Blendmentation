@@ -21,14 +21,15 @@ def to_plain(value):
 def save_node_tree(node_tree):
     """Returns default values of all unconnected node inputs, by node name and input identifier."""
     nodes = {}
-    for node in node_tree.nodes:
+    # the collection key, node.name is the AOV name on AOV Output nodes in blender 4.0
+    for name, node in node_tree.nodes.items():
         inputs = {
             socket.identifier: to_plain(socket.default_value)
             for socket in node.inputs
             if hasattr(socket, "default_value") and not socket.is_linked
         }
         if inputs:
-            nodes[node.name] = inputs
+            nodes[name] = inputs
     return nodes
 
 

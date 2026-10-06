@@ -112,6 +112,7 @@ Intended loop (see `example.py`): build `State` once → for N datapoints: apply
 
 - Blender 5 moved geometry nodes modifier inputs from id properties to `modifier.properties.inputs.Socket_2.value`, so data paths for them differ by version. On 4.x the path is `modifiers["GeoNodes"]["Socket_2"]`; on 5.x it is `modifiers["GeoNodes"].properties.inputs.Socket_2.value`.
 - Geometry nodes menu sockets don't exist in 4.0. On 5.x, modifier menu inputs list their options via RNA.
+- In Blender 4.0 the AOV Output node's AOV name is its `name` property (`aov_name` from 4.1), which shadows the node name, so `node.name` isn't its key in `node_tree.nodes`. Look nodes up by their collection key (`nodes.items()`), as `save_node_tree` does.
 - Blender 5 needs `image_settings.media_type` set alongside `file_format` (`set_file_format` in `bpy_generating.py`).
 - Blender 5.2 EEVEE bug: a VALUE AOV listed before a COLOR AOV in the view layer renders as 0 (Cycles is fine). Listing color AOVs first avoids it.
 - Blender 5.2 warns that `Material.use_nodes` and light node trees are going away in Blender 6.

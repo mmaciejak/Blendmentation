@@ -7,7 +7,7 @@ bpy = pytest.importorskip("bpy")
 from blendmentation import bpy_paths  # noqa: E402
 from blendmentation.augmentations import augmentations as A  # noqa: E402
 from blendmentation.state import state  # noqa: E402
-from conftest import new_material  # noqa: E402
+from conftest import add_aov, new_material  # noqa: E402
 
 
 def snapshot(obj, material, light, paths):
@@ -71,3 +71,15 @@ def test_relative_field_must_resolve(cube):
     obj = cube("Cube")
     with pytest.raises(ValueError, match="does not resolve"):
         state.State([obj], fields=["data.energy"])
+
+
+def test_restore_aov_node(cube):
+    """In blender 4.0 an AOV Output node's name is its AOV name, not its key in the node tree."""
+    obj = cube("Cube")
+    material = new_material(obj, "Mat")
+    add_aov(material, "Albedo", "VALUE", 0.25)
+    node = next(node for node in material.node_tree.nodes if node.bl_idname == "ShaderNodeOutputAOV")
+    initial = state.State([obj])
+    node.inputs["Value"].default_value = 0.75
+    initial.restore()
+    assert node.inputs["Value"].default_value == pytest.approx(0.25)
