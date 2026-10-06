@@ -4,9 +4,11 @@ JSON label, `<index>.json`.
 The steps can be listed in any order; they always run as: label steps (`BBox`,
 `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
 by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
-then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
+then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
 `SegmentationImage`. All steps except `Segmentation` share one render; `Segmentation`
 reuses the id render of `BBox(max_occlusion=...)` when both have the same classes.
+`Background` puts a random color, noise or image behind the render and the preview
+images.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
@@ -305,6 +307,78 @@ class Keypoints:
         bpy_g.keypoints(frame, self.points)
 
 
+class Background:
+    """Puts a random background behind the transparent render, in the image of `Render`
+    and in the preview images (`BBoxImage`, `SegmentationImage`).
+
+    Each datapoint picks one mode by the weights:
+
+    - `"color"`: one random uniform color.
+    - `"white_noise"`: random gray square cells.
+    - `"color_noise"`: random colored square cells.
+    - `"image"`: a random image from `images_path` (and its subfolders; PNG, JPEG, BMP,
+      TIFF or TGA), scaled to cover the frame and cropped at a random position.
+
+    The render must be transparent: Render Properties > Film > Transparent on, and the
+    output color RGBA. The background is composited over the render's alpha, so the
+    labels (masks, boxes), AOVs and passes don't change. The image is then saved
+    opaque as RGB: 8-bit for PNG and JPEG, 32-bit float for EXR (the background
+    converted from sRGB to linear). The backgrounds come from Python's `random`, so
+    `random.seed()` makes them reproducible.
+
+    In the label JSON: `"background": {"mode", ...}` with `"color": [r, g, b]` (0-255),
+    `"noise_size"` (pixels) or `"image"` (path relative to `images_path`).
+
+    Args:
+        weights: `{mode: weight}`, the relative probability of each mode. A mode with
+            weight 0 or left out is never used. None = equal weights for all modes, the
+            image mode only with `images_path`.
+        noise_size: `(min, max)` size of the noise cells in pixels, sampled per
+            datapoint; 1 is per-pixel noise.
+        images_path: folder of background images, only needed when `"image"` has a
+            weight above 0 (or `weights` is None and you want images). Without
+            images, leave it None and give `"image"` weight 0 or leave it out. `//`
+            paths are relative to the .blend file.
+
+    Raises:
+        ValueError: when generating, if the render isn't transparent RGBA, a weight or
+            `noise_size` is invalid, or the image mode has no images.
+
+    Example:
+        ```python
+        generating.Background(
+            weights={"color": 1, "white_noise": 1, "color_noise": 1, "image": 3},
+            noise_size=(1, 8),
+            images_path="//backgrounds",
+        )
+        # no images: image weight 0 (or left out), no images_path needed
+        generating.Background(weights={"color": 1, "color_noise": 2, "image": 0})
+        ```
+    """
+
+    stage = 1
+
+    def __init__(
+        self,
+        weights: Optional[dict[Literal["color", "white_noise", "color_noise", "image"], float]] = None,
+        noise_size: tuple[float, float] = (1, 8),
+        images_path: Optional[str] = None,
+    ):
+        self.weights = weights
+        self.noise_size = noise_size
+        self.images_path = images_path
+        self.images = None
+
+    def check(self):
+        bpy_g.check_background(self.weights, self.noise_size, self.images_path)
+        # listed once, a folder of backgrounds can be big
+        if self.images is None:
+            self.images = bpy_g.background_images(self.weights, self.images_path)
+
+    def __call__(self, frame):
+        bpy_g.background(frame, self.weights, self.noise_size, self.images_path, self.images)
+
+
 class Render:
     """Renders the image with the scene's engine to `<index>.<ext>`.
 
@@ -319,7 +393,7 @@ class Render:
         ```
     """
 
-    stage = 1
+    stage = 2
 
     def __init__(self, file_format: Literal["PNG", "JPEG", "OPEN_EXR"] = "PNG"):
         self.file_format = file_format
@@ -354,7 +428,7 @@ class AOVToImage:
         ```
     """
 
-    stage = 2
+    stage = 3
 
     def __init__(
         self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
@@ -395,7 +469,7 @@ class Passes:
         ```
     """
 
-    stage = 2
+    stage = 3
 
     def __init__(
         self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
@@ -435,7 +509,7 @@ class BBoxImage:
         ```
     """
 
-    stage = 2
+    stage = 3
 
     def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", line_width: int = 2, show_class: bool = True):
         self.file_format = file_format
@@ -476,7 +550,7 @@ class Segmentation:
         ```
     """
 
-    stage = 3
+    stage = 4
 
     def __init__(
         self, classes: Classes, per: Literal["instance", "class", "both"] = "instance", skip_empty: bool = False
@@ -515,7 +589,7 @@ class SegmentationImage:
         ```
     """
 
-    stage = 4
+    stage = 5
 
     def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", opacity: float = 0.5, line_width: int = 2,
                  show_class: bool = True):

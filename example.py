@@ -10,6 +10,8 @@ The scene needs:
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
   Output node in the material
 - Cycles or EEVEE as render engine (for the AOV and the passes)
+- a transparent render (Render Properties > Film > Transparent) with RGBA output, and
+  a folder "backgrounds" with images next to the .blend file, for the backgrounds
 
 Run it from Blender's Scripting tab, with `blender -b scene.blend --python example.py`,
 or with bpy as a Python module (see the README).
@@ -81,6 +83,9 @@ classes = {"part": {"instances": [obj1, obj2], "iou_deconflict": 0.3}}
 image_generator = generating.Compose(
     [
         generating.Render(),
+        # behind the transparent render: a random color, gray or color noise, or a photo twice as often
+        generating.Background(weights={"color": 1, "white_noise": 1, "color_noise": 1, "image": 2},
+                              noise_size=(1, 8), images_path="//backgrounds"),
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5),  # Clutter may hide half a part

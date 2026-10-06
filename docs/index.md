@@ -20,7 +20,9 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
 class and may hide them, a floor "Floor", a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
-shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV.
+shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
+(Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
+is next to the .blend file.
 
 ```python
 import bpy
@@ -68,6 +70,8 @@ classes = {
 generator = generating.Compose(
     [
         generating.Render(),
+        generating.Background(weights={"color": 1, "white_noise": 1, "color_noise": 1, "image": 2},
+                              images_path="//backgrounds"),  # random background behind the render
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5),

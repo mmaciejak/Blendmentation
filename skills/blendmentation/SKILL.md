@@ -136,10 +136,15 @@ camera_aug = augmentations.Compose([
     augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5),          # after LookAt/FocalLength
 ])
 
+scene = bpy.context.scene
+scene.render.film_transparent = True                      # Background needs a transparent RGBA render;
+scene.render.image_settings.color_mode = "RGBA"           # these change the scene, tell the user
+
 classes = {"car": [car_1, car_2]}
 generator = generating.Compose(
     [
         generating.Render(),
+        generating.Background(weights={"color": 1, "color_noise": 1}),  # + "image": w with images_path=folder
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
         generating.BBoxImage(),                 # preview copy with the boxes drawn
         generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
@@ -232,6 +237,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | Step | Writes |
 |---|---|
 | `Render(file_format="PNG")` | `<index>.png` |
+| `Background(weights=None, noise_size=(1, 8), images_path=None)` | random color, white/color noise or image behind the render and previews; `background` |
 | `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None)` | `bboxes`; the three settings skip the datapoint |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
 | `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False)` | mask PNGs, `masks` |
@@ -247,6 +253,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   instance hidden by objects that are in no class; costs two Workbench renders). Set them
   per class with `{"car": {"instances": [car_1, car_2], "max_occlusion": 0.3}}`; a class's
   own value wins over the `BBox` argument, even `None`. `Segmentation` ignores them.
+- **`Background`** needs Film > Transparent and RGBA output, or it raises. `weights` is
+  `{"color", "white_noise", "color_noise", "image": weight}` (left out = never);
+  `images_path` (a folder) is only needed when `"image"` has a weight above 0; with
+  `"image": 0` or `"image"` left out, leave it None. Labels, AOVs and
+  passes don't change; the image is saved opaque RGB.
 - **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,

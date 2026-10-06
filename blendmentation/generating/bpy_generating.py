@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import tempfile
 
@@ -55,6 +56,8 @@ FONT = {
     " ": "000000000000000", "_": "000000000000111", "-": "000000111000000", ".": "000000000000010",
     ":": "000010000010000", "?": "110001010000010",
 }
+BACKGROUND_MODES = ("color", "white_noise", "color_noise", "image")
+BACKGROUND_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".tga")
 # output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
@@ -479,6 +482,8 @@ class Frame:
         # set by steps that draw on the beauty render after Segmentation replaced it
         self.keep_beauty = False
         self.beauty_rgba = None
+        # (height, width, 3) 8 bit sRGB image under the beauty render, set by Background
+        self.background = None
         self.id_images = {}
         self.changed = []
 
@@ -512,7 +517,8 @@ class Frame:
 
     def beauty_pixels(self):
         """Color managed 8 bit RGBA copy of the beauty render, like the saved image, as a
-        (height, width, 4) array. Saved once, every call returns a new copy to draw on."""
+        (height, width, 4) array, over the background when there is one. Saved once, every
+        call returns a new copy to draw on."""
         if self.beauty_rgba is None:
             self.beauty()
             file_path = os.path.join(self.temp_dir, "beauty.png")
@@ -521,8 +527,23 @@ class Frame:
             image_settings.color_mode = "RGBA"
             image_settings.color_depth = "8"
             bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
-            self.beauty_rgba = oiio.ImageBuf(file_path).get_pixels(oiio.UINT8)
+            # OpenImageIO premultiplies the colors by alpha when reading a PNG
+            pixels = oiio.ImageBuf(file_path).get_pixels(oiio.UINT8)
+            if self.background is not None:
+                pixels = over_background(pixels, self.background)
+            self.beauty_rgba = pixels
         return np.array(self.beauty_rgba)
+
+    def beauty_float(self):
+        """Linear 32 bit float RGBA beauty render (premultiplied), as a (height, width, 4) array."""
+        self.beauty()
+        file_path = os.path.join(self.temp_dir, "beauty.exr")
+        image_settings = self.scene.render.image_settings
+        set_file_format(image_settings, "OPEN_EXR")
+        image_settings.color_mode = "RGBA"
+        image_settings.color_depth = "32"
+        bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+        return oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
 
     def replace_render(self):
         """Call before a render that replaces the beauty Render Result, like the segmentation."""
@@ -656,11 +677,149 @@ def check_render(file_format):
 
 
 def render_image(frame, file_format):
-    """Renders the image to <path>/<index>.<ext>."""
+    """Renders the image to <path>/<index>.<ext>. Over a background it is written as RGB,
+    8 bit for PNG and JPEG, 32 bit float for EXR."""
     file_name = frame.file_name(RENDER_FORMATS[file_format])
-    set_file_format(frame.scene.render.image_settings, file_format)
-    frame.beauty(os.path.join(frame.path, file_name))
+    file_path = os.path.join(frame.path, file_name)
+    if frame.background is None:
+        set_file_format(frame.scene.render.image_settings, file_format)
+        frame.beauty(file_path)
+    elif file_format == "OPEN_EXR":
+        pixels = frame.beauty_float()
+        # the background is sRGB, the EXR linear
+        rgb = pixels[:, :, :3] + srgb_to_linear(frame.background) * (1.0 - pixels[:, :, 3:])
+        write_pixels(file_path, rgb.astype(np.float32), oiio.FLOAT)
+    else:
+        quality = frame.scene.render.image_settings.quality if file_format == "JPEG" else None
+        write_pixels(file_path, frame.beauty_pixels()[:, :, :3], oiio.UINT8, quality)
     frame.label["image"] = file_name
+
+
+def check_background(weights, noise_size, images_path):
+    """Raises if the background can't be used."""
+    render = bpy.context.scene.render
+    if not render.film_transparent:
+        raise ValueError("Background needs a transparent render, enable Render Properties > Film > Transparent")
+    if render.image_settings.color_mode != "RGBA":
+        raise ValueError("Background needs RGBA output, set Output Properties > Output > Color to RGBA")
+    if not (isinstance(noise_size, (list, tuple)) and len(noise_size) == 2
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in noise_size)
+            and 0 < noise_size[0] <= noise_size[1]):
+        raise ValueError(f"Background noise_size must be (min, max) pixels with 0 < min <= max, got {noise_size!r}")
+    if background_weights(weights, images_path)["image"]:
+        if not images_path:
+            raise ValueError("Background weights use the image mode, give images_path, a folder of images")
+        if not os.path.isdir(bpy.path.abspath(images_path)):
+            raise ValueError(f"Background images_path '{images_path}' is not a folder")
+
+
+def background_images(weights, images_path):
+    """The images in images_path and its subfolders, an empty list when the weights never
+    pick the image mode."""
+    if not background_weights(weights, images_path)["image"]:
+        return []
+    images = sorted(
+        os.path.join(root, name)
+        for root, _, names in os.walk(bpy.path.abspath(images_path))
+        for name in names
+        if name.lower().endswith(BACKGROUND_IMAGE_EXTENSIONS)
+    )
+    if not images:
+        raise ValueError(f"Background images_path '{images_path}' has no {', '.join(BACKGROUND_IMAGE_EXTENSIONS)} images")
+    return images
+
+
+def background_weights(weights, images_path):
+    """{mode: weight} for every mode. None = equal weights, the image mode only with
+    images_path; modes missing from the weights get 0."""
+    if weights is None:
+        return {mode: 0.0 if mode == "image" and not images_path else 1.0 for mode in BACKGROUND_MODES}
+    if not isinstance(weights, dict):
+        raise TypeError(f"Background weights must be a dict {{mode: weight}}, modes: {', '.join(BACKGROUND_MODES)}")
+    unknown = sorted(set(weights) - set(BACKGROUND_MODES))
+    if unknown:
+        raise ValueError(f"Unknown background modes {unknown}, available: {', '.join(BACKGROUND_MODES)}")
+    if not all(isinstance(w, (int, float)) and not isinstance(w, bool) and w >= 0 for w in weights.values()):
+        raise ValueError("Background weights must be numbers >= 0")
+    if not sum(weights.values()):
+        raise ValueError("Background weights are all 0, at least one mode needs a weight")
+    return {mode: float(weights.get(mode, 0)) for mode in BACKGROUND_MODES}
+
+
+def noise(rng, height, width, cell_size, channels):
+    """Random 8 bit (height, width, channels) noise in square cells of cell_size pixels."""
+    rows = (np.arange(height) / cell_size).astype(np.int64)
+    columns = (np.arange(width) / cell_size).astype(np.int64)
+    cells = rng.integers(0, 256, (rows[-1] + 1, columns[-1] + 1, channels), dtype=np.uint8)
+    return cells[rows][:, columns]
+
+
+def cover_image(file_path, width, height, rng):
+    """An image scaled to cover width x height and cropped there at a random position,
+    as 8 bit (height, width, 3) RGB. Gray images become RGB, alpha is dropped."""
+    source = oiio.ImageBuf(file_path)
+    if source.has_error:
+        raise RuntimeError(f"Cannot read background image {file_path}: {source.geterror()}")
+    spec = source.spec()
+    source = oiio.ImageBufAlgo.channels(source, (0, 0, 0) if spec.nchannels < 3 else (0, 1, 2))
+    scale = max(width / spec.width, height / spec.height)
+    cover_width, cover_height = max(width, round(spec.width * scale)), max(height, round(spec.height * scale))
+    resized = oiio.ImageBufAlgo.resize(source, roi=oiio.ROI(0, cover_width, 0, cover_height, 0, 1, 0, 3))
+    pixels = resized.get_pixels(oiio.UINT8)
+    top = int(rng.integers(0, cover_height - height + 1))
+    left = int(rng.integers(0, cover_width - width + 1))
+    return pixels[top:top + height, left:left + width]
+
+
+def background(frame, weights, noise_size, images_path, images):
+    """Picks a background mode by the weights, makes the background image for the beauty
+    render and adds {"mode", ...} to the labels under "background"."""
+    weights = background_weights(weights, images_path)
+    mode = random.choices(BACKGROUND_MODES, weights=[weights[mode] for mode in BACKGROUND_MODES])[0]
+    # seeded from random, so random.seed() makes the backgrounds reproducible too
+    rng = np.random.default_rng(random.getrandbits(64))
+    height, width = frame.height, frame.width
+    info: dict = {"mode": mode}
+    if mode == "color":
+        color = rng.integers(0, 256, 3, dtype=np.uint8)
+        pixels = np.broadcast_to(color, (height, width, 3))
+        info["color"] = color.tolist()
+    elif mode in ("white_noise", "color_noise"):
+        size = random.uniform(*noise_size)
+        pixels = noise(rng, height, width, size, 1 if mode == "white_noise" else 3)
+        pixels = np.broadcast_to(pixels, (height, width, 3))
+        info["noise_size"] = size
+    else:
+        file_path = random.choice(images)
+        pixels = cover_image(file_path, width, height, rng)
+        info["image"] = os.path.relpath(file_path, bpy.path.abspath(images_path))
+    frame.background = np.array(pixels)
+    frame.label["background"] = info
+
+
+def srgb_to_linear(pixels):
+    """8 bit sRGB to linear float."""
+    values = pixels / 255.0
+    return np.where(values <= 0.04045, values / 12.92, ((values + 0.055) / 1.055) ** 2.4)
+
+
+def over_background(pixels, background):
+    """Premultiplied 8 bit RGBA pixels over an 8 bit RGB background, opaque 8 bit RGBA."""
+    alpha = pixels[:, :, 3:] / 255.0
+    rgb = np.clip(np.rint(pixels[:, :, :3] + background * (1.0 - alpha)), 0, 255).astype(np.uint8)
+    return np.concatenate([rgb, np.full(alpha.shape, 255, dtype=np.uint8)], axis=2)
+
+
+def write_pixels(file_path, pixels, pixel_type, quality=None):
+    """Writes a (height, width, channels) array, with the JPEG quality when given."""
+    height, width, channels = pixels.shape
+    spec = oiio.ImageSpec(width, height, channels, pixel_type)
+    if quality is not None:
+        spec.attribute("Compression", f"jpeg:{quality}")
+    buffer = oiio.ImageBuf(spec)
+    buffer.set_pixels(oiio.ROI(), np.ascontiguousarray(pixels))
+    if not buffer.write(file_path):
+        raise RuntimeError(f"Cannot write {os.path.basename(file_path)}: {buffer.geterror()}")
 
 
 def aov_images(frame, names, file_format, skip_empty=False):
@@ -778,11 +937,7 @@ def write_preview(frame, pixels, suffix, file_format, label_key):
     if file_format == "JPEG":
         pixels = pixels[:, :, :3]
     file_name = frame.file_name(f"{suffix}{PREVIEW_FORMATS[file_format]}")
-    height, width, channels = pixels.shape
-    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, channels, oiio.UINT8))
-    buffer.set_pixels(oiio.ROI(), np.ascontiguousarray(pixels))
-    if not buffer.write(os.path.join(frame.path, file_name)):
-        raise RuntimeError(f"Cannot write {file_name}: {buffer.geterror()}")
+    write_pixels(os.path.join(frame.path, file_name), pixels, oiio.UINT8)
     frame.label[label_key] = file_name
 
 

@@ -527,3 +527,100 @@ def test_next_index_counts_all_outputs(out):
     for name in ("000004_Mask.exr", "000002.json", "000007_mask_car.png", "notes.txt"):
         open(os.path.join(out, name), "w").close()
     assert bpy_generating.next_index(out) == 8
+
+
+def transparent(scene):
+    scene.render.film_transparent = True
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+
+
+def write_test_image(path, color, size=(40, 20)):
+    import OpenImageIO as oiio
+
+    buffer = oiio.ImageBuf(oiio.ImageSpec(size[0], size[1], 3, oiio.UINT8))
+    buffer.set_pixels(oiio.ROI(), np.full((size[1], size[0], 3), color, dtype=np.uint8))
+    assert buffer.write(path)
+
+
+@pytest.mark.parametrize("mode", ["color", "white_noise", "color_noise", "image"])
+def test_background_modes(scene, cube, out, tmp_path, mode):
+    transparent(scene)
+    car = cube("car")
+    images = tmp_path / "backgrounds"
+    (images / "sub").mkdir(parents=True)
+    write_test_image(str(images / "sub" / "photo.jpg"), (10, 200, 30))
+    out = str(tmp_path / "dataset")
+    G.Compose([G.Render()], out, (64, 48))()  # without background, for the object pixels
+    steps = [G.Background({mode: 1}, noise_size=(1, 3), images_path=str(images)), G.Render(),
+             G.BBox({"car": [car]}), G.BBoxImage()]
+    assert G.Compose(steps, out, (64, 48))()
+    data = label(out, 1)
+    assert data["background"]["mode"] == mode
+    plain = read_image(os.path.join(out, "000000.png"))
+    image = read_image(os.path.join(out, "000001.png"))
+    assert image.shape == (48, 64, 3)
+    # the object is unchanged, the background behind it is filled
+    assert image[24, 32] == pytest.approx(plain[24, 32][:3], abs=1 / 255)
+    corner = image[:8, :8]
+    if mode == "color":
+        assert (np.rint(corner * 255) == data["background"]["color"]).all()
+    elif mode == "white_noise":
+        assert (corner[..., 0] == corner[..., 1]).all() and len(np.unique(corner)) > 1
+    elif mode == "color_noise":
+        assert (corner[..., 0] != corner[..., 1]).any()
+        assert 1 <= data["background"]["noise_size"] <= 3
+    else:
+        assert data["background"]["image"] == os.path.join("sub", "photo.jpg")
+        assert np.abs(corner - np.array([10, 200, 30]) / 255).max() < 3 / 255
+    # the preview has the background too
+    preview = read_image(os.path.join(out, "000001_bboxes.png"))
+    assert preview[4, 4][:3] == pytest.approx(image[4, 4], abs=1 / 255) and preview[4, 4][3] == 1
+
+
+def test_background_exr_jpeg_and_seed(scene, cube, out):
+    import random
+
+    transparent(scene)
+    cube("car")
+    random.seed(3)
+    assert G.Compose([G.Background({"color": 1}), G.Render("OPEN_EXR")], out, (32, 24))()
+    color = np.array(label(out)["background"]["color"])
+    image = read_image(os.path.join(out, "000000.exr"))
+    assert image.shape == (24, 32, 3)
+    assert image[0, 0] == pytest.approx(bpy_generating.srgb_to_linear(color), abs=1e-5)
+    # the same seed, the same background
+    random.seed(3)
+    assert G.Compose([G.Background({"color": 1}), G.Render("JPEG")], out, (32, 24))()
+    assert label(out, 1)["background"]["color"] == color.tolist()
+    assert read_image(os.path.join(out, "000001.jpg"))[0, 0] == pytest.approx(color / 255, abs=10 / 255)  # JPEG
+    # equal weights, image only with images_path
+    assert bpy_generating.background_weights(None, None) == {"color": 1, "white_noise": 1, "color_noise": 1, "image": 0}
+    # an image weight of 0 needs no images_path
+    assert G.Compose([G.Background({"color_noise": 1, "image": 0}), G.Render()], out, (32, 24))()
+    assert label(out, 2)["background"]["mode"] == "color_noise"
+
+
+@pytest.mark.parametrize("setup, background, match", [
+    (lambda scene: setattr(scene.render, "film_transparent", False), G.Background(), "Transparent"),
+    (lambda scene: setattr(scene.render.image_settings, "color_mode", "RGB"), G.Background(), "RGBA"),
+    (None, G.Background({"sky": 1}), "Unknown background modes"),
+    (None, G.Background({"color": 0}), "all 0"),
+    (None, G.Background(noise_size=(4, 2)), "noise_size"),
+    (None, G.Background({"image": 1}), "images_path"),
+    (None, G.Background({"image": 1}, images_path="/does/not/exist"), "not a folder"),
+])
+def test_background_errors(scene, out, renders, setup, background, match):
+    transparent(scene)
+    if setup:
+        setup(scene)
+    with pytest.raises(ValueError, match=match):
+        G.Compose([G.Render(), background], out, (16, 12))()
+    assert renders == []
+
+
+def test_background_empty_image_folder(scene, out, tmp_path):
+    transparent(scene)
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="no .png"):
+        G.Compose([G.Background({"image": 1}, images_path=str(tmp_path / "empty"))], out, (16, 12))()
