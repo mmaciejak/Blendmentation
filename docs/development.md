@@ -13,23 +13,31 @@ uv pip install -e ".[module,test]"
 
 Without `bpy`, only the tests that don't need Blender run, and the rest are skipped.
 
-GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `main` and
-every pull request: with `bpy` 5.x (Python 3.13) and `bpy` 4.5 (Python 3.11) on Linux
+GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `main` or
+`dev` and every pull request: with `bpy` 5.x (Python 3.13) and `bpy` 4.5 (Python 3.11) on Linux
 with Mesa software rendering, and without Blender on Python 3.10 and 3.12. Blender 4.0
 has no `bpy` wheel, so it is only checked in the app.
+
+## Branches
+
+`main` always holds the latest release, because the installation instructions clone it
+or pip install it from GitHub, and the docs site is deployed from it. Development
+happens on `dev` (or feature branches merged into `dev`); `main` only moves on a
+release.
 
 ## Releasing
 
 Releases are made by `.github/workflows/release.yml`:
 
-1. Set the new `version` in `pyproject.toml` and commit it.
-2. Tag the commit with the same version and push the tag:
-   `git tag v0.2.0 && git push origin v0.2.0`.
+1. On `dev`, set the new `version` in `pyproject.toml` and commit it.
+2. Merge `dev` into `main`: `git checkout main && git merge --ff-only dev && git push`.
+3. Tag that commit with the same version and push the tag:
+   `git tag v0.3.0 && git push origin v0.3.0`.
 
 The workflow runs the tests, checks that the tag matches the version, builds the wheel
 and sdist, and creates a GitHub release with notes and both files attached. It is not
-published to PyPI yet; until then, install a release from its wheel, e.g.
-`pip install https://github.com/mmaciejak/Blendmentation/releases/download/v0.2.0/blendmentation-0.2.0-py3-none-any.whl`.
+published to PyPI yet; a specific release can be installed from its wheel, e.g.
+`pip install https://github.com/mmaciejak/Blendmentation/releases/download/v0.3.0/blendmentation-0.3.0-py3-none-any.whl`.
 
 ## Known issues
 
