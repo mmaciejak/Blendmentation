@@ -395,6 +395,12 @@ class Material(Augmentation):
         metallic: range of the metallic.
         p: probability of applying the augmentation.
 
+    Tip:
+        Use `Material` for negative data, secondary objects, or to make a model
+        generalize over shape while ignoring the material. For finer control over the
+        materials of hero objects, use [`Number`][blendmentation.augmentations.augmentations.Number]
+        to set individual shader node inputs.
+
     Example:
         ```python
         augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6))
