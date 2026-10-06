@@ -2,7 +2,8 @@ name: Release
 
 # push a tag matching the version in pyproject.toml to release it:
 #   git tag v0.1.0 && git push origin v0.1.0
-# it is not published to PyPI yet, the wheel and sdist are attached to the GitHub release
+# it is not published to PyPI yet, the wheel and sdist are attached to the GitHub release.
+# The release notes are the version's section of CHANGELOG.md, the release fails without it
 on:
   push:
     tags: ["v*"]
@@ -26,6 +27,10 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match version $version in pyproject.toml"
             exit 1
           fi
+      - name: Release notes from CHANGELOG.md
+        run: |
+          mkdir notes
+          python .github/scripts/release_notes.py "$GITHUB_REF_NAME" > notes/release-notes.md
       - name: Build
         run: |
           pip install build twine
@@ -35,6 +40,10 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes/
 
   github-release:
     needs: build
@@ -46,7 +55,11 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: notes/
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes/release-notes.md
