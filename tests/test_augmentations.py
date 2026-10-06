@@ -122,6 +122,54 @@ def test_visibility(cube):
     assert 60 < sum(shown) < 140
 
 
+def test_keep_above(cube):
+    floor = cube("Floor", location=(0, 0, -1), size=4)  # top at z = 1
+    obj = cube("Cube", location=(0, 0, 0))  # bottom at -0.5
+    keep = A.KeepAbove(floor, margin=0.1)
+    keep(obj)
+    assert keep.actual == pytest.approx(1.6) and obj.location.z == pytest.approx(1.6)
+
+    # already above with the margin: not moved, never moved down
+    obj.location.z = 3
+    keep(obj)
+    assert keep.actual == 0 and obj.location.z == 3
+
+    # not over the surface: not moved
+    obj.location = (10, 0, -5)
+    keep(obj)
+    assert keep.actual == 0 and obj.location.z == -5
+
+    # sees the transforms of the augmentations before it, rotation included
+    obj.location = (0, 0, 0)
+    A.Compose([A.Translation(z=(-2, -1)), A.Rotation(x=(45, 45)), keep])([obj])
+    bpy.context.view_layer.update()
+    lowest = min((obj.matrix_world @ v.co).z for v in obj.data.vertices)
+    assert lowest == pytest.approx(1.1, abs=1e-5)
+
+    # a peak of the surface between the object's vertices
+    floor.location = (0, 0, 0)
+    floor.scale = (0.1, 0.1, 0.1)  # a small block, top at 0.2, under the cube's bottom face
+    obj.location, obj.rotation_euler = (0, 0, 0), (0, 0, 0)
+    obj.scale = (2, 2, 1)  # bottom vertices at x, y = ±1, outside the block
+    keep(obj)
+    assert obj.location.z == pytest.approx(0.8)
+
+    # parented: moves in world space
+    parent = cube("Parent", location=(0, 0, 0))
+    parent.rotation_euler = (0, math.radians(90), 0)
+    obj.parent = parent
+    obj.location, obj.scale = (0, 0, 0), (1, 1, 1)
+    keep(obj)
+    bpy.context.view_layer.update()
+    assert obj.matrix_world.translation.z == pytest.approx(0.8)
+
+    with pytest.raises(ValueError):
+        A.KeepAbove(obj)(obj)
+    bpy.ops.object.empty_add()
+    with pytest.raises(TypeError):
+        A.KeepAbove(bpy.context.object)(obj)
+
+
 def test_material(cube):
     obj = cube("Cube")
     material = new_material(obj, "Mat")

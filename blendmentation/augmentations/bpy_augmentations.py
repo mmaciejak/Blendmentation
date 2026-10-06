@@ -4,6 +4,7 @@ import random
 
 import bpy
 from mathutils import Euler, Matrix, Quaternion, Vector
+from mathutils.bvhtree import BVHTree
 
 from .. import bpy_paths
 
@@ -292,6 +293,75 @@ def visibility(obj, visible):
     """
     obj.hide_render = not visible
     return visible
+
+
+def world_mesh(obj, depsgraph):
+    """World coordinates of the evaluated object's vertices, and its faces. Objects
+    without geometry (empties, cameras...) are a point at their origin, without faces."""
+    obj_eval = obj.evaluated_get(depsgraph)
+    mesh = obj_eval.to_mesh() if obj.type in {"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD"} else None
+    if mesh is None:
+        return [obj_eval.matrix_world.translation.copy()], []
+    try:
+        matrix = obj_eval.matrix_world
+        vertices = [matrix @ vertex.co for vertex in mesh.vertices]
+        faces = [tuple(polygon.vertices) for polygon in mesh.polygons]
+    finally:
+        obj_eval.to_mesh_clear()
+    return vertices, faces
+
+
+def column_hit(tree, x, y, z, direction):
+    """Z of the first hit of a vertical ray from (x, y, z), None when it misses."""
+    location = tree.ray_cast(Vector((x, y, z)), Vector((0.0, 0.0, direction)))[0]
+    return None if location is None else location.z
+
+
+def keep_above(obj, surface, margin):
+    """Moves the object up along world Z until its lowest point is at least margin
+    above the top of the surface, where they overlap seen from above. An object that
+    is already high enough, or not over the surface, is not moved.
+
+    Both are compared as evaluated meshes (modifiers included) in world space: the
+    object's vertices against the surface top under them, and the surface's vertices
+    against the object's bottom over them, so a surface peak between the object's
+    vertices also counts.
+
+    Returns:
+        float: how far the object was moved up, 0 when it was not moved
+    """
+    if obj == surface:
+        raise ValueError(f"'{obj.name}' cannot be kept above itself")
+    # earlier augmentations changed location / rotation / scale, matrix_world is stale until then
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    surface_vertices, surface_faces = world_mesh(surface, depsgraph)
+    if not surface_faces:
+        raise TypeError(f"Surface '{surface.name}' has no faces")
+    vertices, faces = world_mesh(obj, depsgraph)
+
+    surface_tree = BVHTree.FromPolygons(surface_vertices, surface_faces)
+    above_surface = max(vertex.z for vertex in surface_vertices) + 1.0
+    lift = 0.0
+    for vertex in vertices:
+        top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
+        if top is not None:
+            lift = max(lift, top + margin - vertex.z)
+    if faces:
+        tree = BVHTree.FromPolygons(vertices, faces)
+        below_object = min(vertex.z for vertex in vertices) - 1.0
+        for vertex in surface_vertices:
+            bottom = column_hit(tree, vertex.x, vertex.y, below_object, 1.0)
+            if bottom is None:
+                continue
+            top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
+            lift = max(lift, (vertex.z if top is None else top) + margin - bottom)
+
+    if lift > 0:
+        matrix = obj.matrix_world.copy()
+        matrix.translation.z += lift
+        obj.matrix_world = matrix
+    return lift
 
 
 def boolean(obj, data_path, value):

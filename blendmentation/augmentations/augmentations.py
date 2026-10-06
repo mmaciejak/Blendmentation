@@ -5,6 +5,7 @@ augmentation takes `p`, the probability that it runs, drawn per object. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. Save the scene with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
+`KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -278,6 +279,60 @@ class Visibility(Augmentation):
 
     def skip(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.visibility(obj, False)
+
+
+class KeepAbove(Augmentation):
+    """Moves the object up, if needed, so it stays above a surface, e.g. a floor or terrain.
+
+    It checks whether the object's lowest point is at least `margin` above the top of
+    the surface where they overlap seen from above, and if not, moves the object up
+    along world Z until it is. An object that is already high enough, or not over the
+    surface, is left where it is; it is never moved down. Both are compared as
+    evaluated meshes (modifiers included) in world space, so uneven surfaces work.
+    It sets `matrix_world`, so parented objects work too. Only the object's own
+    geometry counts, not its children's.
+
+    !!! warning "Put it after the transforms"
+        It checks the object where it is when it runs, so put it in the `Compose`
+        after `Translation`, `Rotation`, `Scale` and any other augmentation that moves
+        or deforms the object (e.g. a `Number` changing a modifier or shape key).
+        Augmentations after it can push the object into the surface again.
+
+    Args:
+        surface: object to stay above. It must have faces (a mesh, curve, text...).
+        margin: minimum gap between the surface and the object's lowest point, in
+            Blender units.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual (float | None): how far the last call moved the object up, 0 when it
+            was already above.
+
+    Raises:
+        ValueError: the object is the surface.
+        TypeError: the surface has no faces.
+
+    Example:
+        ```python
+        objects_aug = augmentations.Compose([
+            augmentations.Translation(x=0.5, y=0.5, z=(-0.3, 0.3)),
+            augmentations.Rotation(x=30, y=30, z=180),
+            augmentations.KeepAbove(floor, margin=0.01),   # after the transforms
+        ])
+        objects_aug([car_1, car_2])
+        ```
+    """
+
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0):
+        super().__init__(p)
+        self.surface = surface
+        self.margin = margin
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object to keep above the surface
+        """
+        self.actual = bpy_a.keep_above(obj, self.surface, self.margin)
 
 
 class LookAt(Augmentation):
