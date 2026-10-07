@@ -1,0 +1,4 @@
+# the tests in the sdist need their fixtures
+include tests/conftest.py
+# these check the repository (changelog, docs pages), not the library
+exclude tests/test_changelog.py tests/test_docs.py
