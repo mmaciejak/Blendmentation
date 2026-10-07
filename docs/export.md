@@ -2,4 +2,4 @@
 
 ::: blendmentation.export.export
     options:
-      members: [coco, yolo, voc]
+      members: [coco, yolo, voc, bop]
