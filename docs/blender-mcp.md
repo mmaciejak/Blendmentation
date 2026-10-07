@@ -19,7 +19,7 @@ It tells the agent how to:
 - check the pipeline with one preview datapoint before generating;
 - generate in batches that fit the time limit, always restoring the scene, or switch to a
   headless `blender --background` run for large datasets;
-- export to COCO, YOLO or Pascal VOC.
+- export to COCO, YOLO, Pascal VOC or BOP.
 
 ## Setup
 

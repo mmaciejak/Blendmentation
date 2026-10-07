@@ -299,8 +299,13 @@ def find_layer(frame, layer_names):
             of the layer, or None when the layer is not in the render result
     """
     multilayer, parts = frame.multilayer()
+    return find_layer_in(multilayer, parts, frame.view_layer, layer_names)
+
+
+def find_layer_in(multilayer, parts, view_layer, layer_names):
+    """`find_layer` in any multilayer EXR, parts: the channel names of each of its parts."""
     for layer in layer_names:
-        prefix = f"{frame.view_layer.name}.{layer}."
+        prefix = f"{view_layer.name}.{layer}."
         for part, names in enumerate(parts):
             found = [(i, name[len(prefix):]) for i, name in enumerate(names) if name.startswith(prefix)]
             if found:
@@ -420,6 +425,61 @@ def render_ids(scene, groups, file_path, hide_others=False):
     return ids
 
 
+def render_index_ids(scene, view_layer, groups, file_path):
+    """Renders the groups with Cycles at 1 sample, every other object hidden, and reads
+    the group ids (1, 2, ...) from the Object Index pass, like `index_pass_ids`. The
+    multilayer render result is saved to file_path (an EXR).
+
+    Returns:
+        np.ndarray: (height, width) array of group ids, 0 = background
+    """
+    saved = [
+        (scene.render, ("use_compositing", "use_sequencer")),
+        (scene.cycles, ("samples", "use_denoising", "use_adaptive_sampling")),
+        (view_layer, ("use_pass_object_index",)),
+    ]
+    saved = [(owner, {name: getattr(owner, name) for name in names}) for owner, names in saved]
+    editable = [obj for obj in bpy.data.objects if obj.library is None]
+    saved_indices = {obj: obj.pass_index for obj in editable}
+    in_groups = {obj for group in groups for obj in group}
+    hidden = [obj for obj in editable if obj not in in_groups and not obj.hide_render]
+    try:
+        for obj in hidden:
+            obj.hide_render = True
+        scene.render.use_compositing = False
+        scene.render.use_sequencer = False
+        # the pass is written by the first sample, it is not anti-aliased
+        scene.cycles.samples = 1
+        scene.cycles.use_denoising = False
+        scene.cycles.use_adaptive_sampling = False
+        view_layer.use_pass_object_index = True
+        for obj in editable:
+            obj.pass_index = 0
+        for group_id, group in enumerate(groups, start=1):
+            for obj in group:
+                obj.pass_index = group_id
+
+        bpy.ops.render.render()
+        set_file_format(scene.render.image_settings, "OPEN_EXR_MULTILAYER")
+        scene.render.image_settings.color_depth = "32"
+        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
+    finally:
+        for obj in hidden:
+            obj.hide_render = False
+        for obj, pass_index in saved_indices.items():
+            obj.pass_index = pass_index
+        for owner, values in saved:
+            for name, value in values.items():
+                setattr(owner, name, value)
+
+    layer = find_layer_in(file_path, read_multilayer(file_path), view_layer, PASSES["ObjectIndex"][1])
+    if layer is None:
+        raise RuntimeError("The Object Index pass is missing in the render result")
+    _, part, found = layer
+    pixels = oiio.ImageBuf(file_path, part, 0).get_pixels(oiio.FLOAT)
+    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
+
+
 def write_mask(path, file_name, mask):
     """Writes a boolean (height, width) mask as a black and white PNG."""
     height, width = mask.shape
@@ -430,10 +490,11 @@ def write_mask(path, file_name, mask):
     return file_name
 
 
-def save_masks(ids, instances, path, index, per, skip_empty=False, previous=()):
+def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), full=None, previous_full=()):
     """Saves black and white mask PNGs of the visible pixels, per instance as
-    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png.
-    A name that is already taken gets _2, _3, ... before the extension.
+    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png,
+    and the full masks as <path>/<index>_mask_<n>_full.png. A name that is already taken
+    gets _2, _3, ... before the extension.
 
     Args:
         ids (np.ndarray): id image of the instances, from `render_ids`
@@ -442,11 +503,14 @@ def save_masks(ids, instances, path, index, per, skip_empty=False, previous=()):
         skip_empty (bool): don't write empty masks, their "mask" is None
         previous (list): mask entries of earlier Segmentation steps of the datapoint,
             n continues after their instances and their files are not overwritten
+        full (list): full mask (np.ndarray) of every instance, None for no full masks
+        previous_full (list): full mask entries of earlier Segmentation steps
 
     Returns:
-        list: {"class", "objects", "mask", "per"} for every mask
+        tuple: {"class", "objects", "mask", "per"} for every mask, and
+            {"class", "objects", "mask"} for every full mask
     """
-    taken = {entry["mask"] for entry in previous}
+    taken = {entry["mask"] for entry in list(previous) + list(previous_full)}
     start = sum(entry["per"] == "instance" for entry in previous)
 
     def mask_file(name, mask):
@@ -470,7 +534,11 @@ def save_masks(ids, instances, path, index, per, skip_empty=False, previous=()):
             file_name = mask_file(safe_name, np.isin(ids, [n + 1 for n in numbers]))
             objects = [obj.name for number in numbers for obj in instances[number][1]]
             entries.append({"class": class_name, "objects": objects, "mask": file_name, "per": "class"})
-    return entries
+    full_entries = []
+    for number, ((class_name, group), mask) in enumerate(zip(instances, full or ())):
+        file_name = mask_file(f"{len(previous_full) + number}_full", mask)
+        full_entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name})
+    return entries, full_entries
 
 
 def to_json(value):
@@ -592,6 +660,19 @@ class Frame:
             self.id_images[key] = render_ids(self.scene, groups, file_path, hide_others)
         return self.id_images[key]
 
+    def full_ids(self, groups):
+        """Id image of the groups with every other object hidden, so nothing occludes
+        them: in Cycles from the Object Index pass of a 1 sample render (see
+        `render_index_ids`), otherwise from the workbench (`ids`, shared with BBox occlusion)."""
+        if self.scene.render.engine != "CYCLES":
+            return self.ids(groups, hide_others=True)
+        key = (group_key(groups), "index")
+        if key not in self.id_images:
+            self.replace_render()
+            file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
+            self.id_images[key] = render_index_ids(self.scene, self.view_layer, groups, file_path)
+        return self.id_images[key]
+
     def multilayer(self):
         """Saves the beauty render with all its passes as a multilayer EXR, once.
 
@@ -680,6 +761,35 @@ def rotation_matrices(frame, objects):
         "rotation_matrices",
         [{"object": obj.name, "rotation_matrix": rotation_to_camera(frame.camera, obj)} for obj in objects],
     )
+
+
+# blender cameras look down -z with y up, OpenCV cameras look down +z with y down
+BLENDER_TO_OPENCV = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, -1)))
+
+
+def check_poses(classes):
+    to_instances(classes)
+
+
+def poses(frame, classes):
+    """Adds {"class", "objects", "R", "t", "scale"} of every instance to the labels under
+    "poses": the pose of its first object in the OpenCV camera frame, R row by row and t in
+    blender units, with the scale removed and saved separately. An instance with all its
+    objects hidden in the render has R, t and scale None."""
+    camera_location, camera_rotation, _ = frame.camera.matrix_world.decompose()
+    world_to_camera = BLENDER_TO_OPENCV @ camera_rotation.to_matrix().transposed()
+    entries = []
+    for class_name, group in to_instances(classes):
+        entry = {"class": class_name, "objects": [obj.name for obj in group], "R": None, "t": None, "scale": None}
+        if any(not obj.hide_render for obj in group):
+            location, rotation, scale = group[0].matrix_world.decompose()
+            entry.update(
+                R=[list(row) for row in world_to_camera @ rotation.to_matrix()],
+                t=list(world_to_camera @ (location - camera_location)),
+                scale=list(scale),
+            )
+        entries.append(entry)
+    frame.add("poses", entries)
 
 
 def check_output_field(name, data_path, objects):
@@ -1073,8 +1183,7 @@ def camera_data(frame):
     camera = frame.camera
     data = camera.data
     location, rotation, _ = camera.matrix_world.decompose()
-    # blender cameras look down -z with y up, OpenCV cameras look down +z with y down
-    world_to_camera = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, -1))) @ rotation.to_matrix().transposed()
+    world_to_camera = BLENDER_TO_OPENCV @ rotation.to_matrix().transposed()
     translation = -(world_to_camera @ location)
     info = {
         "name": camera.name,
@@ -1084,6 +1193,7 @@ def camera_data(frame):
         "clip_start": data.clip_start,
         "clip_end": data.clip_end,
         "depth_of_field": depth_of_field(camera),
+        "unit_scale": frame.scene.unit_settings.scale_length,
     }
     if data.type == "PERSP":
         info.update(
@@ -1229,13 +1339,74 @@ def index_pass_ids(frame):
     return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
 
 
-def segmentation(frame, classes, per, skip_empty=False):
-    """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
+# object types whose evaluated mesh bounds their silhouette, for packing full mask renders
+PACKABLE_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT"}
+# pixels around the projected boxes, the pixel filter spreads a silhouette a little
+PACK_MARGIN = 2
+
+
+def full_mask_packs(frame, groups):
+    """Splits the groups into packs that can be rendered together for their full masks:
+    groups whose projected boxes (plus a margin) don't overlap can't hide each other.
+    Groups that are hidden in the render or out of frame are in no pack (empty mask),
+    groups whose box is unknown (other object types, partly behind the camera) are
+    alone in their pack.
+
+    Returns:
+        list: lists of group numbers
+    """
+    packs, pack_boxes = [], []
+    for number, group in enumerate(groups):
+        rendered = [obj for obj in group if not obj.hide_render]
+        if not rendered:
+            continue
+        if any(obj.type not in PACKABLE_TYPES for obj in rendered):
+            packs.append([number])
+            pack_boxes.append(None)
+            continue
+        bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
+        if behind:
+            packs.append([number])
+            pack_boxes.append(None)
+            continue
+        box = to_pixels(bounds, frame.width, frame.height)
+        if box is None:
+            continue
+        box = [box[0] - PACK_MARGIN, box[1] - PACK_MARGIN, box[2] + PACK_MARGIN, box[3] + PACK_MARGIN]
+        for pack, boxes in zip(packs, pack_boxes):
+            if boxes is not None and all(iou(box, other) == 0 for other in boxes):
+                pack.append(number)
+                boxes.append(box)
+                break
+        else:
+            packs.append([number])
+            pack_boxes.append([box])
+    return packs
+
+
+def full_masks(frame, groups):
+    """Mask of every group as if no other object were in the scene."""
+    masks = [np.zeros((frame.height, frame.width), dtype=bool) for _ in groups]
+    for pack in full_mask_packs(frame, groups):
+        ids = frame.full_ids([groups[number] for number in pack])
+        for position, number in enumerate(pack, start=1):
+            masks[number] = ids == position
+    return masks
+
+
+def segmentation(frame, classes, per, skip_empty=False, full=False):
+    """Saves masks of the visible pixels, adds {"class", "objects", "mask", "per"} to the
+    labels under "masks", and with full, the masks ignoring occlusion under "full_masks"."""
     instances = to_instances(classes)
     groups = [group for _, group in instances]
+    # the visible masks first, they may read the beauty render that the full masks replace
     ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)
-    previous = frame.label.get("masks", [])
-    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per, skip_empty, previous))
+    full = full_masks(frame, groups) if full else None
+    entries, full_entries = save_masks(ids, instances, frame.path, frame.index, per, skip_empty,
+                                       frame.label.get("masks", []), full, frame.label.get("full_masks", []))
+    frame.add("masks", entries)
+    if full is not None:
+        frame.add("full_masks", full_entries)
 
 
 def generate(path, resolution, steps, custom_dict=None):

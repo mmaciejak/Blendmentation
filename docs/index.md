@@ -8,7 +8,7 @@ your dataset as composed steps, in the style of torchvision / albumentations:
    and write a JSON label with bounding boxes, keypoints, camera data, rotations and
    any values you want to record.
 3. **Restore:** put the scene back as it was, and repeat.
-4. **Export:** convert the dataset to COCO, YOLO or Pascal VOC.
+4. **Export:** convert the dataset to COCO, YOLO, Pascal VOC or BOP (6D pose).
 
 ## Requirements
 
@@ -44,7 +44,6 @@ keep_above = augmentations.KeepAbove(floor, margin=0.01)
 objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),
     augmentations.Rotation(z=180),
-    augmentations.Scale(x=10, y=10, z=10, p=0.5),     # only half of the time
     augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6)),
     keep_above,                                       # after the transforms: lifts the cars out of the floor
 ])
@@ -56,6 +55,7 @@ lamp_aug = augmentations.Compose([
 ])
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),                  # in the render 70% of the time, labels follow
+    augmentations.Scale(x=10, y=10, z=10, p=0.5),     # only half of the time; BOP needs fixed-size cars
 ])
 camera_aug = augmentations.Compose([
     augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
@@ -77,9 +77,11 @@ generator = generating.Compose(
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5),
         generating.BBoxImage(),                        # copy of the image with the boxes drawn, to check them
-        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
+        generating.Segmentation(classes, per="both", skip_empty=True,   # no file for empty masks
+                                full_masks=True),               # + masks ignoring occlusion, for BOP
         generating.SegmentationImage(),                # copy of the image with the masks drawn
         generating.RotationMatrix([car_1, car_2]),
+        generating.Pose(classes),                      # 6D pose of every instance, OpenCV camera axes
         generating.CameraData(),
         generating.Keypoints({"car_1": car_1, "car_1_corner": (car_1, 0)}),
         generating.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
@@ -105,6 +107,7 @@ for _ in range(1000):
 # 4. training-ready annotations
 export.coco("//dataset")
 export.yolo("//dataset")
+export.bop("//dataset")                               # 6D pose: poses, masks, depth
 ```
 
 ## Next steps

@@ -127,6 +127,81 @@ def test_mask_names_are_unique(scene, cube, out):
         assert mask(out, entry["mask"])[int((box[1] + box[3]) / 2), int((box[0] + box[2]) / 2)]
 
 
+def test_pose(scene, cube, out):
+    car = cube("car", (1, 2, 0.5))
+    car.rotation_euler = (0.3, -0.4, 1.1)
+    car.scale = (2, 2, 2)
+    hidden = cube("hidden", (-1, 0, 0))
+    hidden.hide_render = True
+    top, leg = cube("top", (-2, 0, 1)), cube("leg", (-2, 0, -1))
+    scene.camera.rotation_euler.z = 0.2  # the camera turned a little
+    classes = {"car": [car, hidden], "table": [[top, leg]]}
+    assert G.Compose([G.Pose(classes), G.CameraData()], out, (320, 240))()
+    data = label(out)
+    poses, camera = data["poses"], data["camera"]
+    assert [(p["class"], p["objects"]) for p in poses] == [("car", ["car"]), ("car", ["hidden"]), ("table", ["top", "leg"])]
+    assert camera["unit_scale"] == 1.0
+    pose = poses[0]
+    rotation, t = np.array(pose["R"]), np.array(pose["t"])
+    assert pose["scale"] == pytest.approx([2, 2, 2])
+    assert rotation @ rotation.T == pytest.approx(np.eye(3), abs=1e-6)
+    # a corner of the mesh in the camera, projected with K, lands where blender projects it
+    corner = car.data.vertices[0].co
+    in_camera = rotation @ (np.array(corner) * 2) + t
+    k = np.array(camera["intrinsics"])
+    pixel = (k @ in_camera)[:2] / in_camera[2]
+    scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 320, 240, 100
+    view = world_to_camera_view(scene, scene.camera, car.matrix_world @ corner)
+    assert pixel == pytest.approx([view.x * 320, (1 - view.y) * 240], abs=1e-3)
+    # the same as the extrinsics applied to the world matrix
+    extrinsics = np.array(camera["extrinsics_opencv"])
+    assert t == pytest.approx(extrinsics[:, :3] @ np.array(car.matrix_world.translation) + extrinsics[:, 3], abs=1e-6)
+    assert poses[1]["R"] is None and poses[1]["t"] is None and poses[1]["scale"] is None
+    # an instance of several objects has the pose of the first
+    assert poses[2]["t"] == pytest.approx(extrinsics[:, :3] @ np.array(top.location) + extrinsics[:, 3], abs=1e-6)
+    with pytest.raises(TypeError):
+        G.Compose([G.Pose([car])], out, (320, 240))()
+
+
+@pytest.mark.parametrize("engine", ["BLENDER_WORKBENCH", "CYCLES"])
+def test_full_masks(scene, cube, out, renders, engine):
+    scene.render.engine = engine
+    scene.cycles.samples = 8
+    front = cube("front", (-2.5, 0, 0))
+    back = cube("back", (-2.1, 3, 0), 2.0)  # partly behind front
+    apart = cube("apart", (2.5, 0, 0))
+    wall = cube("wall", (1.9, -3, 0), 0.6)  # in no class, in front of apart
+    wall.pass_index = 4
+    classes = {"box": [front, back, apart]}
+    steps = [G.Render(), G.Segmentation(classes, per="both", full_masks=True), G.SegmentationImage()]
+    assert G.Compose(steps, out, (320, 240))()
+    data = label(out)
+    assert [(m["objects"], m["mask"]) for m in data["full_masks"]] == [
+        (["front"], "000000_mask_0_full.png"), (["back"], "000000_mask_1_full.png"), (["apart"], "000000_mask_2_full.png"),
+    ]
+    assert [m["per"] for m in data["masks"]] == ["instance"] * 3 + ["class"]
+    visible = [mask(out, f"000000_mask_{i}.png") for i in range(3)]
+    full = [mask(out, f"000000_mask_{i}_full.png") for i in range(3)]
+    # front and apart don't overlap and share a render, back has its own
+    expected = ["CYCLES"] * 3 if engine == "CYCLES" else [engine, engine, engine, engine]
+    assert renders == expected
+    for v, f in zip(visible, full):
+        assert v.any() and (f | ~v).sum() >= v.size - 0.01 * v.sum()  # visible is inside full
+    # back's full mask goes on behind front, apart's behind the wall
+    assert (full[1] & visible[0]).sum() > 100 and (full[2].sum() - visible[2].sum()) > 100
+    assert (full[0] == visible[0]).mean() > 0.999
+    assert wall.pass_index == 4 and not wall.hide_render and scene.cycles.samples == 8
+    assert not bpy.context.view_layer.use_pass_object_index
+    assert "000000_segmentation.png" in os.listdir(out)
+
+    # skip_empty applies to the full masks, a hidden instance has an empty one without a render
+    back.hide_render = True
+    renders.clear()
+    assert G.Compose([G.Segmentation(classes, skip_empty=True, full_masks=True)], out, (320, 240))()
+    assert [m["mask"] for m in label(out, 1)["full_masks"]] == ["000001_mask_0_full.png", None, "000001_mask_2_full.png"]
+    assert len(renders) == 2
+
+
 def test_preview_and_render_only(cube, out):
     cube("Cube")
     generator = G.Compose([G.Render()], out, (64, 48))

@@ -127,3 +127,97 @@ def decode_rle(segmentation):
         position += count
         value = not value
     return flat.reshape((height, width), order="F")
+
+
+def test_bop(out, cube):
+    bpy = pytest.importorskip("bpy")
+    from blendmentation.generating import generating as G
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.unit_settings.scale_length = 0.5  # half a meter per blender unit
+    target = cube("target")
+    wall = cube("wall", (0.5, -3, 0))  # in no class, covers the right half of the target
+    hidden = cube("hidden", (-3, 0, 0))
+    hidden.hide_render = True
+    classes = {"box": [target, hidden]}
+    steps = [G.Render(), G.Pose(classes), G.CameraData(), G.Passes(["Depth"]),
+             G.Segmentation(classes, full_masks=True)]
+    generator = G.Compose(steps, out, (320, 240))
+    assert generator() and generator()
+
+    scene_dir = export.bop(out)
+    assert scene_dir == os.path.join(out, "bop", "train_pbr", "000000")
+    assert sorted(os.listdir(scene_dir)) == ["depth", "mask", "mask_visib", "rgb", "scene_camera.json",
+                                             "scene_gt.json", "scene_gt_info.json"]
+    assert sorted(os.listdir(os.path.join(scene_dir, "mask"))) == ["000000_000000.png", "000001_000000.png"]
+    assert sorted(os.listdir(os.path.join(scene_dir, "rgb"))) == ["000000.png", "000001.png"]
+
+    def read(name):
+        with open(os.path.join(scene_dir, name)) as file:
+            return json.load(file)
+
+    gt, info, camera = read("scene_gt.json")["0"], read("scene_gt_info.json")["0"], read("scene_camera.json")["0"]
+    # the hidden instance is left out, t in mm with the unit scale
+    pose = load(out)["poses"][0]
+    assert len(gt) == 1 and gt[0]["obj_id"] == 1
+    assert gt[0]["cam_t_m2c"] == pytest.approx([v * 500 for v in pose["t"]])
+    assert gt[0]["cam_t_m2c"][2] == pytest.approx(5000)
+    assert gt[0]["cam_R_m2c"] == pytest.approx([v for row in pose["R"] for v in row])
+    assert camera["cam_K"] == pytest.approx([v for row in load(out)["camera"]["intrinsics"] for v in row])
+    assert camera["depth_scale"] == 1.0
+    # half of the target is behind the wall
+    assert info[0]["visib_fract"] == pytest.approx(0.5, abs=0.05)
+    assert info[0]["px_count_valid"] == info[0]["px_count_all"]
+    x, y, w, h = info[0]["bbox_obj"]
+    assert info[0]["bbox_visib"][0] == x and info[0]["bbox_visib"][2] < w
+    full = export.read_mask(os.path.join(scene_dir, "mask"), "000000_000000.png")
+    assert full.sum() == info[0]["px_count_all"]
+    # 16-bit depth in mm: the target's front face is 9.5 units = 4.75 m away, the background 0
+    import OpenImageIO as oiio
+
+    raw = oiio.ImageBuf(os.path.join(scene_dir, "depth", "000000.png"))
+    assert raw.spec().format == oiio.UINT16
+    pixels = raw.get_pixels(oiio.UINT16)[:, :, 0]
+    assert pixels[120, 150] == 4750 and pixels[5, 5] == 0
+    assert read_json(os.path.join(out, "bop", "obj_ids.json")) == {"1": "box"}
+    assert read_json(os.path.join(out, "bop", "camera.json"))["width"] == 320
+
+    # a class whose scale changes can't have one model
+    target.scale = (1.5, 1.5, 1.5)
+    generator()
+    with pytest.raises(ValueError, match="one 3D model per class"):
+        export.bop(out)
+
+
+def read_json(path):
+    with open(path) as file:
+        return json.load(file)
+
+
+def test_bop_without_masks(tmp_path):
+    """Poses and camera only, works without blender."""
+    out = str(tmp_path)
+    open(os.path.join(out, "000000.jpg"), "wb").write(b"jpeg")
+    camera = {"intrinsics": [[100, 0, 32], [0, 100, 24], [0, 0, 1]], "unit_scale": 1.0, "clip_end": 100,
+              "extrinsics_opencv": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 2]]}
+    pose = {"class": "mug", "objects": ["Mug"], "R": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "t": [0, 0, 1], "scale": [1, 1, 1]}
+    hidden = {"class": "cup", "objects": ["Cup"], "R": None, "t": None, "scale": None}
+    with open(os.path.join(out, "000000.json"), "w") as file:
+        json.dump({"resolution": [64, 48], "image": "000000.jpg", "camera": camera, "poses": [hidden, pose]}, file)
+    with open(os.path.join(out, "000001.json"), "w") as file:
+        json.dump({"resolution": [64, 48], "image": "000000.jpg", "camera": camera}, file)
+    with pytest.raises(ValueError, match="needs Pose and CameraData"):
+        export.bop(out)
+    os.remove(os.path.join(out, "000001.json"))
+
+    scene_dir = export.bop(out, output=os.path.join(out, "data"), classes=["cup", "mug"], scene_id=3, split="test")
+    assert scene_dir == os.path.join(out, "data", "test", "000003")
+    assert sorted(os.listdir(scene_dir)) == ["rgb", "scene_camera.json", "scene_gt.json"]
+    assert read_json(os.path.join(scene_dir, "scene_gt.json")) == {
+        "0": [{"cam_R_m2c": [1, 0, 0, 0, 1, 0, 0, 0, 1], "cam_t_m2c": [0, 0, 1000], "obj_id": 2}]
+    }
+    assert read_json(os.path.join(scene_dir, "scene_camera.json"))["0"]["cam_t_w2c"] == [0, 0, 2000]
+    assert os.listdir(os.path.join(scene_dir, "rgb")) == ["000000.jpg"]
+    with pytest.raises(ValueError, match="not in classes"):
+        export.bop(out, classes=["cup"])

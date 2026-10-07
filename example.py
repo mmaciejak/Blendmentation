@@ -45,7 +45,6 @@ mesh_transform = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
-        augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
         augmentations.Material(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
@@ -67,8 +66,12 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
-# the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow
-clutter_transforms = augmentations.Compose([augmentations.Visibility(p=0.6)])
+# the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.
+# Only the clutter is scaled: BOP (export.bop) has one 3D model, with one size, per class
+clutter_transforms = augmentations.Compose([
+    augmentations.Visibility(p=0.6),
+    augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
+])
 
 # orbit the camera around both parts, always aimed at their center, zoom without changing
 # how big the parts are in the image, and sometimes blur what is not in focus
@@ -92,9 +95,11 @@ image_generator = generating.Compose(
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5),  # Clutter may hide half a part
         generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
-        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
+        # no file for empty masks; full_masks adds masks that ignore occlusion (for BOP)
+        generating.Segmentation(classes, per="both", skip_empty=True, full_masks=True),
         generating.SegmentationImage(opacity=0.5),  # extra image with the masks drawn on it
         generating.RotationMatrix([obj1, obj2]),
+        generating.Pose(classes),  # 6D pose in OpenCV camera axes
         generating.CameraData(),
         generating.Keypoints({
             "part_1_origin": obj1,
@@ -130,3 +135,6 @@ for i in range(n_datapoints):
 export.coco(output_path)
 export.yolo(output_path)
 export.voc(output_path)
+# BOP for 6D pose estimation (poses, camera, masks, depth). It assumes rigid objects with
+# one mesh per class, so leave out the shape key augmentation for real pose training
+export.bop(output_path)

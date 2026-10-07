@@ -1,6 +1,6 @@
 ---
 name: blendmentation
-description: Generate synthetic, augmented training datasets (renders, passes, AOVs, segmentation masks, bounding boxes, keypoints, camera data, COCO/YOLO/VOC export) from a live Blender scene with the Blendmentation library, driving Blender through a Blender MCP server (a tool that executes Python in Blender, such as execute_blender_code). Use when the user wants a dataset, augmentations, labels or masks from the scene open in Blender, or mentions Blendmentation together with Blender MCP.
+description: Generate synthetic, augmented training datasets (renders, passes, AOVs, segmentation masks, bounding boxes, keypoints, 6D poses, camera data, COCO/YOLO/VOC/BOP export) from a live Blender scene with the Blendmentation library, driving Blender through a Blender MCP server (a tool that executes Python in Blender, such as execute_blender_code). Use when the user wants a dataset, augmentations, labels or masks from the scene open in Blender, or mentions Blendmentation together with Blender MCP.
 ---
 
 # Blendmentation through Blender MCP
@@ -96,7 +96,7 @@ Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a
   sublist of objects labeled as one (`{"table": [[top, legs]]}`).
 - **augmentations**: what varies (objects, camera, lights, materials, any value by data path).
-- **outputs**: render, passes, AOVs, masks, bboxes, keypoints, camera data, preview images,
+- **outputs**: render, passes, AOVs, masks, bboxes, keypoints, 6D poses, camera data, preview images,
   export format.
 - **output folder, resolution and count.**
 
@@ -121,7 +121,6 @@ keep_above = augmentations.KeepAbove(floor, margin=0.01)
 objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),              # number v: sampled from (-v, v), blender units
     augmentations.Rotation(z=180),                        # degrees, added
-    augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
     augmentations.Material("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),  # changes the material
     keep_above,                                           # after the transforms: lifts out of the floor
 ])
@@ -130,7 +129,8 @@ lamp_aug = augmentations.Compose([
 ])
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
-])
+    augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
+])                                        # (not on posed objects: BOP has one model size per class)
 camera_aug = augmentations.Compose([
     augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
@@ -148,7 +148,10 @@ generator = generating.Compose(
         generating.Background(weights={"color": 1, "color_noise": 1}),  # + "image": w with images_path=folder
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3),
         generating.BBoxImage(),                 # preview copy with the boxes drawn
-        generating.Segmentation(classes, per="both", skip_empty=True),  # no file for empty masks
+        generating.Segmentation(classes, per="both", skip_empty=True,   # no file for empty masks
+                                full_masks=True),               # + masks ignoring occlusion (BOP)
+        generating.Pose(classes),               # 6D pose per instance, OpenCV camera axes
+        generating.Passes(["Depth"]),           # depth for BOP
         generating.CameraData(),
     ],
     path="/absolute/output/folder",
@@ -229,6 +232,7 @@ from blendmentation.export import export
 export.coco("/absolute/output/folder")   # coco.json, masks as RLE if Segmentation ran
 export.yolo("/absolute/output/folder")   # <index>.txt next to the images, classes.txt, dataset.yaml
 export.voc("/absolute/output/folder")    # Annotations/*.xml
+export.bop("/absolute/output/folder")    # bop/train_pbr/000000/: needs Pose + CameraData; masks, depth if generated
 ```
 
 ## Steps and options at a glance
@@ -241,10 +245,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `Background(weights=None, noise_size=(1, 8), images_path=None)` | random color, white/color noise or image behind the render and previews; `background` |
 | `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None)` | `bboxes`; the three settings skip the datapoint |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
-| `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False)` | mask PNGs, `masks` |
+| `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False, full_masks=False)` | mask PNGs, `masks`; `full_masks`: unoccluded masks, `full_masks` |
 | `AOVToImage(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |
 | `Passes(["Depth", "Normal"], skip_empty=False)` | render passes, enabled for you |
-| `RotationMatrix(objects)` | rotation of each object relative to the camera |
+| `RotationMatrix(objects)` | rotation of each object relative to the camera (Blender camera axes) |
+| `Pose(classes)` | 6D pose of each instance: `R`, `t` (OpenCV camera axes, Blender units), `scale`; `poses` |
 | `CameraData()` | camera, intrinsics, OpenCV extrinsics, depth of field |
 | `Keypoints({"name": obj \| (obj, vertex index or group) \| (armature, bone) \| (x, y, z)})` | projected points, visibility |
 | `OutputField(name, data_path, objects=None)` | any value by data path |

@@ -6,6 +6,18 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `generating.Pose(classes)`: the 6D pose of every instance relative to the camera, `R`
+  and `t` in OpenCV camera axes, plus the object's `scale`. The label gets `"poses"`.
+- `full_masks=True` on `generating.Segmentation`: also saves every instance's full mask,
+  its whole silhouette ignoring occlusion, as `<index>_mask_<n>_full.png`. The label
+  gets `"full_masks"`. Instances that don't overlap share one extra render.
+- `export.bop()`: writes the dataset as a BOP scene for 6D pose estimation:
+  `scene_gt.json`, `scene_camera.json`, `rgb/`, and with masks `mask/`, `mask_visib/`
+  and `scene_gt_info.json`, with a `Depth` pass `depth/` (16-bit, mm).
+- `CameraData` saves `unit_scale`, the scene's meters per Blender unit.
+
 ### Changed
 
 - `generating.Segmentation` in Cycles makes the masks from the Object Index pass of

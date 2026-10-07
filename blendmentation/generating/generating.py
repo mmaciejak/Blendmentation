@@ -2,12 +2,14 @@
 JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
-`RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
+`Pose`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
 by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
 then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
 `SegmentationImage`. All steps share one render, except that `Segmentation` with EEVEE or
 Workbench adds a flat Workbench render, reusing the one of `BBox(max_occlusion=...)` when
-both have the same classes.
+both have the same classes, and `Segmentation(full_masks=True)` adds the renders of the
+masks that ignore occlusion. `Pose` saves the 6D pose of every instance, and with full
+masks, `CameraData` and the `Depth` pass, `export.bop` writes a BOP dataset.
 `Background` puts a random color, noise or image behind the render and the preview
 images.
 
@@ -185,7 +187,8 @@ class BBox:
 
 class RotationMatrix:
     """Adds the rotation of every object relative to the camera to the label, as a 3x3
-    matrix with the scale removed.
+    matrix with the scale removed, in Blender's camera axes (x right, y up, looking down
+    -z). For the full 6D pose in OpenCV axes, use `Pose`.
 
     In the label JSON: `"rotation_matrices": [{"object", "rotation_matrix"}]`.
 
@@ -208,6 +211,43 @@ class RotationMatrix:
 
     def __call__(self, frame):
         bpy_g.rotation_matrices(frame, self.objects)
+
+
+class Pose:
+    """Adds the 6D pose of every instance relative to the camera to the label, for pose
+    estimation.
+
+    `R` (3x3, row by row) and `t` map the instance's local coordinates to the camera's,
+    in OpenCV axes (x right, y down, z forward), like `CameraData`'s
+    `extrinsics_opencv`: `p_camera = R @ p_local + t`. `t` is in Blender units (see
+    `unit_scale` in `CameraData`). The object's scale is not in `R`; it is saved as
+    `scale`, so a 3D model of the object should have it applied. An instance of several
+    objects has the pose of its first object. An instance with all its objects hidden in
+    the render (e.g. by `Visibility`) has `R`, `t` and `scale` None.
+
+    In the label JSON: `"poses": [{"class", "objects", "R", "t", "scale"}]`.
+
+    Args:
+        classes: `{class name: [instances]}`, the same dict as for `BBox` and
+            `Segmentation`; skip settings in a class dict are ignored. `export.bop`
+            matches poses with masks by class and objects.
+
+    Example:
+        ```python
+        generating.Pose({"car": [car_1, car_2]})
+        ```
+    """
+
+    stage = 0
+
+    def __init__(self, classes: Classes):
+        self.classes = classes
+
+    def check(self):
+        bpy_g.check_poses(self.classes)
+
+    def __call__(self, frame):
+        bpy_g.poses(frame, self.classes)
 
 
 class OutputField:
@@ -253,7 +293,10 @@ class CameraData:
     Saves the name, type, `matrix_world`, `extrinsics_opencv` (3x4 world-to-camera
     `[R|t]` with OpenCV axes: x right, y down, z forward), `clip_start`, `clip_end` and
     `depth_of_field` (`use_dof`, `focus_object`, `focus_distance`, `f_stop`,
-    `aperture_blades`, `aperture_rotation` in radians and `aperture_ratio`).
+    `aperture_blades`, `aperture_rotation` in radians and `aperture_ratio`), and
+    `unit_scale`, the scene's meters per Blender unit (Scene Properties > Units > Unit
+    Scale), which every distance in the labels and the `Depth` pass is multiplied by to
+    get meters.
     `focus_distance` is the distance to the focal plane Blender uses, so with a focus
     object it is the distance to that object along the view axis.
     A perspective camera adds the lens, sensor size and fit and `intrinsics` (3x3 `K` in
@@ -536,6 +579,12 @@ class Segmentation:
     already taken (two class names that differ only in characters not allowed in file
     names, or the same class in two steps). Masks are not anti-aliased.
 
+    With `full_masks=True`, every instance also gets a full mask
+    `<index>_mask_<n>_full.png`: its whole silhouette, as if no other object were in
+    the scene (BOP's `mask`, next to the visible `mask_visib`). They need extra renders
+    with every other object hidden; instances whose boxes don't overlap share one, so
+    a scene of separate objects needs one.
+
     How the masks are made depends on the render engine:
 
     - **Cycles**: from the Object Index pass of the beauty render, so they match it and
@@ -549,7 +598,8 @@ class Segmentation:
       behind them, and shader displacement is missing. EEVEE has no Object Index pass.
 
     In the label JSON: `"masks": [{"class", "objects", "mask", "per"}]`, with `per`
-    `"instance"` or `"class"`, and `mask` None for a mask skipped by `skip_empty`.
+    `"instance"` or `"class"`, and `mask` None for a mask skipped by `skip_empty`; with
+    `full_masks`, also `"full_masks": [{"class", "objects", "mask"}]`.
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
@@ -559,26 +609,38 @@ class Segmentation:
         skip_empty: don't write empty masks (an instance or class with no visible
             pixel: out of frame or fully hidden); its `mask` in the label is None. The
             datapoint is still generated, and export skips these instances like empty
-            masks.
+            masks. Applies to the full masks too.
+        full_masks: also save the full mask of every instance, ignoring occlusion.
 
     Note:
         In Cycles, a second `Segmentation` with other classes in the same `Compose`, or
-        more than 32767 instances, uses the Workbench render.
+        more than 32767 instances, uses the Workbench render. The full masks are rendered
+        like the visible ones: in Cycles from the Object Index pass of a 1 sample render,
+        otherwise with Workbench. Instances share a full mask render when their boxes
+        projected from the mesh vertices are apart, so with Cycles shader displacement
+        that pushes a surface far out of its mesh, a full mask may miss where another
+        instance covers it.
 
     Example:
         ```python
         generating.Segmentation({"car": [car_1, car_2]}, per="both", skip_empty=True)
+        generating.Segmentation({"car": [car_1, car_2]}, full_masks=True)  # for export.bop
         ```
     """
 
     stage = 4
 
     def __init__(
-        self, classes: Classes, per: Literal["instance", "class", "both"] = "instance", skip_empty: bool = False
+        self,
+        classes: Classes,
+        per: Literal["instance", "class", "both"] = "instance",
+        skip_empty: bool = False,
+        full_masks: bool = False,
     ):
         self.classes = classes
         self.per = per
         self.skip_empty = skip_empty
+        self.full_masks = full_masks
 
     def check(self):
         bpy_g.check_segmentation(self.classes, self.per)
@@ -587,7 +649,7 @@ class Segmentation:
         bpy_g.prepare_segmentation(frame, self.classes)
 
     def __call__(self, frame):
-        bpy_g.segmentation(frame, self.classes, self.per, self.skip_empty)
+        bpy_g.segmentation(frame, self.classes, self.per, self.skip_empty, self.full_masks)
 
 
 class SegmentationImage:
