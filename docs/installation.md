@@ -101,6 +101,6 @@ For type hints in your editor (Blender objects in the augmentation signatures, `
 completions), install the `bpy` type stubs from the `dev` extra:
 `uv pip install "blendmentation[module,dev] @ git+https://github.com/mmaciejak/Blendmentation"`.
 
-All features work the same way in the module. Workbench (used by `Segmentation`) and
+All features work the same way in the module. Workbench (used by `Segmentation` outside Cycles, and `max_occlusion`) and
 EEVEE need OpenGL: a GPU, or on Linux without one, Mesa's software rendering (as in CI).
 It is tested on macOS, and the test suite also runs on Linux.

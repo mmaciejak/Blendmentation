@@ -56,6 +56,8 @@ FONT = {
     " ": "000000000000000", "_": "000000000000111", "-": "000000111000000", ".": "000000000000010",
     ":": "000010000010000", "?": "110001010000010",
 }
+# Object.pass_index limit, more instances fall back to the workbench id render
+MAX_PASS_INDEX = 32767
 BACKGROUND_MODES = ("color", "white_noise", "color_noise", "image")
 BACKGROUND_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".tga")
 # output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
@@ -285,9 +287,29 @@ def read_multilayer(file_path):
     return parts
 
 
+def find_layer(frame, layer_names):
+    """Finds a layer of the beauty render (an AOV or a pass) in the multilayer EXR.
+    Channels are named <view layer>.<layer>.<channel>, in one or several EXR parts.
+
+    Args:
+        layer_names (tuple): names the layer may have in the EXR, the first found is used
+
+    Returns:
+        tuple: the EXR path, the part and (channel index, channel name) of every channel
+            of the layer, or None when the layer is not in the render result
+    """
+    multilayer, parts = frame.multilayer()
+    for layer in layer_names:
+        prefix = f"{frame.view_layer.name}.{layer}."
+        for part, names in enumerate(parts):
+            found = [(i, name[len(prefix):]) for i, name in enumerate(names) if name.startswith(prefix)]
+            if found:
+                return multilayer, part, found
+    return None
+
+
 def save_layer(frame, layer_names, file_name, file_format, channel_names=None, skip_empty=False):
     """Saves one layer of the beauty render (an AOV or a pass) to <path>/<file_name>.
-    Channels are named <view layer>.<layer>.<channel>, in one or several EXR parts.
 
     Args:
         layer_names (tuple): names the layer may have in the EXR, the first found is used
@@ -298,18 +320,10 @@ def save_layer(frame, layer_names, file_name, file_format, channel_names=None, s
         tuple: whether the layer is in the render result, and file_name, or None when
             skip_empty skipped it
     """
-    multilayer, parts = frame.multilayer()
-    for layer in layer_names:
-        prefix = f"{frame.view_layer.name}.{layer}."
-        for part, names in enumerate(parts):
-            found = [(i, name[len(prefix):]) for i, name in enumerate(names) if name.startswith(prefix)]
-            if found:
-                break
-        else:
-            continue
-        break
-    else:
+    layer = find_layer(frame, layer_names)
+    if layer is None:
         return False, None
+    multilayer, part, found = layer
 
     found.sort(key=lambda item: CHANNEL_ORDER.index(item[1]) if item[1] in CHANNEL_ORDER else len(CHANNEL_ORDER))
     indices = tuple(i for i, _ in found)
@@ -461,6 +475,10 @@ def to_json(value):
     return str(value)
 
 
+def group_key(groups):
+    return tuple(tuple(obj.name for obj in group) for group in groups)
+
+
 class Frame:
     """One datapoint being generated, shared by the generating steps.
     The beauty render happens at most once, steps that need it reuse the render result.
@@ -485,6 +503,8 @@ class Frame:
         # (height, width, 3) 8 bit sRGB image under the beauty render, set by Background
         self.background = None
         self.id_images = {}
+        # groups whose ids are the pass indices of the beauty render, set by Segmentation in Cycles
+        self.index_groups = None
         self.changed = []
 
     def file_name(self, suffix):
@@ -554,7 +574,7 @@ class Frame:
     def ids(self, groups, hide_others=False):
         """Id image of the groups of objects (see `render_ids`), rendered once per groups
         and hide_others, so BBox occlusion and Segmentation share it."""
-        key = (tuple(tuple(obj.name for obj in group) for group in groups), hide_others)
+        key = (group_key(groups), hide_others)
         if key not in self.id_images:
             self.replace_render()
             file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
@@ -1168,10 +1188,41 @@ def check_segmentation(classes, per):
     to_instances(classes)
 
 
+def prepare_segmentation(frame, classes):
+    """In Cycles, the masks come from the Object Index pass of the beauty render, which
+    respects alpha (pass_alpha_threshold), displacement and hair: every instance gets its
+    id as pass index, all other objects 0. Other engines, a second Segmentation with other
+    classes, or more instances than pass indices use the workbench id render."""
+    groups = [group for _, group in to_instances(classes)]
+    if frame.scene.render.engine != "CYCLES" or frame.index_groups is not None or len(groups) > MAX_PASS_INDEX:
+        return
+    frame.set(frame.view_layer, "use_pass_object_index", True)
+    # instanced collections may use objects that are not in the scene, so all objects are set
+    for obj in bpy.data.objects:
+        if obj.library is None and obj.pass_index:
+            frame.set(obj, "pass_index", 0)
+    for group_id, group in enumerate(groups, start=1):
+        for obj in group:
+            frame.set(obj, "pass_index", group_id)
+    frame.index_groups = group_key(groups)
+
+
+def index_pass_ids(frame):
+    """Id image of the instances from the Object Index pass of the beauty render, like `render_ids`."""
+    layer = find_layer(frame, PASSES["ObjectIndex"][1])
+    if layer is None:
+        raise RuntimeError("The Object Index pass is missing in the render result")
+    multilayer, part, found = layer
+    pixels = oiio.ImageBuf(multilayer, part, 0).get_pixels(oiio.FLOAT)
+    # not anti-aliased, the pass holds whole numbers
+    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
+
+
 def segmentation(frame, classes, per, skip_empty=False):
     """Saves masks of the visible pixels, adds {"class", "objects", "mask"} to the labels under "masks"."""
     instances = to_instances(classes)
-    ids = frame.ids([group for _, group in instances])
+    groups = [group for _, group in instances]
+    ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)
     frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per, skip_empty))
 
 

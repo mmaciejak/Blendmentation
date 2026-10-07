@@ -5,8 +5,9 @@ The steps can be listed in any order; they always run as: label steps (`BBox`,
 `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
 by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
 then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
-`SegmentationImage`. All steps except `Segmentation` share one render; `Segmentation`
-reuses the id render of `BBox(max_occlusion=...)` when both have the same classes.
+`SegmentationImage`. All steps share one render, except that `Segmentation` with EEVEE or
+Workbench adds a flat Workbench render, reusing the one of `BBox(max_occlusion=...)` when
+both have the same classes.
 `Background` puts a random color, noise or image behind the render and the preview
 images.
 
@@ -136,10 +137,10 @@ class BBox:
         The `BBox` arguments are the defaults for every class. A setting a class sets
         in its dict wins over them, even when it is None (no limit for that class).
         A class's `max_truncation` and `max_occlusion` apply to each of its instances.
-        `max_occlusion` is measured with two flat Workbench renders, like
-        `Segmentation`, which only run when some class has a limit and the cheaper
-        checks passed; Workbench draws every object solid, so transparent objects
-        occlude fully and shadows don't count. For
+        `max_occlusion` is measured with two flat Workbench renders, whatever the
+        engine, which only run when some class has a limit and the cheaper checks
+        passed; Workbench draws every object solid, so transparent and alpha-clipped
+        objects occlude fully, shader displacement is missing, and shadows don't count. For
         `iou_deconflict`, two boxes conflict when their IoU is over the lower of their
         two classes' limits, so a strict class can't overlap anything, and a pair is
         only free when both classes have no limit.
@@ -449,7 +450,9 @@ class Passes:
 
     Uses the same render as `Render` and `AOVToImage`. Each pass is enabled in the view
     layer for that render only. Cycles has all passes, EEVEE no `UV` or index passes,
-    and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off.
+    and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off. With a
+    `Segmentation` step in Cycles, `ObjectIndex` holds its instance ids (1, 2, ...) and 0
+    for other objects, instead of the objects' pass indices.
 
     In the label JSON: `"passes": {name: file name}`, None for a pass skipped by
     `skip_empty`.
@@ -526,10 +529,21 @@ class BBoxImage:
 class Segmentation:
     """Saves black-and-white masks of the visible pixels of every instance or class.
 
-    Uses one extra, fast Workbench render whatever the engine. Objects that are not in
-    `classes` still hide what is behind them. Files are `<index>_mask_<n>.png` per
-    instance, where `n` counts instances across all classes, and
-    `<index>_mask_<class>.png` per class.
+    Objects that are not in `classes` still hide what is behind them. Files are
+    `<index>_mask_<n>.png` per instance, where `n` counts instances across all classes,
+    and `<index>_mask_<class>.png` per class. Masks are not anti-aliased.
+
+    How the masks are made depends on the render engine:
+
+    - **Cycles**: from the Object Index pass of the beauty render, so they match it and
+      cost no extra render. Each instance gets its number as pass index for that render
+      (restored afterwards). A surface counts when its alpha is at least the view
+      layer's Alpha Threshold (Passes > Data, default 0.5), so alpha-clipped materials
+      (leaf cards, decals, fences) and shader displacement are right. Volumes are not
+      in the pass, so they neither get a mask nor hide anything.
+    - **EEVEE and Workbench**: one extra, fast Workbench render, which draws every
+      object solid: alpha-clipped and transparent parts are in the mask and hide what is
+      behind them, and shader displacement is missing. EEVEE has no Object Index pass.
 
     In the label JSON: `"masks": [{"class", "objects", "mask", "per"}]`, with `per`
     `"instance"` or `"class"`, and `mask` None for a mask skipped by `skip_empty`.
@@ -543,6 +557,10 @@ class Segmentation:
             pixel: out of frame or fully hidden); its `mask` in the label is None. The
             datapoint is still generated, and export skips these instances like empty
             masks.
+
+    Note:
+        In Cycles, a second `Segmentation` with other classes in the same `Compose`, or
+        more than 32767 instances, uses the Workbench render.
 
     Example:
         ```python
@@ -561,6 +579,9 @@ class Segmentation:
 
     def check(self):
         bpy_g.check_segmentation(self.classes, self.per)
+
+    def prepare(self, frame):
+        bpy_g.prepare_segmentation(frame, self.classes)
 
     def __call__(self, frame):
         bpy_g.segmentation(frame, self.classes, self.per, self.skip_empty)

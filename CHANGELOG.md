@@ -6,6 +6,15 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `generating.Segmentation` in Cycles makes the masks from the Object Index pass of
+  the beauty render instead of a separate Workbench render, so they match the image:
+  alpha-clipped materials (leaf cards, decals, fences) and shader displacement are
+  right, and there is no extra render. Volumes get no mask. With EEVEE and Workbench
+  it still uses the Workbench render. In Cycles, a `Passes(["ObjectIndex"])` step next
+  to `Segmentation` now holds the instance ids instead of the objects' pass indices.
+
 ## [0.5.0] - 2026-10-07
 
 ### Added

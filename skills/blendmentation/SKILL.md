@@ -288,8 +288,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **Output paths**: `"//dataset"` is relative to the `.blend` file. When
   `bpy.data.filepath` is empty (unsaved scene), use an absolute path.
 - **Don't save over the user's `.blend`** unless they ask. Use `copy=True`.
-- **AOVs need Cycles or EEVEE**; Workbench has none. `Segmentation` and `max_occlusion`
-  use Workbench internally and restore every setting afterwards.
+- **AOVs need Cycles or EEVEE**; Workbench has none. `max_occlusion`, and `Segmentation`
+  with EEVEE or Workbench, use a flat Workbench render internally (every object solid, so
+  alpha-clipped leaves or decals are wrong) and restore every setting afterwards. In
+  Cycles, `Segmentation` reads the Object Index pass of the beauty render instead, which
+  respects alpha; use Cycles when masks of cutout materials matter.
 - **Geometry nodes inputs differ by version**: on Blender 4.x the data path is
   `modifiers["GeoNodes"]["Socket_2"]`, on 5.x
   `modifiers["GeoNodes"].properties.inputs.Socket_2.value`. Check `bpy.app.version`.

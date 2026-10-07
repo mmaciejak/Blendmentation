@@ -401,6 +401,81 @@ def test_segmentation_reuses_the_occlusion_render(scene, cube, out, renders):
     assert len(renders) == 1 and (mask(out, "000001_mask_0.png") == visible).all() and not wall.hide_render
 
 
+def half_transparent(obj):
+    """Material transparent where the object's generated x coordinate is below 0.5."""
+    material = new_material(obj, "cutout")
+    nodes, links = material.node_tree.nodes, material.node_tree.links
+    coordinates, separate = nodes.new("ShaderNodeTexCoord"), nodes.new("ShaderNodeSeparateXYZ")
+    greater, mix = nodes.new("ShaderNodeMath"), nodes.new("ShaderNodeMixShader")
+    greater.operation = "GREATER_THAN"
+    greater.inputs[1].default_value = 0.5
+    links.new(coordinates.outputs["Generated"], separate.inputs[0])
+    links.new(separate.outputs[0], greater.inputs[0])
+    links.new(greater.outputs[0], mix.inputs[0])
+    links.new(nodes.new("ShaderNodeBsdfTransparent").outputs[0], mix.inputs[1])
+    links.new(nodes["Principled BSDF"].outputs[0], mix.inputs[2])
+    links.new(mix.outputs[0], nodes["Material Output"].inputs[0])
+
+
+def test_cycles_segmentation_uses_the_object_index_pass(scene, cube, out, renders):
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 8
+    car1, car2 = cube("car1", (-2.5, 0, 0)), cube("car2", (-1.6, 3, 0), 2.0)
+    other = cube("other", (2, 0, 0))
+    other.pass_index = 7
+    classes = {"car": [car1, car2]}
+    steps = [G.Segmentation(classes, per="both"), G.Render(), G.Passes(["ObjectIndex"])]
+    assert G.Compose(steps, out, (320, 240))()
+    # the masks come from the beauty render, no workbench render
+    assert renders == ["CYCLES"]
+    cycles = [mask(out, f"000000_mask_{i}.png") for i in range(2)]
+    assert (mask(out, "000000_mask_car.png") == (cycles[0] | cycles[1])).all()
+    # the ObjectIndex pass holds the instance ids, the other object 0
+    ids = read_image(os.path.join(out, "000000_ObjectIndex.exr"), 0)
+    assert set(np.unique(ids)) == {0, 1, 2} and (cycles[1] == (ids == 2)).all()
+    assert other.pass_index == 7 and car1.pass_index == 0 and not bpy.context.view_layer.use_pass_object_index
+
+    # same masks as workbench up to the sampled edges
+    scene.render.engine = "BLENDER_WORKBENCH"
+    assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
+    for i in range(2):
+        workbench = mask(out, f"000001_mask_{i}.png")
+        assert (workbench != cycles[i]).sum() < 0.05 * workbench.sum()
+
+
+def test_cycles_masks_respect_alpha(scene, cube, out, renders):
+    target = cube("target")
+    bpy.ops.mesh.primitive_plane_add(size=4, location=(0, -3, 0), rotation=(math.radians(90), 0, 0))
+    card = bpy.context.object
+    half_transparent(card)  # the left half of the image is see-through
+    classes = {"target": [target], "card": [card]}
+    steps = [G.Render(), G.Segmentation(classes)]
+
+    scene.render.engine = "CYCLES"
+    assert G.Compose(steps, out, (320, 240))()
+    target_mask, card_mask = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_1.png")
+    assert target_mask[:, :155].any() and not target_mask[:, 165:].any()
+    assert card_mask[:, 165:].any() and not card_mask[:, :155].any()
+
+    # workbench draws the card solid
+    scene.render.engine = "BLENDER_EEVEE_NEXT" if bpy.app.version < (5, 0) else "BLENDER_EEVEE"
+    assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
+    assert renders[-1] == "BLENDER_WORKBENCH"
+    assert not mask(out, "000001_mask_0.png").any() and mask(out, "000001_mask_1.png")[:, :155].any()
+
+
+def test_second_cycles_segmentation_uses_workbench(scene, cube, out, renders):
+    scene.render.engine = "CYCLES"
+    a, b = cube("a", (-1, 0, 0)), cube("b", (1, 0, 0))
+    steps = [G.Segmentation({"a": [a]}), G.Segmentation({"b": [b]}, per="class"), G.SegmentationImage()]
+    assert G.Compose(steps, out, (320, 240))()
+    assert renders == ["CYCLES", "BLENDER_WORKBENCH"]
+    first, second = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_b.png")
+    assert first[:, :150].any() and not first[:, 170:].any()
+    assert second[:, 170:].any() and not second[:, :150].any()
+    assert [m["objects"] for m in label(out)["masks"]] == [["a"], ["b"]]
+
+
 @pytest.mark.parametrize("value, match", [
     ({"objects": []}, "unknown keys"),
     ({"max_truncation": 0.5}, "needs an 'instances' list"),
