@@ -6,6 +6,14 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-07
+
+### Changed
+
+- The README's quick start is shorter: the chained transform setup and the full example.
+  The step-by-step setups (a material with shader nodes, an HDRI world) are in the
+  [docs](https://blendmentation.docs.csmx.eu/#quick-start).
+
 ## [0.7.0] - 2026-10-07
 
 ### Added
@@ -151,7 +159,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.1...dev
+[0.7.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.4.0...v0.5.0
