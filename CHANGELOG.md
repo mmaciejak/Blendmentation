@@ -8,6 +8,13 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `augmentations.Seed(node_group)`: gives every unlinked Seed input in a node group
+  (Distribute Points, Random Value, Hash Value..., nested groups included) its own random
+  value on every call, e.g. `Seed(bpy.data.node_groups["Geometry Nodes"])` for a new
+  scatter in every image. Takes `p` and `otherwise` (one seed for all of them).
+- `state.State` takes node groups in `objects` and restores their nodes, e.g. the seeds
+  `Seed` changes.
+
 - `augmentations.PlaceOn(surface, margin=0)`: moves the object up or down along world Z
   until its lowest point rests `margin` above the surface, where they overlap seen from
   above. Like `KeepAbove`, which only lifts, but it also lowers floating objects, e.g.

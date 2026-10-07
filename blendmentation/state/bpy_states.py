@@ -138,6 +138,11 @@ def state_key(object):
     return object.name if hasattr(object, "material_slots") else (object.rna_type.identifier, object.name)
 
 
+def own_node_tree(datablock):
+    """The node tree of a world, material or light, or the datablock itself for a node group."""
+    return datablock if isinstance(datablock, bpy.types.NodeTree) else getattr(datablock, "node_tree", None)
+
+
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
     transforms, render visibility, material node values, and the lens and depth of field of cameras.
@@ -147,7 +152,7 @@ def create_state_list(object):
     object (bpy.object): object to get the parameters from
     """
     if not hasattr(object, "material_slots"):
-        node_tree = getattr(object, "node_tree", None)
+        node_tree = own_node_tree(object)
         return {"node_tree": save_node_tree(node_tree) if node_tree is not None else {}}
     state = {
         "transforms": {name: to_plain(getattr(object, name)) for name in TRANSFORM_PROPERTIES},
@@ -177,7 +182,7 @@ def load_from_state_dict(object, state_dict: dict):
     state = state_dict[state_key(object)]
     if "node_tree" in state:
         if state["node_tree"]:
-            load_node_tree(object.node_tree, state["node_tree"])
+            load_node_tree(own_node_tree(object), state["node_tree"])
         object.update_tag()
         return
 

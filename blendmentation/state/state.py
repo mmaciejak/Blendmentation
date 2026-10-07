@@ -25,8 +25,9 @@ class State:
     - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
       `focus_distance`, `aperture_fstop`).
 
-    `objects` can also hold a World (or another datablock with a node tree, such as a
-    material or light data). For those it saves the whole node tree, and relative
+    `objects` can also hold a World, a node group (e.g. a geometry nodes group whose
+    seeds `Seed` changes), or another datablock with a node tree, such as a material or
+    light data. For those it saves the whole node tree, and relative
     paths in `fields` resolve on them too.
 
     It also saves the value at every data path in `fields`. A data path augmentation
@@ -34,7 +35,8 @@ class State:
     restored when it is passed in `fields`.
 
     Args:
-        objects: objects to save, and worlds or other datablocks with a node tree.
+        objects: objects to save, and worlds, node groups or other datablocks with a
+            node tree.
         fields: `Number`, `Vector`, `Boolean` and `Menu` augmentations, or data path
             strings. Absolute paths are saved once, relative paths for every object they
             exist on. Other entries are ignored, so a whole `Compose.augmentations` list

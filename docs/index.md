@@ -426,7 +426,8 @@ the same works, and the world doesn't have to be passed to `State`:
 ### Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
-class and may hide them, a floor "Floor", a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+class and may hide them, a floor "Floor" with pebbles scattered on it by a geometry nodes group
+"Scatter", a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
 (Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
 is next to the .blend file.
@@ -439,6 +440,7 @@ plant = bpy.data.objects["Plant"]
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+scatter = bpy.data.node_groups["Scatter"]
 
 # 1. augmentations, applied to every object in the list
 keep_above = aug.KeepAbove(floor, margin=0.01)
@@ -468,6 +470,8 @@ plant_aug = aug.Compose([
     # one of 8 headings, 45 degrees apart: (low, high, step)
     aug.Rotation(z=(0, 315, 45)),
 ])
+# a new random value for every seed in the node group
+scatter_seed = aug.Seed(scatter)
 camera_aug = aug.Compose([
     aug.LookAt(
         [car_1, car_2],
@@ -527,7 +531,7 @@ generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
 
 # 3. the scene state to go back to after every datapoint
 initial = state.State(
-    [car_1, car_2, plant, lamp, camera],
+    [car_1, car_2, plant, lamp, camera, scatter],
     fields=objects_aug.augmentations + lamp_aug.augmentations,
 )
 
@@ -537,6 +541,7 @@ for _ in range(1000):
     lamp_aug([lamp], p=0.7)
     plant_aug([plant])
     camera_aug([camera])
+    scatter_seed()
     # extra label key: how far each car was lifted
     generator({"lift": keep_above.results})
     initial.restore()

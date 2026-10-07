@@ -296,6 +296,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   work). It checks the object where it is, so put it after every augmentation that moves
   or deforms the object. **`PlaceOn(surface, margin=0)`** is the same but also moves it
   down, so it rests on the surface (e.g. an object tipped over around a centered origin).
+- **`Seed(node_group)`** gives every seed input in a node group (Distribute Points, Random
+  Value...) its own random value per call: `seed = augmentations.Seed(bpy.data.node_groups["Geometry Nodes"]); seed()`.
+  Pass the group to `State([..., node_group])` to restore the seeds.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
   others are relative to each object (`"data.energy"`). A world can be passed in place of
   an object (`world_aug([bpy.context.scene.world])`, paths like `'node_tree.nodes["Background"].inputs[1].default_value'`).

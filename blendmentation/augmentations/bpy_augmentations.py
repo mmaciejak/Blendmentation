@@ -411,6 +411,51 @@ def place_on(obj, surface, margin):
     return offset
 
 
+# the largest seed, Blender's seed inputs are 32 bit ints
+MAX_SEED = 2**31 - 1
+
+
+def seed_inputs(node_tree, prefix="", seen=None):
+    """Unlinked integer Seed inputs of the nodes (Distribute Points, Random Value, Hash
+    Value...), nested node groups included, each group once.
+
+    Returns:
+        list: (key, socket) pairs, the key is the node name, "Group node/Node" in groups
+    """
+    seen = set() if seen is None else seen
+    seen.add(node_tree.name)
+    found = []
+    for name, node in node_tree.nodes.items():
+        for socket in node.inputs:
+            if socket.identifier == "Seed" and socket.type == "INT" and not socket.is_linked:
+                found.append((prefix + name, socket))
+        group = getattr(node, "node_tree", None)
+        if group is not None and group.name not in seen:
+            found += seed_inputs(group, f"{prefix}{name}/", seen)
+    return found
+
+
+def check_seed_group(node_tree):
+    if not hasattr(node_tree, "nodes"):
+        raise TypeError(f"{node_tree!r} is not a node group, pass e.g. bpy.data.node_groups[\"Geometry Nodes\"]")
+    if not seed_inputs(node_tree):
+        raise ValueError(f"Node group '{node_tree.name}' has no unlinked Seed inputs")
+
+
+def seeds(node_tree, value=None):
+    """Sets every Seed input of the node group (seed_inputs) to its own random int, or
+    all of them to value.
+
+    Returns:
+        dict: seed that was set, by node (seed_inputs keys)
+    """
+    applied = {}
+    for key, socket in seed_inputs(node_tree):
+        socket.default_value = random.randint(0, MAX_SEED) if value is None else value
+        applied[key] = socket.default_value
+    return applied
+
+
 def boolean(obj, data_path, value):
     """Sets the boolean value at the data path.
 

@@ -11,6 +11,7 @@ from mathutils import Vector  # noqa: E402
 
 from blendmentation import bpy_paths  # noqa: E402
 from blendmentation.augmentations import augmentations as A  # noqa: E402
+from blendmentation.state import state  # noqa: E402
 from conftest import new_material  # noqa: E402
 
 
@@ -540,3 +541,51 @@ def test_place_on(cube):
 
     with pytest.raises(ValueError):
         A.PlaceOn(obj)(obj)
+
+
+def seed_group():
+    """Geometry nodes group with two Distribute Points on Faces, a Random Value with its
+    seed linked, and a nested group with another Random Value."""
+    group = bpy.data.node_groups.new("Scatter", "GeometryNodeTree")
+    first = group.nodes.new("GeometryNodeDistributePointsOnFaces")
+    first.name = "First"
+    second = group.nodes.new("GeometryNodeDistributePointsOnFaces")
+    second.name = "Second"
+    linked = group.nodes.new("FunctionNodeRandomValue")
+    linked.data_type = "INT"
+    group.links.new(linked.outputs["Value"], second.inputs["Density"])
+    group.links.new(group.nodes.new("FunctionNodeInputInt").outputs[0], linked.inputs["Seed"])
+    inner = bpy.data.node_groups.new("Inner", "GeometryNodeTree")
+    inner.nodes.new("FunctionNodeRandomValue").name = "Random"
+    group.nodes.new("GeometryNodeGroup").node_tree = inner
+    group.nodes[-1].name = "Nested"
+    return group
+
+
+def test_seed(scene):
+    group = seed_group()
+    seed = A.Seed(group)
+    seed()
+    assert set(seed.actual) == {"First", "Second", "Nested/Random"}
+    assert len(set(seed.actual.values())) == 3, "every seed gets its own value"
+    assert group.nodes["First"].inputs["Seed"].default_value == seed.actual["First"]
+    assert bpy.data.node_groups["Inner"].nodes["Random"].inputs["Seed"].default_value == seed.actual["Nested/Random"]
+    first = dict(seed.actual)
+    seed()
+    assert seed.actual != first
+
+    zero = A.Seed(group, p=0, otherwise=0)
+    zero()
+    assert set(zero.actual.values()) == {0}
+
+    initial = state.State([group])
+    seed()
+    initial.restore()
+    assert group.nodes["First"].inputs["Seed"].default_value == 0
+
+    with pytest.raises(TypeError):
+        A.Seed(bpy.data.objects.new("Empty", None))
+    with pytest.raises(ValueError):
+        A.Seed(bpy.data.node_groups.new("Empty", "GeometryNodeTree"))
+    with pytest.raises(ValueError):
+        A.Seed(group, otherwise=1.5)

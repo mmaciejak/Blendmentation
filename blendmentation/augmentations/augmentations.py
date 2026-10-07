@@ -9,7 +9,8 @@ last object; `results` holds the values for every object, by name. Save the scen
 with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
-`PlaceOn` also lowers them, so they rest on it.
+`PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
+group (e.g. a geometry nodes scatter) its own random value.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -28,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import bpy_augmentations as bpy_a
 
 if TYPE_CHECKING:
-    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
 #: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
 #: (low, high, step) picks one of low, low + step, ... up to high
@@ -517,6 +518,62 @@ class PlaceOn(Augmentation):
         obj (bpy.object) : Object to place on the surface
         """
         self.actual = bpy_a.place_on(obj, self.surface, self.margin)
+
+
+class Seed(Augmentation):
+    """Gives every seed in a node group its own random value.
+
+    On every call, each unlinked integer Seed input of the group's nodes (Distribute
+    Points on Faces, Distribute Points in Volume, Random Value, Hash Value...) gets a
+    different random int, nodes inside nested node groups included. Seeds connected to
+    other nodes are left alone. Seeds exposed as modifier inputs are not group nodes;
+    set those with `Number`.
+
+    It works on the node group, not on the object passed by `Compose`, so it can be
+    called as `seed()`. In a `Compose` it runs once per object, and the last seeds are
+    kept. Pass the node group to `State` to restore the seeds.
+
+    Args:
+        node_group: the node group, e.g. `bpy.data.node_groups["Geometry Nodes"]`, or
+            any other node tree (a material's `node_tree`).
+        p: probability of applying the augmentation.
+        otherwise: seed to set on all of them when it doesn't run, None keeps them.
+
+    Attributes:
+        actual (dict[str, int] | None): the seed set on each node, by node name
+            (`"Group node/Node"` for nodes in nested groups).
+
+    Raises:
+        TypeError: `node_group` is not a node tree.
+        ValueError: the node group has no unlinked Seed inputs, or `otherwise` is not
+            an int.
+
+    Example:
+        ```python
+        scatter = bpy.data.node_groups["Geometry Nodes"]
+        seed = augmentations.Seed(scatter)
+        initial = state.State([rock, scatter])   # the seeds are restored too
+        for _ in range(100):
+            seed()                                  # a new scatter every time
+            generator()
+            initial.restore()
+        ```
+    """
+
+    def __init__(self, node_group: NodeTree, p: float = 1.0, otherwise: Optional[int] = None):
+        valid = isinstance(otherwise, int) and not isinstance(otherwise, bool)
+        super().__init__(p, check_otherwise(otherwise, valid, "an int"))
+        bpy_a.check_seed_group(node_group)
+        self.node_group = node_group
+
+    def apply(self, obj: Optional[Object] = None) -> None:
+        """Args:
+        obj (bpy.object) : not used, the seeds belong to the node group
+        """
+        self.actual = bpy_a.seeds(self.node_group)
+
+    def set_otherwise(self, obj: Optional[Object]) -> dict[str, int]:
+        return bpy_a.seeds(self.node_group, self.otherwise)
 
 
 class LookAt(Augmentation):

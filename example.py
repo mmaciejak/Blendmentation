@@ -6,6 +6,8 @@ The scene needs:
 - a mesh object "Clutter" that is in no class and can hide the parts, it is in the
   render in 60% of the datapoints and is set down on the floor
 - a mesh object "Floor" under the parts, they are kept above it
+- a geometry nodes group "Scatter" with a Distribute Points on Faces node, e.g. pebbles
+  scattered on the floor
 - a point light "Light" and the scene camera
 - a world with a "Background" node (the default world has one)
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
@@ -38,6 +40,7 @@ floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 world = bpy.context.scene.world
+scatter = bpy.data.node_groups["Scatter"]
 output_path = "//dataset"
 n_datapoints = 100
 
@@ -72,6 +75,9 @@ lamp_transforms = augmentations.Compose(
 world_transforms = augmentations.Compose([
     augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
 ])
+
+# a new random seed for every seed in the node group, so the pebbles move every time
+scatter_seed = augmentations.Seed(scatter)
 
 # the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.
 # Only the clutter is scaled: BOP (export.bop) has one 3D model, with one size, per class
@@ -123,7 +129,7 @@ image_generator = generating.Compose(
 )
 
 initial_state = state.State(
-    [obj1, obj2, clutter, lamp, camera, world],  # the world: its node values
+    [obj1, obj2, clutter, lamp, camera, world, scatter],  # world, node group: their node values
     fields=mesh_transform.augmentations + lamp_transforms.augmentations,
 )
 
@@ -134,6 +140,7 @@ def pipeline():
     clutter_transforms([clutter])
     camera_transforms([camera])
     world_transforms([world])
+    scatter_seed()
     # results holds the value for every object, by name (actual only the last one)
     image_generator({"lift": keep_above.results})
     initial_state.restore()
