@@ -3,7 +3,9 @@
 `Compose` applies a list of augmentations to every object it is called with. Each
 augmentation takes `p`, the probability that it runs, drawn per object. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
-it set. Save the scene with `State` first, and restore it after every datapoint.
+it set. Each call overwrites them, so after a `Compose` call they describe only the
+last object; `results` holds the values for every object, by name. Save the scene
+with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain.
 
@@ -50,8 +52,16 @@ def happens(p: float) -> bool:
 class Compose:
     """Applies a list of augmentations to every object it is called with, in place.
 
-    Each augmentation runs once per object, in list order. Save the scene with `State`
-    before augmenting, so it can be restored.
+    Each augmentation runs once per object, in list order: all of them on the first
+    object, then all of them on the next one. Every augmentation draws its own `p` for
+    each object, so with `Visibility(p=0.5)` each object is shown or hidden
+    independently. Save the scene with `State` before augmenting, so it can be
+    restored.
+
+    Every call first clears the `results` of its augmentations, so afterwards they
+    hold the values for the objects of this call only, also when the call is skipped
+    by `p` (then they are empty). `actual` and `applied` on an augmentation describe
+    only the last object, read `results` for all of them.
 
     Args:
         augmentations: augmentations to apply, each a callable taking one object.
@@ -69,6 +79,16 @@ class Compose:
         ])
         objects_aug([car_1, car_2])
         objects_aug([car_1, car_2], p=0.5)  # this call: the whole list half of the time
+        ```
+
+        The values each augmentation set, per object:
+
+        ```python
+        visibility = augmentations.Visibility(p=0.5)
+        boxes_aug = augmentations.Compose([visibility])
+        boxes_aug([box_1, box_2, box_3])
+        visibility.results   # e.g. {"box_1": False, "box_2": True, "box_3": False}
+        visibility.actual    # False, only box_3
         ```
     """
 
@@ -88,6 +108,10 @@ class Compose:
         Raises:
             ValueError: if `p` is not between 0 and 1.
         """
+        for augmentation in self.augmentations:
+            results = getattr(augmentation, "results", None)
+            if isinstance(results, dict):
+                results.clear()
         self.applied = happens(self.p if p is None else check_p(p))
         if not self.applied:
             return
@@ -105,21 +129,48 @@ class Augmentation:
 
     Subclasses implement `apply(obj)` and store what they sampled in `actual`.
 
+    `applied` and `actual` (`actual_x/y/z` for `Translation`, `Rotation` and `Scale`)
+    describe only the last call. A `Compose` calls each augmentation once per object,
+    so after `Compose([aug])([a, b, c])` they hold what happened to `c`; the values for
+    `a` and `b` were overwritten. `results` keeps them for every object: each call
+    stores its `actual` under the object's name (`None` for a call without an object,
+    e.g. an absolute data path), and `Translation`, `Rotation` and `Scale` store
+    `(x, y, z)`. A skipped call stores what it set, which is `None` for most
+    augmentations (`False` for `Boolean` and `Visibility`). A `Compose` call clears
+    `results` first; direct calls add to it, so clear it yourself
+    (`aug.results.clear()`) when you call an augmentation in your own loop.
+
     Args:
         p: probability of applying the augmentation, 0-1.
 
     Attributes:
         applied (bool | None): whether the last call applied it.
         actual (Any): the values set by the last call, None when it was skipped.
+        results (dict[str | None, Any]): the values set for each object, by object
+            name, since the last `Compose` call (or since it was cleared).
+
+    Example:
+        ```python
+        visibility = augmentations.Visibility(p=0.5)
+        augmentations.Compose([visibility])([box_1, box_2, box_3])
+        visibility.results   # e.g. {"box_1": False, "box_2": True, "box_3": False}
+        visibility.actual    # False: only the last object, box_3
+
+        rotation = augmentations.Rotation(z=180)
+        for car in [car_1, car_2]:
+            rotation(car)
+            print(car.name, rotation.actual_z)   # read actual after each call
+        ```
     """
 
     def __init__(self, p: float = 1.0):
         self.p = check_p(p)
         self.applied: Optional[bool] = None
         self.actual: Any = None
+        self.results: dict[Optional[str], Any] = {}
 
     def __call__(self, obj: Optional[Object] = None) -> None:
-        """Applies the augmentation with probability `p`.
+        """Applies the augmentation with probability `p`, and records it in `results`.
 
         Args:
             obj: object to augment, not needed for absolute data paths.
@@ -129,6 +180,11 @@ class Augmentation:
             self.apply(obj)
         else:
             self.skip(obj)
+        self.results[None if obj is None else obj.name] = self._result()
+
+    def _result(self) -> Any:
+        """The value stored in `results` for the last call."""
+        return self.actual
 
     def apply(self, obj: Optional[Object]) -> None:
         raise NotImplementedError
@@ -152,6 +208,8 @@ class AxisAugmentation(Augmentation):
         actual_x (float | None): value sampled for X in the last call, None when skipped.
         actual_y (float | None): value sampled for Y.
         actual_z (float | None): value sampled for Z.
+        results (dict[str | None, tuple[float, float, float] | None]): `(x, y, z)` for
+            each object, by name, None when skipped.
     """
 
     def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0):
@@ -165,6 +223,11 @@ class AxisAugmentation(Augmentation):
 
     def skip(self, obj: Optional[Object]) -> None:
         self.actual_x = self.actual_y = self.actual_z = None
+
+    def _result(self) -> Optional[tuple[float, float, float]]:
+        if not self.applied:
+            return None
+        return (self.actual_x, self.actual_y, self.actual_z)  # pyright: ignore[reportReturnType]  (set by apply)
 
 
 class Translation(AxisAugmentation):
@@ -259,12 +322,15 @@ class Visibility(Augmentation):
         p: probability that the object is visible.
 
     Attributes:
-        actual (bool | None): whether the last call made the object visible.
+        actual (bool | None): whether the last call made the object visible. In a
+            `Compose` that is the last object; `results` has every object.
 
     Example:
         ```python
         distractors_aug = augmentations.Compose([augmentations.Visibility(p=0.7)])
         distractors_aug([box_1, box_2, box_3])   # each one in about 70 % of the images
+        visibility = distractors_aug.augmentations[0]
+        visible = [name for name, shown in visibility.results.items() if shown]
         ```
     """
 
@@ -306,7 +372,8 @@ class KeepAbove(Augmentation):
 
     Attributes:
         actual (float | None): how far the last call moved the object up, 0 when it
-            was already above.
+            was already above. In a `Compose` that is the last object; `results` has
+            every object.
 
     Raises:
         ValueError: the object is the surface.

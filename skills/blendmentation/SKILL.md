@@ -117,12 +117,13 @@ floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 
+keep_above = augmentations.KeepAbove(floor, margin=0.01)
 objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),              # number v: sampled from (-v, v), blender units
     augmentations.Rotation(z=180),                        # degrees, added
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
     augmentations.Material("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),  # changes the material
-    augmentations.KeepAbove(floor, margin=0.01),          # after the transforms: lifts out of the floor
+    keep_above,                                           # after the transforms: lifts out of the floor
 ])
 lamp_aug = augmentations.Compose([
     augmentations.Number("data.energy", value_range=(600, 1400)),         # any value by data path
@@ -165,7 +166,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 import json, os, glob
 try:
     objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
-    print("generated:", generator.preview(4))   # resolution divided by 4; False = skipped
+    print("generated:", generator.preview(4, {"lift": keep_above.results}))   # resolution / 4; False = skipped
 finally:
     initial.restore()
 labels = sorted(glob.glob(os.path.join(generator.path, "[0-9]*.json")))
@@ -194,7 +195,7 @@ start = time.perf_counter()
 try:
     for _ in range(BATCH):
         objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
-        if generator():
+        if generator({"lift": keep_above.results}):
             done += 1
         else:
             skipped += 1
@@ -262,7 +263,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
   `FocalLength`, `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`,
-  `Boolean`, `Menu`. Every one takes `p`. Ranges are `(low, high)` or a single number.
+  `Boolean`, `Menu`. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number.
+- **What an augmentation did**: `aug.actual` (`actual_x/y/z`) and `aug.applied` describe
+  only the last call, so after a `Compose` call only its last object. `aug.results` is
+  `{object name: actual}` for every object of the last `Compose` call (`(x, y, z)` for
+  `Translation`/`Rotation`/`Scale`). Save it in the label with `generator({"key": aug.results})`.
 - **`Visibility(p=0.5)`** shows the object in the render with probability `p` and hides
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,

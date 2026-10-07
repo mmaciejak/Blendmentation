@@ -40,12 +40,13 @@ lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 
 # 1. augmentations, applied to every object in the list
+keep_above = augmentations.KeepAbove(floor, margin=0.01)
 objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),
     augmentations.Rotation(z=180),
     augmentations.Scale(x=10, y=10, z=10, p=0.5),     # only half of the time
     augmentations.Material("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6)),
-    augmentations.KeepAbove(floor, margin=0.01),      # after the transforms: lifts the cars out of the floor
+    keep_above,                                       # after the transforms: lifts the cars out of the floor
 ])
 lamp_aug = augmentations.Compose([
     augmentations.Number("data.energy", value_range=(600, 1400)),
@@ -98,7 +99,7 @@ for _ in range(1000):
     lamp_aug([lamp], p=0.7)                           # the whole Compose 70% of the time
     plant_aug([plant])
     camera_aug([camera])
-    generator()
+    generator({"lift": keep_above.results})          # extra label key: how far each car was lifted
     initial.restore()
 
 # 4. training-ready annotations

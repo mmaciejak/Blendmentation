@@ -12,6 +12,11 @@ All notable changes to Blendmentation. The format follows
   image and the preview images. Modes: uniform color, white noise, color noise and
   images from a folder, mixed by `weights`, with `noise_size=(min, max)`. Needs
   Film > Transparent and RGBA output. The label gets `"background"`.
+- `results` on every augmentation: what it did to each object of the last `Compose`
+  call, as `{object name: value}` (`(x, y, z)` for `Translation`, `Rotation` and
+  `Scale`). `actual` and `applied` only hold the last object of a `Compose` call, which
+  is now documented. Save it in the label with
+  `generator({"lift": keep_above.results})`.
 
 ## [0.4.0] - 2026-10-06
 

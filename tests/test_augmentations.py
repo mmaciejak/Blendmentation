@@ -358,3 +358,35 @@ def test_depth_of_field(scene, cube):
     assert not dof.use_dof and dof.aperture_fstop != 2.8 and skipped.actual is None
     with pytest.raises(TypeError):
         A.DepthOfField(target)(bpy.data.objects.new("empty", None))
+
+
+def test_results(cube):
+    objs = [cube(f"Cube.{i}") for i in range(3)]
+    visibility = A.Visibility()
+    translation = A.Translation(x=1, p=0.5)
+    compose = A.Compose([visibility, translation, lambda obj: None])  # any callable, no results
+    compose(objs)
+    assert list(visibility.results) == [obj.name for obj in objs]
+    for obj in objs:
+        assert visibility.results[obj.name] is (not obj.hide_render)
+        moved = translation.results[obj.name]
+        if moved is None:
+            assert obj.location.x == 0
+        else:
+            assert moved == pytest.approx((obj.location.x, 0, 0))
+    assert visibility.actual is visibility.results[objs[-1].name]
+    assert len(set(visibility.results.values())) == 2  # drawn per object (seeded)
+
+    # each Compose call starts fresh, also when skipped
+    compose(objs[:1])
+    assert list(visibility.results) == [objs[0].name]
+    compose(objs, p=0)
+    assert visibility.results == {} and translation.results == {}
+
+    # direct calls add up; absolute paths without an object are stored under None
+    visibility(objs[0])
+    visibility(objs[1])
+    assert list(visibility.results) == [objs[0].name, objs[1].name]
+    lift = A.Number('bpy.data.objects["Cube.0"].location[2]', value_range=(1, 2))
+    lift()
+    assert list(lift.results) == [None] and lift.results[None] == lift.actual

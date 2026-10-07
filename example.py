@@ -39,6 +39,8 @@ camera = bpy.context.scene.camera
 output_path = "//dataset"
 n_datapoints = 100
 
+# kept in a variable to read what it did to each part, see pipeline()
+keep_above = augmentations.KeepAbove(floor, margin=0.01)
 mesh_transform = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
@@ -48,7 +50,7 @@ mesh_transform = augmentations.Compose(
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
         # after everything that moves or deforms the parts: lifts them out of the floor
-        augmentations.KeepAbove(floor, margin=0.01),
+        keep_above,
     ]
 )
 
@@ -116,7 +118,8 @@ def pipeline():
     lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
     clutter_transforms([clutter])
     camera_transforms([camera])
-    image_generator()
+    # results holds the value for every object, by name (actual only the last one)
+    image_generator({"lift": keep_above.results})
     initial_state.restore()
 
 
