@@ -430,33 +430,44 @@ def write_mask(path, file_name, mask):
     return file_name
 
 
-def save_masks(ids, instances, path, index, per, skip_empty=False):
+def save_masks(ids, instances, path, index, per, skip_empty=False, previous=()):
     """Saves black and white mask PNGs of the visible pixels, per instance as
-    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png
+    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png.
+    A name that is already taken gets _2, _3, ... before the extension.
 
     Args:
         ids (np.ndarray): id image of the instances, from `render_ids`
         instances (list): (class name, [objects]) pairs
         per (str): "instance", "class" or "both"
         skip_empty (bool): don't write empty masks, their "mask" is None
+        previous (list): mask entries of earlier Segmentation steps of the datapoint,
+            n continues after their instances and their files are not overwritten
 
     Returns:
         list: {"class", "objects", "mask", "per"} for every mask
     """
+    taken = {entry["mask"] for entry in previous}
+    start = sum(entry["per"] == "instance" for entry in previous)
 
-    def mask_file(file_name, mask):
-        return None if skip_empty and not mask.any() else write_mask(path, file_name, mask)
+    def mask_file(name, mask):
+        if skip_empty and not mask.any():
+            return None
+        file_name, copy = f"{index:06d}_mask_{name}.png", 2
+        while file_name in taken:
+            file_name, copy = f"{index:06d}_mask_{name}_{copy}.png", copy + 1
+        taken.add(file_name)
+        return write_mask(path, file_name, mask)
 
     entries = []
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
-            file_name = mask_file(f"{index:06d}_mask_{number}.png", ids == number + 1)
+            file_name = mask_file(start + number, ids == number + 1)
             entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name, "per": "instance"})
     if per in ("class", "both"):
         for class_name in dict.fromkeys(class_name for class_name, _ in instances):
             numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
             safe_name = re.sub(r"[^\w.-]", "_", class_name)
-            file_name = mask_file(f"{index:06d}_mask_{safe_name}.png", np.isin(ids, [n + 1 for n in numbers]))
+            file_name = mask_file(safe_name, np.isin(ids, [n + 1 for n in numbers]))
             objects = [obj.name for number in numbers for obj in instances[number][1]]
             entries.append({"class": class_name, "objects": objects, "mask": file_name, "per": "class"})
     return entries
@@ -1223,7 +1234,8 @@ def segmentation(frame, classes, per, skip_empty=False):
     instances = to_instances(classes)
     groups = [group for _, group in instances]
     ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)
-    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per, skip_empty))
+    previous = frame.label.get("masks", [])
+    frame.add("masks", save_masks(ids, instances, frame.path, frame.index, per, skip_empty, previous))
 
 
 def generate(path, resolution, steps, custom_dict=None):

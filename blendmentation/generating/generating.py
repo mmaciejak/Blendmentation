@@ -530,8 +530,11 @@ class Segmentation:
     """Saves black-and-white masks of the visible pixels of every instance or class.
 
     Objects that are not in `classes` still hide what is behind them. Files are
-    `<index>_mask_<n>.png` per instance, where `n` counts instances across all classes,
-    and `<index>_mask_<class>.png` per class. Masks are not anti-aliased.
+    `<index>_mask_<n>.png` per instance, where `n` counts instances across all classes
+    (and across `Segmentation` steps of the same `Compose`), and
+    `<index>_mask_<class>.png` per class, with `_2`, `_3`, ... added when that name is
+    already taken (two class names that differ only in characters not allowed in file
+    names, or the same class in two steps). Masks are not anti-aliased.
 
     How the masks are made depends on the render engine:
 

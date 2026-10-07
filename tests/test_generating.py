@@ -106,6 +106,27 @@ def test_segmentation_skip_empty(scene, cube, out):
     assert G.Compose([G.Render(), G.Segmentation({"gone": [far]}, skip_empty=True), G.SegmentationImage()], out, (64, 48))()
 
 
+def test_mask_names_are_unique(scene, cube, out):
+    a, b, c, d = cube("a", (-2, 0, 0)), cube("b", (-0.7, 0, 0)), cube("c", (0.7, 0, 0)), cube("d", (2, 0, 0))
+    steps = [
+        # "car 1" and "car/1" both become car_1, "0" is also an instance mask name
+        G.Segmentation({"car 1": [a], "car/1": [b], "0": [c]}, per="both"),
+        G.Segmentation({"car 1": [d]}, per="both"),
+    ]
+    assert G.Compose(steps, out, (320, 240))()
+    masks = label(out)["masks"]
+    assert [(m["objects"], m["mask"]) for m in masks] == [
+        (["a"], "000000_mask_0.png"), (["b"], "000000_mask_1.png"), (["c"], "000000_mask_2.png"),
+        (["a"], "000000_mask_car_1.png"), (["b"], "000000_mask_car_1_2.png"), (["c"], "000000_mask_0_2.png"),
+        (["d"], "000000_mask_3.png"), (["d"], "000000_mask_car_1_3.png"),
+    ]
+    # every file holds its own object
+    for entry in masks:
+        obj = bpy.data.objects[entry["objects"][0]]
+        box = projected_bbox(scene, [obj], 320, 240)
+        assert mask(out, entry["mask"])[int((box[1] + box[3]) / 2), int((box[0] + box[2]) / 2)]
+
+
 def test_preview_and_render_only(cube, out):
     cube("Cube")
     generator = G.Compose([G.Render()], out, (64, 48))
@@ -467,10 +488,10 @@ def test_cycles_masks_respect_alpha(scene, cube, out, renders):
 def test_second_cycles_segmentation_uses_workbench(scene, cube, out, renders):
     scene.render.engine = "CYCLES"
     a, b = cube("a", (-1, 0, 0)), cube("b", (1, 0, 0))
-    steps = [G.Segmentation({"a": [a]}), G.Segmentation({"b": [b]}, per="class"), G.SegmentationImage()]
+    steps = [G.Segmentation({"a": [a]}), G.Segmentation({"b": [b]}), G.SegmentationImage()]
     assert G.Compose(steps, out, (320, 240))()
     assert renders == ["CYCLES", "BLENDER_WORKBENCH"]
-    first, second = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_b.png")
+    first, second = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_1.png")
     assert first[:, :150].any() and not first[:, 170:].any()
     assert second[:, 170:].any() and not second[:, :150].any()
     assert [m["objects"] for m in label(out)["masks"]] == [["a"], ["b"]]

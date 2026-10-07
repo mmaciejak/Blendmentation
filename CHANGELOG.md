@@ -15,6 +15,13 @@ All notable changes to Blendmentation. The format follows
   it still uses the Workbench render. In Cycles, a `Passes(["ObjectIndex"])` step next
   to `Segmentation` now holds the instance ids instead of the objects' pass indices.
 
+### Fixed
+
+- Several `generating.Segmentation` steps in one `Compose` overwrote each other's masks:
+  instance numbers now continue across the steps, and a class mask name that is already
+  taken (the same class in two steps, or class names that differ only in characters
+  not allowed in file names) gets `_2`, `_3`, ...
+
 ## [0.5.0] - 2026-10-07
 
 ### Added
