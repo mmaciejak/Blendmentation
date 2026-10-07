@@ -293,8 +293,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 
 ## Pitfalls
 
-- **Restore what you change.** `State` saves object transforms, render visibility, the unlinked node
-  inputs of their materials and camera lens / depth of field, and the unlinked node inputs of a world in its list. A data-path augmentation is
+- **Restore what you change.** `State` saves object transforms, render visibility, the whole node
+  tree of their materials (every node's settings and values, color ramps, node groups) and camera lens / depth of field,
+  and the node tree of a world or material in its list. Any other data-path augmentation (light energy, shape keys) is
   restored only if it is in `State(fields=...)`. If you change anything else in the
   scene, change it back yourself.
 - **Output paths**: `"//dataset"` is relative to the `.blend` file. When

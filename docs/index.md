@@ -121,9 +121,8 @@ generator = gen.Compose(
     path="//dataset",
     resolution=(640, 480),
 )
-# Value and Vector nodes hold their value on an output, not an input,
-# so State restores them only when they are in fields
-initial = state.State([material], fields=material_aug.augmentations)
+# saves the whole material: node values and settings
+initial = state.State([material])
 
 for _ in range(100):
     material_aug([material])
