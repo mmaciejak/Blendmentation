@@ -1,5 +1,5 @@
-/* ![alt](image){ .center }: an image centered on its own line */
-.md-typeset img.center {
+/* ![alt](image){ .full-width }: an image as wide as the code blocks */
+.md-typeset img.full-width {
   display: block;
-  margin: 0 auto;
+  width: 100%;
 }

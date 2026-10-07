@@ -55,6 +55,150 @@ from blendmentation.state import state
 
 Short setups for one task first, then a full example that combines everything.
 
+### Chained transform augmentations
+
+The scene has a milk carton "Milk Box" standing on a floor "Floor", with its rotation
+at (0, 0, 0) and its origin at the bottom center.
+
+The most basic augmentations are transforms. You can create a `Compose` with them like
+this. Here a milk carton standing on its base gets a random heading and position.
+
+```python
+milk_box = bpy.data.objects["Milk Box"]
+
+# standing on its base: any heading, moved on the floor
+standing_aug = aug.Compose([
+    aug.Rotation(z=180),
+    aug.Translation(x=0.5, y=0.5),
+])
+```
+
+<img src="docs/images/carton-standing.jpg" alt="Three renders of the standing milk carton" width="100%">
+
+You can also control the chance of the whole `Compose` happening with `p`.
+
+```python hl_lines="7"
+milk_box = bpy.data.objects["Milk Box"]
+
+# standing on its base: any heading, moved on the floor
+standing_aug = aug.Compose([
+    aug.Rotation(z=180),
+    aug.Translation(x=0.5, y=0.5),
+], p=0.8)
+```
+
+Let's imagine that in our case we want about 80% of the datapoints with the milk carton
+standing up, and about 20% with it lying on its side. Here is a second `Compose` for
+that. A single `Rotation` tips the carton over around X and picks the side it lies on
+with a stepped Y rotation, which turns it around its long axis. `KeepAbove`, after the
+transforms, lifts it out of the floor.
+
+```python hl_lines="2 10-18"
+milk_box = bpy.data.objects["Milk Box"]
+floor = bpy.data.objects["Floor"]
+
+# standing on its base: any heading, moved on the floor
+standing_aug = aug.Compose([
+    aug.Rotation(z=180),
+    aug.Translation(x=0.5, y=0.5),
+], p=0.8)
+
+# lying on one of its four sides
+lying_aug = aug.Compose([
+    # tipped over around X, turned around its long axis in 90 degree
+    # steps (which side is down), any heading
+    aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
+    aug.Translation(x=0.5, y=0.5),
+    # after the transforms: lifts it out of the floor
+    aug.KeepAbove(floor),
+])
+```
+
+<img src="docs/images/carton-lying.jpg" alt="Three renders of the milk carton lying on its side" width="100%">
+
+Then add a generating `Compose` with simple bounding boxes, and `BBoxImage`, a copy of
+the image with the boxes drawn on it.
+
+```python hl_lines="20-29"
+milk_box = bpy.data.objects["Milk Box"]
+floor = bpy.data.objects["Floor"]
+
+# standing on its base: any heading, moved on the floor
+standing_aug = aug.Compose([
+    aug.Rotation(z=180),
+    aug.Translation(x=0.5, y=0.5),
+], p=0.8)
+
+# lying on one of its four sides
+lying_aug = aug.Compose([
+    # tipped over around X, turned around its long axis in 90 degree
+    # steps (which side is down), any heading
+    aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
+    aug.Translation(x=0.5, y=0.5),
+    # after the transforms: lifts it out of the floor
+    aug.KeepAbove(floor),
+])
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.BBox({"milk_box": [milk_box]}),
+        # a copy of the image with the boxes drawn, to check them
+        gen.BBoxImage(),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+```
+
+And finally, save the initial state and create the pipeline. It uses the lying-down
+augmentation only when the standing one didn't happen: `applied` tells whether the last
+call of a `Compose` ran.
+
+```python hl_lines="31 33-39"
+milk_box = bpy.data.objects["Milk Box"]
+floor = bpy.data.objects["Floor"]
+
+# standing on its base: any heading, moved on the floor
+standing_aug = aug.Compose([
+    aug.Rotation(z=180),
+    aug.Translation(x=0.5, y=0.5),
+], p=0.8)
+
+# lying on one of its four sides
+lying_aug = aug.Compose([
+    # tipped over around X, turned around its long axis in 90 degree
+    # steps (which side is down), any heading
+    aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
+    aug.Translation(x=0.5, y=0.5),
+    # after the transforms: lifts it out of the floor
+    aug.KeepAbove(floor),
+])
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.BBox({"milk_box": [milk_box]}),
+        # a copy of the image with the boxes drawn, to check them
+        gen.BBoxImage(),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+initial = state.State([milk_box])
+
+for _ in range(100):
+    standing_aug([milk_box])
+    # the 20% where it isn't standing
+    if not standing_aug.applied:
+        lying_aug([milk_box])
+    generator()
+    initial.restore()
+```
+
+<img src="docs/images/carton-bboxes.jpg" alt="Three BBoxImage previews of the milk carton, standing and lying, with its box drawn" width="100%">
+
 ### Augmenting a material with shader nodes
 
 ![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](docs/images/rust-material-nodes.jpg)
@@ -77,7 +221,7 @@ material_aug = aug.Compose([
 ])
 ```
 
-<p align="center"><img src="docs/images/material-vector.jpg" alt="Three renders with different texture offsets" width="480"></p>
+<img src="docs/images/material-vector.jpg" alt="Three renders with different texture offsets" width="100%">
 
 Any other single value, such as a Value node, can be controlled with `Number`. Here
 "Surface Damage" sets the bump strength.
@@ -100,7 +244,7 @@ material_aug = aug.Compose([
 ])
 ```
 
-<p align="center"><img src="docs/images/material-surface.jpg" alt="Three renders with different surface damage" width="480"></p>
+<img src="docs/images/material-surface.jpg" alt="Three renders with different surface damage" width="100%">
 
 With `p` you control the probability of an augmentation, here how often rust appears
 in the dataset. `otherwise` is the value set the rest of the time, here no rust; without
@@ -131,7 +275,7 @@ material_aug = aug.Compose([
 ])
 ```
 
-<p align="center"><img src="docs/images/material-rust.jpg" alt="Three renders with rust" width="480"></p>
+<img src="docs/images/material-rust.jpg" alt="Three renders with rust" width="100%">
 
 To render the images, and a mask of the rust we just added, we can use a setup like
 this. The rust factor goes to an AOV Output "rust" (Value), and a Value AOV "rust" is
