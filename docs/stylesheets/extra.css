@@ -1,0 +1,5 @@
+/* ![alt](image){ .center }: an image centered on its own line */
+.md-typeset img.center {
+  display: block;
+  margin: 0 auto;
+}

@@ -30,6 +30,200 @@ from blendmentation.state import state
 
 Short setups for one task first, then a full example that combines everything.
 
+### Augmenting a material with shader nodes
+
+![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](images/rust-material-nodes.jpg)
+
+With `Vector` you can randomize a procedural material between datapoints. Here a Vector
+node "Texture randomization" moves the Mapping of all the material's textures (a Vector
+node in shader nodes needs Blender 5). A single number pair in `value_range` is used for
+every component, so `(-100, 100)` is the same as `((-100, -100, -100), (100, 100, 100))`.
+
+```python
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+])
+```
+
+![Three renders with different texture offsets](images/material-vector.jpg){ width="480" .center }
+
+Any other single value, such as a Value node, can be controlled with `Number`. Here
+"Surface Damage" sets the bump strength.
+
+```python hl_lines="10-14"
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    # bump strength
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+])
+```
+
+![Three renders with different surface damage](images/material-surface.jpg){ width="480" .center }
+
+With `p` you control the probability of an augmentation, here how often rust appears
+in the dataset.
+
+```python hl_lines="15-20"
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    # bump strength
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+    # rust in 20% of the images, and then clearly visible
+    aug.Number(
+        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
+        value_range=(0.5, 1),
+        p=0.2,
+    ),
+])
+```
+
+![Three renders with rust](images/material-rust.jpg){ width="480" .center }
+
+To render the images, and a mask of the rust we just added, we can use a setup like
+this. The rust factor goes to an AOV Output "rust" (Value), and a Value AOV "rust" is
+added in View Layer Properties → Passes → Shader AOV. The engine is Cycles or EEVEE.
+
+```python hl_lines="22-30"
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    # bump strength
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+    # rust in 20% of the images, and then clearly visible
+    aug.Number(
+        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
+        value_range=(0.5, 1),
+        p=0.2,
+    ),
+])
+generator = gen.Compose(
+    [
+        gen.Render(),
+        # the rust mask; no file when there is no rust
+        gen.AOVToImage(["rust"], skip_empty=True),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+```
+
+Before we start generating, it is a good idea to save the state of the material, so it
+can be restored after every augmentation.
+
+```python hl_lines="31-32"
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    # bump strength
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+    # rust in 20% of the images, and then clearly visible
+    aug.Number(
+        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
+        value_range=(0.5, 1),
+        p=0.2,
+    ),
+])
+generator = gen.Compose(
+    [
+        gen.Render(),
+        # the rust mask; no file when there is no rust
+        gen.AOVToImage(["rust"], skip_empty=True),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+# saves the whole material: node values and settings
+initial = state.State([material])
+```
+
+And now we can generate the images with the rust masks. The label lists each mask under
+`"aovs"`, and `None` for the images without rust.
+
+```python hl_lines="34-37"
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    # bump strength
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+    # rust in 20% of the images, and then clearly visible
+    aug.Number(
+        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
+        value_range=(0.5, 1),
+        p=0.2,
+    ),
+])
+generator = gen.Compose(
+    [
+        gen.Render(),
+        # the rust mask; no file when there is no rust
+        gen.AOVToImage(["rust"], skip_empty=True),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+# saves the whole material: node values and settings
+initial = state.State([material])
+
+for _ in range(100):
+    material_aug([material])
+    generator()
+    initial.restore()
+```
+
 ### HDRI world
 
 A random HDRI, brightness and rotation for the world in every image. The world's nodes:
@@ -79,60 +273,6 @@ for _ in range(100):
 Data Path gives them (`'bpy.data.worlds["World"].node_tree.nodes["Background"].inputs[1].default_value'`),
 the same works, and the world doesn't have to be passed to `State`:
 `state.State([], fields=world_aug.augmentations)`.
-
-### Material: texture offset, damage and rust
-
-The cube's material "Cube Material" has three nodes that control it: a Vector node
-"Texture randomization" moves the Mapping of all its textures, a Value node "Surface
-Damage" sets the bump strength, and a Value node "Rust Amount" how much rust is mixed
-in. The rust factor also goes to an AOV Output "rust" (Value), which is added as a Value
-AOV "rust" in View Layer Properties → Passes → Shader AOV, so every image gets a rust
-mask. A Vector node in shader nodes needs Blender 5. The engine is Cycles or EEVEE.
-
-![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](images/rust-material-nodes.jpg)
-
-```python
-material = bpy.data.materials["Cube Material"]
-
-# the paths are relative to the material
-material_aug = aug.Compose([
-    # moves all textures: a random offset on each axis
-    aug.Vector(
-        'node_tree.nodes["Texture randomization"].vector',
-        value_range=(-100, 100),
-    ),
-    aug.Number(
-        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
-        value_range=(0, 1),
-    ),
-    # rust in 20% of the images, and then clearly visible
-    aug.Number(
-        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
-        value_range=(0.5, 1),
-        p=0.2,
-    ),
-])
-generator = gen.Compose(
-    [
-        gen.Render(),
-        # the rust mask; no file when there is no rust
-        gen.AOVToImage(["rust"], skip_empty=True),
-    ],
-    path="//dataset",
-    resolution=(640, 480),
-)
-# saves the whole material: node values and settings
-initial = state.State([material])
-
-for _ in range(100):
-    material_aug([material])
-    generator()
-    initial.restore()
-```
-
-A number for `value_range` is used for every component, so `(-100, 100)` is the same
-as `((-100, -100, -100), (100, 100, 100))`. The label lists the rust mask under
-`"aovs"`, and as `None` for the images without rust.
 
 ### Full example
 
