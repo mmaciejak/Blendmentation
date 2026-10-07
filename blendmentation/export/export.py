@@ -157,6 +157,14 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     (`Segmentation(skip_empty=True)`), are skipped. Each annotation also has an
     `"objects"` field with the object names.
 
+    !!! warning "Visible boxes need instance masks"
+        By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
+        the whole object, including the parts hidden behind other objects. For boxes
+        of only the visible pixels, which most detection datasets use, pass
+        `bbox_from="mask"`. That needs a `Segmentation` step with `per="instance"` or
+        `per="both"`, with the same classes as `BBox`, in the generating `Compose`;
+        without instance masks the export raises.
+
     Args:
         path: generating path with the `<index>.json` labels. `//` paths are relative
             to the .blend file when running in Blender.
@@ -240,6 +248,14 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal[
     height` line per bbox (normalized to 0-1), `classes.txt`, and `dataset.yaml`
     pointing at the folder, ready for Ultralytics.
 
+    !!! warning "Visible boxes need instance masks"
+        By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
+        the whole object, including the parts hidden behind other objects. For boxes
+        of only the visible pixels, which most detection datasets use, pass
+        `bbox_from="mask"`. That needs a `Segmentation` step with `per="instance"` or
+        `per="both"`, with the same classes as `BBox`, in the generating `Compose`;
+        without instance masks the export raises.
+
     Args:
         path: generating path with the `<index>.json` labels.
         classes: class names in class id order (ids start at 0). None = in order of
@@ -294,6 +310,14 @@ def voc(path: str, output_dir: Optional[str] = None, bbox_from: Literal["label",
     """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
 
     Boxes touching the image border are marked `truncated`.
+
+    !!! warning "Visible boxes need instance masks"
+        By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
+        the whole object, including the parts hidden behind other objects. For boxes
+        of only the visible pixels, which most detection datasets use, pass
+        `bbox_from="mask"`. That needs a `Segmentation` step with `per="instance"` or
+        `per="both"`, with the same classes as `BBox`, in the generating `Compose`;
+        without instance masks the export raises.
 
     Args:
         path: generating path with the `<index>.json` labels.
@@ -406,20 +430,34 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
     `scene_gt.json`; with masks also `mask/`, `mask_visib/` and `scene_gt_info.json`,
     and with a `Depth` pass `depth/`. `<output>/camera.json` gets the first image's
     camera, and `<output>/obj_ids.json` the class name of every `obj_id`. Image ids
-    are the datapoint indices, and `obj_id`s number the classes from 1.
+    are the datapoint indices, and `obj_id`s number the classes from 1. Instances
+    hidden in the render are left out. Distances are converted to mm with the camera's
+    `unit_scale`.
 
-    Every datapoint needs `Pose` and `CameraData` with a perspective camera. For masks
-    and `scene_gt_info.json`, add `Segmentation(classes, full_masks=True)` with the
-    classes of `Pose`, and for depth `Passes(["Depth"])`. Instances hidden in the render
-    are left out. Distances are converted to mm with the camera's `unit_scale`.
+    !!! warning "What it needs"
+        Steps in the generating `Compose`, in every datapoint:
+
+        - `Render()` as PNG or JPEG: `rgb/`. Required.
+        - `Pose(classes)`: `scene_gt.json`. Required.
+        - `CameraData()` with a perspective camera: `scene_camera.json`. Required.
+        - `Segmentation(classes, full_masks=True)` with `per="instance"` or
+          `per="both"` and the same classes as `Pose`: `mask/`, `mask_visib/` and
+          `scene_gt_info.json` (visible fraction, boxes, pixel counts). Optional, but
+          when any datapoint has masks, every posed instance in every datapoint needs
+          both its masks.
+        - `Passes(["Depth"])`: `depth/`. Optional.
+
+        In the scene: every object of a class must have the same mesh, origin and
+        scale, in every datapoint, because BOP has one 3D model per class and a pose is
+        relative to that model's origin. Keep `Scale` augmentations, shape keys and
+        other deformations off the posed objects; the export raises when a class's
+        scale changes. The models themselves (`models/obj_<obj_id>.ply`, in mm) are not
+        written; export them from Blender with that scale applied.
 
     Note:
-        BOP has one 3D model per class (`models/obj_<obj_id>.ply` in mm, not written
-        here), and a pose is relative to that model's origin. So every object of a class
-        must have the same mesh, origin and scale; the export raises when the scales
-        differ, so keep `Scale` augmentations off the posed objects. An instance of
-        several objects has the pose of its first object. Depth outside the 16-bit
-        range (65535 x `depth_scale` mm) and the background are 0.
+        An instance of several objects has the pose of its first object, so its other
+        objects must move rigidly with it. Depth outside the 16-bit range (65535 x
+        `depth_scale` mm) and the background are 0.
 
     Args:
         path: generating path with the `<index>.json` labels. `//` paths are relative
