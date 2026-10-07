@@ -29,10 +29,14 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install OpenGL for headless rendering
-        # Workbench renders through EGL, mesa renders on the CPU when there is no GPU
+        # Workbench renders through EGL, mesa renders on the CPU when there is no GPU.
+        # Short apt timeouts and a step timeout: when the runner's Ubuntu mirror doesn't
+        # answer, apt waits on it with its defaults for hours instead of failing.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libglx-mesa0 libegl-mesa0 libxi6 libxxf86vm1 \
+          APT="-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=3"
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y libegl1 libgl1 libglx-mesa0 libegl-mesa0 libxi6 libxxf86vm1 \
             libxfixes3 libxrender1 libxkbcommon0 libsm6
       - name: Install
         run: pip install "${{ matrix.requirement }}" -e ".[module,test]"
