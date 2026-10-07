@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-07
+
 ### Added
 
 - `generating.Background`: puts a random background behind a transparent render, in the
@@ -79,7 +81,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.4.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.5.0...dev
+[0.5.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.1.0...v0.2.0
