@@ -42,13 +42,23 @@ def load_node_tree(node_tree, nodes):
                 socket.default_value = inputs[socket.identifier]
 
 
+def state_key(object):
+    """Key of the object in the state dict: its name, and for other datablocks also its type,
+    so a world named like an object doesn't overwrite it."""
+    return object.name if hasattr(object, "material_slots") else (object.rna_type.identifier, object.name)
+
+
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
     transforms, render visibility, material node values, and the lens and depth of field of cameras.
+    Other datablocks (a world, a material, light data) get only their node tree's values.
 
     Args:
     object (bpy.object): object to get the parameters from
     """
+    if not hasattr(object, "material_slots"):
+        node_tree = getattr(object, "node_tree", None)
+        return {"node_tree": save_node_tree(node_tree) if node_tree is not None else {}}
     state = {
         "transforms": {name: to_plain(getattr(object, name)) for name in TRANSFORM_PROPERTIES},
         "hide_render": object.hide_render,
@@ -72,9 +82,14 @@ def load_from_state_dict(object, state_dict: dict):
 
     Args:
     object (bpy.object): object to set the parameters from state dict
-    state_dict (dict): dict to load the values from, keyed by object name
+    state_dict (dict): dict to load the values from, keyed by state_key
     """
-    state = state_dict[object.name]
+    state = state_dict[state_key(object)]
+    if "node_tree" in state:
+        if state["node_tree"]:
+            load_node_tree(object.node_tree, state["node_tree"])
+        object.update_tag()
+        return
 
     # rotation mode first, so the rotation values are restored in the right mode
     for name, value in state["transforms"].items():

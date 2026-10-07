@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Union
 from . import bpy_states as bpy_s
 
 if TYPE_CHECKING:
-    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import ID  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
 
 class State:
@@ -22,11 +22,15 @@ class State:
     - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
       `focus_distance`, `aperture_fstop`).
 
+    `objects` can also hold a World (or another datablock with a node tree, such as a
+    material or light data). For those it saves the unlinked node input values, and
+    relative paths in `fields` resolve on them too.
+
     It also saves the value at every data path in `fields`. A data path augmentation
     that isn't passed in `fields` is not restored.
 
     Args:
-        objects: objects to save.
+        objects: objects to save, and worlds or other datablocks with a node tree.
         fields: `Number`, `Vector`, `Boolean` and `Menu` augmentations, or data path
             strings. Absolute paths are saved once, relative paths for every object they
             exist on. Other entries are ignored, so a whole `Compose.augmentations` list
@@ -40,14 +44,17 @@ class State:
             objects_aug([car_1, car_2])
             generator()
             initial.restore()
+
+        world = bpy.context.scene.world
+        initial = state.State([car_1, world])   # also the world's node values
         ```
     """
 
-    def __init__(self, objects: Sequence[Object], fields: Sequence[Union[Any, str]] = ()):
+    def __init__(self, objects: Sequence[ID], fields: Sequence[Union[Any, str]] = ()):
         self.state_dict = {}
         self.objects = objects
         for object in objects:
-            self.state_dict[object.name] = bpy_s.create_state_list(object)
+            self.state_dict[bpy_s.state_key(object)] = bpy_s.create_state_list(object)
         # other augmentations are covered by the object state, so a whole Compose list can be passed
         data_paths = [field if isinstance(field, str) else field.data_path for field in fields
                       if isinstance(field, str) or hasattr(field, "data_path")]

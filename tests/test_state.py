@@ -83,3 +83,28 @@ def test_restore_aov_node(cube):
     node.inputs["Value"].default_value = 0.75
     initial.restore()
     assert node.inputs["Value"].default_value == pytest.approx(0.25)
+
+
+def test_restore_world(cube):
+    """A world in objects saves its node values, relative fields resolve on it, and an object
+    with the same name keeps its own state."""
+    obj = cube("World")
+    world = bpy.data.worlds.new("World")
+    world.use_nodes = True
+    nodes = world.node_tree.nodes
+    mapping = nodes.new("ShaderNodeMapping")
+    background = next(node for node in nodes if node.type == "BACKGROUND")
+    strength = background.inputs["Strength"].default_value
+    rotation = 'node_tree.nodes["Mapping"].inputs[2].default_value[2]'
+    world_aug = A.Compose([
+        A.Number(f'node_tree.nodes["{background.name}"].inputs[1].default_value', value_range=(5, 10)),
+        A.Number(rotation, value_range=(1, 6)),
+    ])
+    initial = state.State([obj, world], fields=world_aug.augmentations)
+    world_aug([world])
+    obj.location.x = 3
+    assert mapping.inputs[2].default_value[2] != 0
+    initial.restore()
+    assert background.inputs["Strength"].default_value == pytest.approx(strength)
+    assert bpy_paths.get_value(rotation, world) == pytest.approx(0)
+    assert obj.location.x == pytest.approx(0)

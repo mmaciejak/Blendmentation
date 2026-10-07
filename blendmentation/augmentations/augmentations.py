@@ -604,7 +604,7 @@ class Number(Augmentation):
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object. Use `[index]` for one vector component, e.g. `'location[2]'`.
+            the object (or the World, material… passed in its place). Use `[index]` for one vector component, e.g. `'location[2]'`.
         value_range: `(min, max)` range of the new value.
         p: probability of applying the augmentation.
 
@@ -642,7 +642,7 @@ class Vector(Augmentation):
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object.
+            the object (or the World, material… passed in its place).
         value_range: `(min, max)` bounds of the new values.
         p: probability of applying the augmentation.
 
@@ -683,7 +683,7 @@ class Boolean(Augmentation):
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object.
+            the object (or the World, material… passed in its place).
         p: probability of True.
 
     !!! info "Use it inside a Compose"
@@ -719,7 +719,7 @@ class Menu(Augmentation):
 
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object.
+            the object (or the World, material… passed in its place).
         options: options to choose from. None = all options of the menu; required when
             Blender doesn't list them, e.g. for menu sockets not on a Menu Switch node.
         weights: relative probability of each option. None = equal.

@@ -7,6 +7,7 @@ The scene needs:
   render in 60% of the datapoints
 - a mesh object "Floor" under the parts, they are kept above it
 - a point light "Light" and the scene camera
+- a world with a "Background" node (the default world has one)
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
   Output node in the material
 - Cycles or EEVEE as render engine (for the AOV and the passes)
@@ -36,6 +37,7 @@ clutter = bpy.data.objects["Clutter"]
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+world = bpy.context.scene.world
 output_path = "//dataset"
 n_datapoints = 100
 
@@ -65,6 +67,11 @@ lamp_transforms = augmentations.Compose(
         augmentations.Boolean("data.use_shadow", p=0.8),
     ]
 )
+
+# a world is augmented like an object, the path is relative to it
+world_transforms = augmentations.Compose([
+    augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
+])
 
 # the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.
 # Only the clutter is scaled: BOP (export.bop) has one 3D model, with one size, per class
@@ -113,7 +120,7 @@ image_generator = generating.Compose(
 )
 
 initial_state = state.State(
-    [obj1, obj2, clutter, lamp, camera],
+    [obj1, obj2, clutter, lamp, camera, world],  # the world: its node values
     fields=mesh_transform.augmentations + lamp_transforms.augmentations,
 )
 
@@ -123,6 +130,7 @@ def pipeline():
     lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
     clutter_transforms([clutter])
     camera_transforms([camera])
+    world_transforms([world])
     # results holds the value for every object, by name (actual only the last one)
     image_generator({"lift": keep_above.results})
     initial_state.restore()

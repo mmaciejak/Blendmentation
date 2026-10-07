@@ -116,6 +116,7 @@ plant = bpy.data.objects["Plant"]                         # in no class
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+world = bpy.context.scene.world
 
 keep_above = augmentations.KeepAbove(floor, margin=0.01)
 objects_aug = augmentations.Compose([
@@ -131,6 +132,9 @@ plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
 ])                                        # (not on posed objects: BOP has one model size per class)
+world_aug = augmentations.Compose([                        # call it with [world], paths relative to it
+    augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
+])
 camera_aug = augmentations.Compose([
     augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
@@ -157,8 +161,8 @@ generator = generating.Compose(
     path="/absolute/output/folder",
     resolution=(640, 480),
 )
-# objects, lamp and camera are saved; data-path augmentations only if listed in fields
-initial = state.State([car_1, car_2, plant, lamp, camera], fields=objects_aug.augmentations + lamp_aug.augmentations)
+# objects, lamp, camera and the world's node values are saved; data-path augmentations only if listed in fields
+initial = state.State([car_1, car_2, plant, lamp, camera, world], fields=objects_aug.augmentations + lamp_aug.augmentations)
 ```
 
 ## 4. Check with one preview first
@@ -168,7 +172,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 ```python
 import json, os, glob
 try:
-    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
+    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world])
     print("generated:", generator.preview(4, {"lift": keep_above.results}))   # resolution / 4; False = skipped
 finally:
     initial.restore()
@@ -197,7 +201,7 @@ done = skipped = 0
 start = time.perf_counter()
 try:
     for _ in range(BATCH):
-        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera])
+        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world])
         if generator({"lift": keep_above.results}):
             done += 1
         else:
@@ -284,12 +288,13 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   work). It checks the object where it is, so put it after every augmentation that moves
   or deforms the object.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
-  others are relative to each object (`"data.energy"`).
+  others are relative to each object (`"data.energy"`). A world can be passed in place of
+  an object (`world_aug([bpy.context.scene.world])`, paths like `'node_tree.nodes["Background"].inputs[1].default_value'`).
 
 ## Pitfalls
 
 - **Restore what you change.** `State` saves object transforms, render visibility, the unlinked node
-  inputs of their materials and camera lens / depth of field. A data-path augmentation is
+  inputs of their materials and camera lens / depth of field, and the unlinked node inputs of a world in its list. A data-path augmentation is
   restored only if it is in `State(fields=...)`. If you change anything else in the
   scene, change it back yourself.
 - **Output paths**: `"//dataset"` is relative to the `.blend` file. When
