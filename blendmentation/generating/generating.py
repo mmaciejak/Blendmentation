@@ -109,7 +109,9 @@ class BBox:
 
     Boxes are in pixels as `[x_min, y_min, x_max, y_max]` from the top-left corner,
     computed from the evaluated geometry (modifiers included). Occlusion is not taken
-    into account, so hidden parts are inside the box. An instance out of frame gets
+    into account, so hidden parts are inside the box (amodal). For boxes of only the
+    visible pixels, add `Segmentation` and export with `bbox_from="mask"` (`export.coco`,
+    `export.yolo`, `export.voc`). An instance out of frame gets
     None. Objects hidden in the render (e.g. by `Visibility`) are left out of the box,
     and an instance with all its objects hidden gets None and never skips the datapoint.
 

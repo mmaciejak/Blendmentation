@@ -17,6 +17,9 @@ All notable changes to Blendmentation. The format follows
   `scene_gt.json`, `scene_camera.json`, `rgb/`, and with masks `mask/`, `mask_visib/`
   and `scene_gt_info.json`, with a `Depth` pass `depth/` (16-bit, mm).
 - `CameraData` saves `unit_scale`, the scene's meters per Blender unit.
+- `bbox_from="mask"` on `export.yolo` and `export.voc`, as on `export.coco`: boxes of the
+  visible pixels of each instance mask instead of the `BBox` boxes around the whole
+  object. Needs `Segmentation` with `per="instance"` or `"both"`.
 
 ### Changed
 

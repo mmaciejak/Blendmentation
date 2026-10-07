@@ -134,7 +134,7 @@ for i in range(n_datapoints):
 # training-ready annotations next to the images
 export.coco(output_path)
 export.yolo(output_path)
-export.voc(output_path)
+export.voc(output_path, bbox_from="mask")  # boxes of the visible pixels (from the masks), not the whole object
 # BOP for 6D pose estimation (poses, camera, masks, depth). It assumes rigid objects with
 # one mesh per class, so leave out the shape key augmentation for real pose training
 export.bop(output_path)

@@ -71,6 +71,43 @@ def test_voc(dataset):
     assert [o.find("truncated").text for o in objects] == ["0", "1", "0", "0"]
 
 
+def test_yolo_and_voc_visible_boxes(dataset):
+    label = load(dataset)
+    masks = {tuple(m["objects"]): m["mask"] for m in label["masks"] if m["per"] == "instance"}
+    # hidden is fully behind car1, far out of frame: neither has visible pixels
+    expected = [export.mask_bbox(export.read_mask(dataset, masks[key])) for key in (("car1",), ("car2",), ("top", "leg"))]
+
+    export.yolo(dataset, bbox_from="mask")
+    lines = [line.split() for line in open(os.path.join(dataset, "000000.txt")).read().splitlines()]
+    assert [line[0] for line in lines] == ["0", "0", "1"]
+    for line, (x_min, y_min, x_max, y_max) in zip(lines, expected):
+        assert [float(v) for v in line[1:]] == pytest.approx(
+            [(x_min + x_max) / 640, (y_min + y_max) / 480, (x_max - x_min) / 320, (y_max - y_min) / 240], abs=1e-5)
+
+    directory = export.voc(dataset, output_dir=os.path.join(dataset, "visible"), bbox_from="mask")
+    objects = ElementTree.parse(os.path.join(directory, "000000.xml")).getroot().findall("object")
+    assert [o.find("name").text for o in objects] == ["car", "car", "table"]
+    assert [o.find("truncated").text for o in objects] == ["0", "1", "0"]
+    x_min, y_min, x_max, y_max = expected[0]
+    box = objects[0].find("bndbox")
+    assert [int(box.find(tag).text) for tag in ("xmin", "ymin", "xmax", "ymax")] == [x_min + 1, y_min + 1, x_max, y_max]
+
+    with pytest.raises(ValueError, match="bbox_from must be"):
+        export.yolo(dataset, bbox_from="visible")
+    with pytest.raises(ValueError, match="bbox_from must be"):
+        export.voc(dataset, bbox_from="visible")
+
+
+def test_visible_boxes_need_instance_masks(out, cube):
+    from blendmentation.generating import generating as G
+
+    classes = {"car": [cube("car1", (-2, 0, 0))]}
+    G.Compose([G.Render(), G.BBox(classes), G.Segmentation(classes, per="class")], out, (64, 48))()
+    for export_format in (export.yolo, export.voc, export.coco):
+        with pytest.raises(ValueError, match="needs instance masks"):
+            export_format(out, bbox_from="mask")
+
+
 def test_coco(dataset):
     file_name = export.coco(dataset)
     data = json.load(open(file_name))

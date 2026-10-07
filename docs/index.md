@@ -106,7 +106,7 @@ for _ in range(1000):
 
 # 4. training-ready annotations
 export.coco("//dataset")
-export.yolo("//dataset")
+export.yolo("//dataset", bbox_from="mask")            # boxes of the visible pixels, from the masks
 export.bop("//dataset")                               # 6D pose: poses, masks, depth
 ```
 

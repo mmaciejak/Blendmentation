@@ -2,8 +2,18 @@
 
 Run it once after generating, on the generating path. It reads the `<index>.json`
 labels; only datapoints with an image (a `Render` step) and with bboxes or instance
-masks are exported (with poses for BOP). It works without Blender. COCO with masks and
-BOP with masks or depth need numpy and OpenImageIO, which come with Blender.
+masks are exported (with poses for BOP). It works without Blender. COCO with masks,
+`bbox_from="mask"` and BOP with masks or depth need numpy and OpenImageIO, which come
+with Blender.
+
+COCO, YOLO and VOC take `bbox_from`, which box to write:
+
+- `"label"` (default): the `BBox` step's boxes, around the whole object including the
+  parts hidden behind other objects (amodal). Needs a `BBox` step.
+- `"mask"`: the extent of the visible pixels of each instance mask (modal), the boxes
+  most detection datasets use. Needs a `Segmentation` step with `per="instance"` or
+  `"both"` and the same classes. Fully hidden instances, and ones whose mask was not
+  written (`skip_empty`), are left out.
 """
 
 import json
@@ -108,6 +118,36 @@ def instances(label):
     return found
 
 
+BBOX_FROM = ("label", "mask")
+
+
+def check_bbox_from(bbox_from):
+    if bbox_from not in BBOX_FROM:
+        raise ValueError('bbox_from must be "label" or "mask"')
+
+
+def label_boxes(path, label, bbox_from):
+    """(class, objects, [x_min, y_min, x_max, y_max]) of every instance of a label with a
+    box in the frame: the BBox boxes, or with bbox_from="mask" the visible pixels' extent."""
+    if bbox_from == "label":
+        return [(entry["class"], entry["objects"], entry["bbox"]) for entry in label.get("bboxes", [])
+                if entry["bbox"] is not None]
+    boxes = []
+    for (class_name, objects), instance in instances(label).items():
+        if "mask" not in instance:
+            raise ValueError(
+                f'bbox_from="mask" needs instance masks, {label["image"]} has none for {list(objects)}: '
+                'add Segmentation(classes, per="instance") with the classes of BBox'
+            )
+        if instance["mask"] is None:
+            # empty mask not written, Segmentation(skip_empty=True)
+            continue
+        box = mask_bbox(read_mask(path, instance["mask"]))
+        if box is not None:
+            boxes.append((class_name, list(objects), box))
+    return boxes
+
+
 def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]] = None,
          bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes a COCO detection and instance segmentation JSON.
@@ -123,22 +163,26 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
         output: JSON file to write. None = `<path>/coco.json`.
         classes: class names in category id order (ids start at 1). None = in order of
             first appearance.
-        bbox_from: `"label"` for the boxes of the `BBox` step, which include hidden
-            parts, or `"mask"` for the extent of the visible pixels in the instance masks.
+        bbox_from: `"label"` for the boxes of the `BBox` step, around the whole object
+            including hidden parts (amodal), or `"mask"` for the extent of the visible
+            pixels in the instance masks (modal, as in the COCO dataset itself), which
+            needs `Segmentation` with `per="instance"` or `"both"`. With `"label"`, an
+            instance with a mask but no `BBox` box gets its mask's box. See the module
+            description.
 
     Returns:
         Path of the written file.
 
     Raises:
-        ValueError: an unknown `bbox_from`, or a class in the labels missing from `classes`.
+        ValueError: an unknown `bbox_from`, `bbox_from="mask"` with an instance that
+            has no instance mask, or a class in the labels missing from `classes`.
 
     Example:
         ```python
         export.coco("//dataset", classes=["car", "table"])
         ```
     """
-    if bbox_from not in ("label", "mask"):
-        raise ValueError('bbox_from must be "label" or "mask"')
+    check_bbox_from(bbox_from)
     path = dataset_path(path)
     labels = load_labels(path)
     names = class_names(labels, classes)
@@ -189,7 +233,7 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     return output
 
 
-def yolo(path: str, classes: Optional[Sequence[str]] = None) -> str:
+def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes YOLO detection labels.
 
     Writes `<index>.txt` next to every image, with one `class x_center y_center width
@@ -200,18 +244,26 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None) -> str:
         path: generating path with the `<index>.json` labels.
         classes: class names in class id order (ids start at 0). None = in order of
             first appearance.
+        bbox_from: `"label"` for the boxes of the `BBox` step, around the whole object
+            including hidden parts (amodal), or `"mask"` for the extent of the visible
+            pixels in the instance masks (modal), which needs `Segmentation` with
+            `per="instance"` or `"both"`; fully hidden instances are left out. See the
+            module description.
 
     Returns:
         Path of `dataset.yaml`.
 
     Raises:
-        ValueError: a class in the labels missing from `classes`.
+        ValueError: an unknown `bbox_from`, `bbox_from="mask"` with an instance that
+            has no instance mask, or a class in the labels missing from `classes`.
 
     Example:
         ```python
         export.yolo("//dataset")
+        export.yolo("//dataset", bbox_from="mask")  # boxes of the visible pixels
         ```
     """
+    check_bbox_from(bbox_from)
     path = dataset_path(path)
     labels = load_labels(path)
     names = class_names(labels, classes)
@@ -220,12 +272,9 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None) -> str:
     for _, label in labels:
         width, height = label["resolution"]
         lines = []
-        for entry in label.get("bboxes", []):
-            if entry["bbox"] is None:
-                continue
-            x_min, y_min, x_max, y_max = entry["bbox"]
+        for class_name, _, (x_min, y_min, x_max, y_max) in label_boxes(path, label, bbox_from):
             lines.append(
-                f"{class_ids[entry['class']]} {(x_min + x_max) / 2 / width:.6f} {(y_min + y_max) / 2 / height:.6f} "
+                f"{class_ids[class_name]} {(x_min + x_max) / 2 / width:.6f} {(y_min + y_max) / 2 / height:.6f} "
                 f"{(x_max - x_min) / width:.6f} {(y_max - y_min) / height:.6f}"
             )
         stem = os.path.splitext(label["image"])[0]
@@ -241,7 +290,7 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None) -> str:
     return yaml
 
 
-def voc(path: str, output_dir: Optional[str] = None) -> str:
+def voc(path: str, output_dir: Optional[str] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
 
     Boxes touching the image border are marked `truncated`.
@@ -249,15 +298,26 @@ def voc(path: str, output_dir: Optional[str] = None) -> str:
     Args:
         path: generating path with the `<index>.json` labels.
         output_dir: folder for the XML files. None = `<path>/Annotations`.
+        bbox_from: `"label"` for the boxes of the `BBox` step, around the whole object
+            including hidden parts (amodal), or `"mask"` for the extent of the visible
+            pixels in the instance masks (modal, as in Pascal VOC itself), which needs
+            `Segmentation` with `per="instance"` or `"both"`; fully hidden instances are
+            left out. See the module description.
 
     Returns:
         The output folder.
 
+    Raises:
+        ValueError: an unknown `bbox_from`, or `bbox_from="mask"` with an instance that
+            has no instance mask.
+
     Example:
         ```python
         export.voc("//dataset")
+        export.voc("//dataset", bbox_from="mask")  # boxes of the visible pixels
         ```
     """
+    check_bbox_from(bbox_from)
     path = dataset_path(path)
     output_dir = output_dir or os.path.join(path, "Annotations")
     os.makedirs(output_dir, exist_ok=True)
@@ -271,12 +331,9 @@ def voc(path: str, output_dir: Optional[str] = None) -> str:
         for tag, value in (("width", width), ("height", height), ("depth", 3)):
             ElementTree.SubElement(size, tag).text = str(value)
         ElementTree.SubElement(root, "segmented").text = "0"
-        for entry in label.get("bboxes", []):
-            if entry["bbox"] is None:
-                continue
-            x_min, y_min, x_max, y_max = entry["bbox"]
+        for class_name, _, (x_min, y_min, x_max, y_max) in label_boxes(path, label, bbox_from):
             obj = ElementTree.SubElement(root, "object")
-            ElementTree.SubElement(obj, "name").text = entry["class"]
+            ElementTree.SubElement(obj, "name").text = class_name
             ElementTree.SubElement(obj, "pose").text = "Unspecified"
             # bboxes are clipped to the image, touching the border means truncated
             truncated = x_min <= 0 or y_min <= 0 or x_max >= width or y_max >= height

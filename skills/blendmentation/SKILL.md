@@ -231,6 +231,8 @@ Export reads the labels, so run it once at the end, over the whole folder:
 from blendmentation.export import export
 export.coco("/absolute/output/folder")   # coco.json, masks as RLE if Segmentation ran
 export.yolo("/absolute/output/folder")   # <index>.txt next to the images, classes.txt, dataset.yaml
+# coco/yolo/voc: bbox_from="label" (default) = BBox boxes around the whole object, hidden parts
+# included; bbox_from="mask" = boxes of the visible pixels, needs Segmentation per="instance"/"both"
 export.voc("/absolute/output/folder")    # Annotations/*.xml
 export.bop("/absolute/output/folder")    # bop/train_pbr/000000/: needs Pose + CameraData; masks, depth if generated
 ```
