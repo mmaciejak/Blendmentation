@@ -56,6 +56,8 @@ markdown_extensions:
 
 plugins:
   - search
+  # click an image to see it full size
+  - glightbox
   - mkdocstrings:
       handlers:
         python:
