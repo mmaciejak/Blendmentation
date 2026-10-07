@@ -105,6 +105,61 @@ Data Path gives them (`'bpy.data.worlds["World"].node_tree.nodes["Background"].i
 the same works, and the world doesn't have to be passed to `State`:
 `state.State([], fields=world_aug.augmentations)`.
 
+### Material: texture offset, damage and rust
+
+The cube's material "Cube Material" has three nodes that control it: a Vector node
+"Texture randomization" moves the Mapping of all its textures, a Value node "Surface
+Damage" sets the bump strength, and a Value node "Rust Amount" how much rust is mixed
+in. The rust factor also goes to an AOV Output "rust" (Value), which is added as a Value
+AOV "rust" in View Layer Properties → Passes → Shader AOV, so every image gets a rust
+mask. A Vector node in shader nodes needs Blender 5. The engine is Cycles or EEVEE.
+
+![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](docs/images/rust-material-nodes.jpg)
+
+```python
+material = bpy.data.materials["Cube Material"]
+
+# the paths are relative to the material
+material_aug = aug.Compose([
+    # moves all textures: a random offset on each axis
+    aug.Vector(
+        'node_tree.nodes["Texture randomization"].vector',
+        value_range=(-100, 100),
+    ),
+    aug.Number(
+        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
+        value_range=(0, 1),
+    ),
+    # rust in 20% of the images, and then clearly visible
+    aug.Number(
+        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
+        value_range=(0.5, 1),
+        p=0.2,
+    ),
+])
+generator = gen.Compose(
+    [
+        gen.Render(),
+        # the rust mask; no file when there is no rust
+        gen.AOVToImage(["rust"], skip_empty=True),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+# Value and Vector nodes hold their value on an output, not an input,
+# so State restores them only when they are in fields
+initial = state.State([material], fields=material_aug.augmentations)
+
+for _ in range(100):
+    material_aug([material])
+    generator()
+    initial.restore()
+```
+
+A number for `value_range` is used for every component, so `(-100, 100)` is the same
+as `((-100, -100, -100), (100, 100, 100))`. The label lists the rust mask under
+`"aovs"`, and as `None` for the images without rust.
+
 ### Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
