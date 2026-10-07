@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-07
+
 ### Added
 
 - `augmentations.Seed(node_group)`: gives every unlinked Seed input in a node group
@@ -14,17 +16,14 @@ All notable changes to Blendmentation. The format follows
   scatter in every image. Takes `p` and `otherwise` (one seed for all of them).
 - `state.State` takes node groups in `objects` and restores their nodes, e.g. the seeds
   `Seed` changes.
-
 - `augmentations.PlaceOn(surface, margin=0)`: moves the object up or down along world Z
   until its lowest point rests `margin` above the surface, where they overlap seen from
   above. Like `KeepAbove`, which only lifts, but it also lowers floating objects, e.g.
   one tipped over around an origin that is not at its bottom.
-
 - Stepped values in `Translation`, `Rotation` and `Scale`: an axis can be
   `(low, high, step)`, which picks one of `low`, `low + step`, ... up to `high`, e.g.
   `Rotation(z=(0, 270, 90))` for 0, 90, 180 or 270 degrees. An invalid axis (low above
   high, a step of 0 or less) raises a `ValueError` when the augmentation is created.
-
 - `otherwise` on `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
   `DepthOfField`: the value to set when the augmentation doesn't run because of its `p`,
   e.g. `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `FocalLength((24, 85), p=0.3,
@@ -32,7 +31,6 @@ All notable changes to Blendmentation. The format follows
   None keeps the value, the default except for `Boolean` (False) and `Visibility`
   (hidden), which work as before. `Boolean(..., otherwise=None)` and
   `Visibility(..., otherwise=None)` leave the value unchanged instead.
-
 - `state.State` takes a World (or another datablock with a node tree, such as a material)
   in `objects`: it saves and restores its node tree, and relative paths in `fields`
   resolve on it. Pass the world to a `Compose` to augment it with relative data paths,
@@ -153,7 +151,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.6.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.0...dev
+[0.7.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.3.0...v0.4.0
