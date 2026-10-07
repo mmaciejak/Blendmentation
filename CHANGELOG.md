@@ -8,6 +8,11 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `augmentations.PlaceOn(surface, margin=0)`: moves the object up or down along world Z
+  until its lowest point rests `margin` above the surface, where they overlap seen from
+  above. Like `KeepAbove`, which only lifts, but it also lowers floating objects, e.g.
+  one tipped over around an origin that is not at its bottom.
+
 - Stepped values in `Translation`, `Rotation` and `Scale`: an axis can be
   `(low, high, step)`, which picks one of `low`, `low + step`, ... up to `high`, e.g.
   `Rotation(z=(0, 270, 90))` for 0, 90, 180 or 270 degrees. An invalid axis (low above

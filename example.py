@@ -4,7 +4,7 @@ The scene needs:
 - two mesh objects "Part.001" and "Part.002", using the material "material.001"
   (Principled BSDF), both with a shape key "Key 1"
 - a mesh object "Clutter" that is in no class and can hide the parts, it is in the
-  render in 60% of the datapoints
+  render in 60% of the datapoints and is set down on the floor
 - a mesh object "Floor" under the parts, they are kept above it
 - a point light "Light" and the scene camera
 - a world with a "Background" node (the default world has one)
@@ -79,6 +79,7 @@ clutter_transforms = augmentations.Compose([
     augmentations.Visibility(p=0.6),
     augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
     augmentations.Rotation(z=(0, 270, 90)),  # (low, high, step): turned by 0, 90, 180 or 270 degrees
+    augmentations.PlaceOn(floor),  # after the transforms: up or down until it rests on the floor
 ])
 
 # orbit the camera around both parts, always aimed at their center, zoom without changing

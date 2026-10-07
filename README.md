@@ -58,7 +58,7 @@ Short setups for one task first, then a full example that combines everything.
 ### Chained transform augmentations
 
 The scene has a milk carton "Milk Box" standing on a floor "Floor", with its rotation
-at (0, 0, 0) and its origin at the bottom center.
+at (0, 0, 0).
 
 The most basic augmentations are transforms. You can create a `Compose` with them like
 this. Here a milk carton standing on its base gets a random heading and position.
@@ -90,8 +90,8 @@ standing_aug = aug.Compose([
 Let's imagine that in our case we want about 80% of the datapoints with the milk carton
 standing up, and about 20% with it lying on its side. Here is a second `Compose` for
 that. A single `Rotation` tips the carton over around X and picks the side it lies on
-with a stepped Y rotation, which turns it around its long axis. `KeepAbove`, after the
-transforms, lifts it out of the floor.
+with a stepped Y rotation, which turns it around its long axis. `PlaceOn`, after the
+transforms, moves it up or down until it rests on the floor, wherever its origin is.
 
 ```python hl_lines="2 10-18"
 milk_box = bpy.data.objects["Milk Box"]
@@ -109,8 +109,8 @@ lying_aug = aug.Compose([
     # steps (which side is down), any heading
     aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
     aug.Translation(x=0.5, y=0.5),
-    # after the transforms: lifts it out of the floor
-    aug.KeepAbove(floor),
+    # after the transforms: sets it down on the floor
+    aug.PlaceOn(floor),
 ])
 ```
 
@@ -135,8 +135,8 @@ lying_aug = aug.Compose([
     # steps (which side is down), any heading
     aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
     aug.Translation(x=0.5, y=0.5),
-    # after the transforms: lifts it out of the floor
-    aug.KeepAbove(floor),
+    # after the transforms: sets it down on the floor
+    aug.PlaceOn(floor),
 ])
 
 generator = gen.Compose(
@@ -171,8 +171,8 @@ lying_aug = aug.Compose([
     # steps (which side is down), any heading
     aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
     aug.Translation(x=0.5, y=0.5),
-    # after the transforms: lifts it out of the floor
-    aug.KeepAbove(floor),
+    # after the transforms: sets it down on the floor
+    aug.PlaceOn(floor),
 ])
 
 generator = gen.Compose(

@@ -294,7 +294,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **`KeepAbove(surface, margin=0)`** moves the object up along world Z, only when needed,
   until its lowest point is `margin` above the surface (evaluated meshes, uneven surfaces
   work). It checks the object where it is, so put it after every augmentation that moves
-  or deforms the object.
+  or deforms the object. **`PlaceOn(surface, margin=0)`** is the same but also moves it
+  down, so it rests on the surface (e.g. an object tipped over around a centered origin).
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
   others are relative to each object (`"data.energy"`). A world can be passed in place of
   an object (`world_aug([bpy.context.scene.world])`, paths like `'node_tree.nodes["Background"].inputs[1].default_value'`).

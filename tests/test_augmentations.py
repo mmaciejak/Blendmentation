@@ -506,3 +506,37 @@ def test_stepped_offsets(cube):
 def test_offset_errors(axis):
     with pytest.raises(ValueError):
         A.Rotation(z=axis)
+
+
+def test_place_on(cube):
+    floor = cube("Floor", location=(0, 0, -1), size=4)  # top at z = 1
+    obj = cube("Cube", location=(0, 0, 5))  # bottom at 4.5: floating
+    place = A.PlaceOn(floor, margin=0.1)
+    place(obj)
+    assert place.actual == pytest.approx(-3.4) and obj.location.z == pytest.approx(1.6)
+
+    # sunken: lifted, like KeepAbove
+    obj.location.z = 0
+    place(obj)
+    assert place.actual == pytest.approx(1.6) and obj.location.z == pytest.approx(1.6)
+
+    # not over the surface: not moved
+    obj.location = (10, 0, 5)
+    place(obj)
+    assert place.actual == 0 and obj.location.z == 5
+
+    # rotated and parented, in world space
+    obj.location = (0, 0, 3)
+    A.Compose([A.Rotation(x=(45, 45)), place])([obj])
+    bpy.context.view_layer.update()
+    lowest = min((obj.matrix_world @ v.co).z for v in obj.data.vertices)
+    assert lowest == pytest.approx(1.1, abs=1e-5)
+
+    # a peak of the surface between the object's vertices: rests on the peak
+    floor.location, floor.scale = (0, 0, 0), (0.1, 0.1, 0.1)  # a small block, top at 0.2
+    obj.location, obj.rotation_euler, obj.scale = (0, 0, 5), (0, 0, 0), (2, 2, 1)
+    A.PlaceOn(floor)(obj)
+    assert obj.location.z == pytest.approx(0.7)
+
+    with pytest.raises(ValueError):
+        A.PlaceOn(obj)(obj)

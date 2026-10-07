@@ -8,7 +8,8 @@ it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
-`KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain.
+`KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
+`PlaceOn` also lowers them, so they rest on it.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -458,6 +459,64 @@ class KeepAbove(Augmentation):
         obj (bpy.object) : Object to keep above the surface
         """
         self.actual = bpy_a.keep_above(obj, self.surface, self.margin)
+
+
+class PlaceOn(Augmentation):
+    """Moves the object up or down so it rests on a surface, e.g. a floor or table.
+
+    Like `KeepAbove`, but it also moves the object down: its lowest point ends up
+    exactly `margin` above the top of the surface where they overlap seen from above,
+    so a floating object drops onto the surface and a sunken one is lifted out. Only
+    the height changes, along world Z. An object that is not over the surface is left
+    where it is. Both are compared as evaluated meshes (modifiers included) in world
+    space, so uneven surfaces work. It sets `matrix_world`, so parented objects work
+    too. Only the object's own geometry counts, not its children's.
+
+    Use it when the object must touch the surface, e.g. after a rotation that tips it
+    over around an origin that is not at its bottom. Use `KeepAbove` when the object
+    may also float above it.
+
+    !!! warning "Put it after the transforms"
+        It places the object where it is when it runs, so put it in the `Compose` after
+        `Translation`, `Rotation`, `Scale` and any other augmentation that moves or
+        deforms the object.
+
+    Args:
+        surface: object to rest on. It must have faces (a mesh, curve, text...).
+        margin: gap between the surface and the object's lowest point, in Blender
+            units.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual (float | None): how far the last call moved the object, positive up and
+            negative down, 0 when it was not over the surface. In a `Compose` that is
+            the last object; `results` has every object.
+
+    Raises:
+        ValueError: the object is the surface.
+        TypeError: the surface has no faces.
+
+    Example:
+        ```python
+        lying_aug = augmentations.Compose([
+            augmentations.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
+            augmentations.Translation(x=0.5, y=0.5),
+            augmentations.PlaceOn(floor),   # after the transforms
+        ])
+        lying_aug([milk_box])
+        ```
+    """
+
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0):
+        super().__init__(p)
+        self.surface = surface
+        self.margin = margin
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object to place on the surface
+        """
+        self.actual = bpy_a.place_on(obj, self.surface, self.margin)
 
 
 class LookAt(Augmentation):

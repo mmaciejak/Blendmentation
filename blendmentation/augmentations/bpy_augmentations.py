@@ -333,10 +333,9 @@ def column_hit(tree, x, y, z, direction):
     return None if location is None else location.z
 
 
-def keep_above(obj, surface, margin):
-    """Moves the object up along world Z until its lowest point is at least margin
-    above the top of the surface, where they overlap seen from above. An object that
-    is already high enough, or not over the surface, is not moved.
+def rest_offset(obj, surface, margin):
+    """How far to move the object along world Z so its lowest point is margin above the
+    top of the surface, where they overlap seen from above: positive up, negative down.
 
     Both are compared as evaluated meshes (modifiers included) in world space: the
     object's vertices against the surface top under them, and the surface's vertices
@@ -344,10 +343,10 @@ def keep_above(obj, surface, margin):
     vertices also counts.
 
     Returns:
-        float: how far the object was moved up, 0 when it was not moved
+        float | None: the move, None when the object is not over the surface
     """
     if obj == surface:
-        raise ValueError(f"'{obj.name}' cannot be kept above itself")
+        raise ValueError(f"'{obj.name}' cannot be placed on itself")
     # earlier augmentations changed location / rotation / scale, matrix_world is stale until then
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -357,27 +356,59 @@ def keep_above(obj, surface, margin):
     vertices, faces = world_mesh(obj, depsgraph)
 
     surface_tree = BVHTree.FromPolygons(surface_vertices, surface_faces)
-    above_surface = max(vertex.z for vertex in surface_vertices) + 1.0
-    lift = 0.0
+    above_surface = max(vertex.z for vertex in surface_vertices + vertices) + 1.0
+    offset = None
     for vertex in vertices:
         top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
         if top is not None:
-            lift = max(lift, top + margin - vertex.z)
+            offset = max(offset if offset is not None else -math.inf, top + margin - vertex.z)
     if faces:
         tree = BVHTree.FromPolygons(vertices, faces)
-        below_object = min(vertex.z for vertex in vertices) - 1.0
+        below_object = min(vertex.z for vertex in vertices + surface_vertices) - 1.0
         for vertex in surface_vertices:
             bottom = column_hit(tree, vertex.x, vertex.y, below_object, 1.0)
             if bottom is None:
                 continue
             top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
-            lift = max(lift, (vertex.z if top is None else top) + margin - bottom)
+            offset = max(offset if offset is not None else -math.inf, (vertex.z if top is None else top) + margin - bottom)
+    return offset
 
-    if lift > 0:
-        matrix = obj.matrix_world.copy()
-        matrix.translation.z += lift
-        obj.matrix_world = matrix
-    return lift
+
+def move_z(obj, offset):
+    """Moves the object along world Z, parented objects included."""
+    matrix = obj.matrix_world.copy()
+    matrix.translation.z += offset
+    obj.matrix_world = matrix
+
+
+def keep_above(obj, surface, margin):
+    """Moves the object up along world Z until its lowest point is at least margin
+    above the top of the surface, where they overlap seen from above (rest_offset). An
+    object that is already high enough, or not over the surface, is not moved.
+
+    Returns:
+        float: how far the object was moved up, 0 when it was not moved
+    """
+    offset = rest_offset(obj, surface, margin)
+    if offset is None or offset <= 0:
+        return 0.0
+    move_z(obj, offset)
+    return offset
+
+
+def place_on(obj, surface, margin):
+    """Moves the object up or down along world Z until its lowest point is margin above
+    the top of the surface, where they overlap seen from above (rest_offset). An object
+    that is not over the surface is not moved.
+
+    Returns:
+        float: how far the object was moved, positive up, 0 when it was not moved
+    """
+    offset = rest_offset(obj, surface, margin)
+    if offset is None:
+        return 0.0
+    move_z(obj, offset)
+    return offset
 
 
 def boolean(obj, data_path, value):
