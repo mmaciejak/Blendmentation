@@ -6,6 +6,17 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-07
+
+### Changed
+
+- The README and the docs home page explain the approach: the variation lives in your
+  Blender scene, in shader and geometry nodes, and Blendmentation changes their values.
+  Their quick start is a short example.
+- The step-by-step examples and the full example moved to their own
+  [Quick start](https://blendmentation.docs.csmx.eu/quick-start/) page, which starts with
+  installing in Blender.
+
 ## [0.7.1] - 2026-10-07
 
 ### Changed
@@ -159,7 +170,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.1...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.2...dev
+[0.7.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.5.0...v0.6.0
