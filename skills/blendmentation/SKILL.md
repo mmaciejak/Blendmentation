@@ -131,6 +131,7 @@ lamp_aug = augmentations.Compose([
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
+    augmentations.Rotation(z=(0, 315, 45)),               # (low, high, step): one of 8 headings
 ])                                        # (not on posed objects: BOP has one model size per class)
 world_aug = augmentations.Compose([                        # call it with [world], paths relative to it
     augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
@@ -274,7 +275,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
   `FocalLength`, `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`,
-  `Boolean`, `Menu`. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number.
+  `Boolean`, `Menu`. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
+  `Translation`/`Rotation`/`Scale` also take `(low, high, step)` for one of low, low + step, ... high
+  (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength`,
   `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
   `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `DepthOfField(car, p=0.5, otherwise=False)`

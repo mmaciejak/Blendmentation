@@ -29,8 +29,9 @@ from . import bpy_augmentations as bpy_a
 if TYPE_CHECKING:
     from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
-#: a number v samples from (-v, v), a pair (low, high) from (low, high)
-Offset = Union[float, tuple[float, float]]
+#: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
+#: (low, high, step) picks one of low, low + step, ... up to high
+Offset = Union[float, tuple[float, float], tuple[float, float, float]]
 #: a (min, max) range or an exact number
 RangeOrValue = Union[float, tuple[float, float]]
 #: an object, objects (the center of their bounding boxes), or a point (x, y, z)
@@ -53,6 +54,18 @@ def check_otherwise(otherwise: Any, valid: bool, expected: str) -> Any:
     if otherwise is not None and not valid:
         raise ValueError(f"otherwise must be {expected} or None, got {otherwise!r}")
     return otherwise
+
+
+def check_offset(offset: Offset, axis: str) -> Offset:
+    if is_number(offset):
+        return offset
+    if not isinstance(offset, Sequence) or len(offset) not in (2, 3) or not all(is_number(v) for v in offset):
+        raise ValueError(f"{axis} must be a number, (low, high) or (low, high, step), got {offset!r}")
+    if offset[0] > offset[1]:
+        raise ValueError(f"{axis}: low must not be above high, got {offset!r}")
+    if len(offset) == 3 and offset[2] <= 0:
+        raise ValueError(f"{axis}: step must be above 0, got {offset!r}")
+    return offset
 
 
 def happens(p: float) -> bool:
@@ -218,13 +231,19 @@ class Augmentation:
 class AxisAugmentation(Augmentation):
     """Base class of `Translation`, `Rotation` and `Scale`, sampled per axis.
 
-    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`.
+    Each axis is a number `v`, sampled from `(-v, v)`, a pair `(low, high)`, or a
+    triple `(low, high, step)`, which picks one of `low`, `low + step`, ... up to
+    `high`, each equally likely.
 
     Args:
         x: offset on the X axis.
         y: offset on the Y axis.
         z: offset on the Z axis.
         p: probability of applying the augmentation.
+
+    Raises:
+        ValueError: an axis is not a number, a pair or a triple, low is above high, or
+            the step is not above 0.
 
     Attributes:
         actual_x (float | None): value sampled for X in the last call, None when skipped.
@@ -236,9 +255,9 @@ class AxisAugmentation(Augmentation):
 
     def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0):
         super().__init__(p)
-        self.x = x
-        self.y = y
-        self.z = z
+        self.x = check_offset(x, "x")
+        self.y = check_offset(y, "y")
+        self.z = check_offset(z, "z")
         self.actual_x: Optional[float] = None
         self.actual_y: Optional[float] = None
         self.actual_z: Optional[float] = None
@@ -255,7 +274,8 @@ class AxisAugmentation(Augmentation):
 class Translation(AxisAugmentation):
     """Moves the object by a random offset per axis, in Blender units.
 
-    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`.
+    Each axis is a number `v`, sampled from `(-v, v)`, a pair `(low, high)`, or a
+    triple `(low, high, step)` for one of `low`, `low + step`, ... up to `high`.
     The offset is added to the location.
 
     Args:
@@ -267,6 +287,7 @@ class Translation(AxisAugmentation):
     Example:
         ```python
         augmentations.Translation(x=0.5, y=0.5, z=(0, 1))
+        augmentations.Translation(x=(-1, 1, 0.5))   # -1, -0.5, 0, 0.5 or 1
         ```
     """
 
@@ -280,8 +301,13 @@ class Translation(AxisAugmentation):
 class Rotation(AxisAugmentation):
     """Rotates the object by a random angle per axis, in degrees.
 
-    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`. The
-    angle is added to the rotation, in euler, quaternion and axis-angle modes.
+    Each axis is a number `v`, sampled from `(-v, v)`, a pair `(low, high)`, or a
+    triple `(low, high, step)` for one of `low`, `low + step`, ... up to `high`, each
+    equally likely. The angle is added to the rotation, in euler, quaternion and
+    axis-angle modes.
+
+    For whole turns in steps, leave out the last step: `(0, 270, 90)`, not
+    `(0, 360, 90)`, where 360 is the same as 0 and would make it twice as likely.
 
     Args:
         x: angle around X in degrees.
@@ -292,6 +318,9 @@ class Rotation(AxisAugmentation):
     Example:
         ```python
         augmentations.Rotation(z=180)          # any heading
+        augmentations.Rotation(z=(0, 270, 90))  # 0, 90, 180 or 270 degrees
+        # tilted by -30, -15, 0, 15 or 30 degrees, and turned in 45 degree steps
+        augmentations.Rotation(x=(-30, 30, 15), z=(0, 315, 45))
         ```
     """
 
@@ -305,7 +334,8 @@ class Rotation(AxisAugmentation):
 class Scale(AxisAugmentation):
     """Scales the object by a random percentage per axis.
 
-    Each axis is a number `v`, sampled from `(-v, v)`, or a pair `(low, high)`, in
+    Each axis is a number `v`, sampled from `(-v, v)`, a pair `(low, high)`, or a
+    triple `(low, high, step)` for one of `low`, `low + step`, ... up to `high`, in
     percent: the scale is multiplied by `1 + sample / 100`.
 
     Args:

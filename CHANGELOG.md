@@ -8,6 +8,11 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- Stepped values in `Translation`, `Rotation` and `Scale`: an axis can be
+  `(low, high, step)`, which picks one of `low`, `low + step`, ... up to `high`, e.g.
+  `Rotation(z=(0, 270, 90))` for 0, 90, 180 or 270 degrees. An invalid axis (low above
+  high, a step of 0 or less) raises a `ValueError` when the augmentation is created.
+
 - `otherwise` on `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
   `DepthOfField`: the value to set when the augmentation doesn't run because of its `p`,
   e.g. `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `FocalLength((24, 85), p=0.3,

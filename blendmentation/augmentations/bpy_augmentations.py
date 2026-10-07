@@ -14,10 +14,15 @@ def sample(value_range):
 
     Args:
         value_range (float | tuple): a single number ``v`` samples from (-v, v),
-            a pair ``(low, high)`` samples from (low, high)
+            a pair ``(low, high)`` samples from (low, high), a triple
+            ``(low, high, step)`` picks one of low, low + step, ... up to high
     """
     if isinstance(value_range, (int, float)):
         return random.uniform(-value_range, value_range)
+    if len(value_range) == 3:
+        low, high, step = value_range
+        # the small tolerance keeps high when (high - low) / step is a whole number
+        return low + step * random.randint(0, math.floor((high - low) / step + 1e-9))
     low, high = value_range
     return random.uniform(low, high)
 

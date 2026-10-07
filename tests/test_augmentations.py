@@ -473,3 +473,36 @@ def test_otherwise_not_set_when_compose_skipped(cube):
     obj = cube("Cube")
     A.Compose([A.Visibility(p=0)], p=0)([obj])
     assert not obj.hide_render
+
+
+def test_stepped_offsets(cube):
+    """(low, high, step) picks one of low, low + step, ... high, each about equally often."""
+    obj = cube("Cube")
+    rotation = A.Rotation(x=(-30, 30, 15), z=(0, 270, 90))
+    seen_x, seen_z = [], []
+    for _ in range(400):
+        rotation(obj)
+        seen_x.append(rotation.actual_x)
+        seen_z.append(rotation.actual_z)
+    assert set(seen_x) == {-30, -15, 0, 15, 30}
+    assert set(seen_z) == {0, 90, 180, 270}
+    assert all(60 < seen_z.count(angle) < 140 for angle in (0, 90, 180, 270))
+
+    # high is kept despite float steps, and a step that doesn't reach high stops below it
+    translation = A.Translation(x=(0, 0.3, 0.1), y=(0, 1, 0.4))
+    xs, ys = set(), set()
+    for _ in range(200):
+        translation(obj)
+        xs.add(round(translation.actual_x, 9))
+        ys.add(round(translation.actual_y, 9))
+    assert xs == {0, 0.1, 0.2, 0.3} and ys == {0, 0.4, 0.8}
+
+    obj.scale = (1, 1, 1)
+    A.Scale(x=(50, 50, 10))(obj)
+    assert obj.scale.x == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize("axis", [(0, 90, 0), (0, 90, -15), (90, 0, 15), (0, 1, 2, 3), ("a", 1), (0, None)])
+def test_offset_errors(axis):
+    with pytest.raises(ValueError):
+        A.Rotation(z=axis)

@@ -321,6 +321,8 @@ plant_aug = aug.Compose([
     aug.Visibility(p=0.7),
     # only half of the time; BOP needs fixed-size cars
     aug.Scale(x=10, y=10, z=10, p=0.5),
+    # one of 8 headings, 45 degrees apart: (low, high, step)
+    aug.Rotation(z=(0, 315, 45)),
 ])
 camera_aug = aug.Compose([
     aug.LookAt(

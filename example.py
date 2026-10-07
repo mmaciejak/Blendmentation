@@ -78,6 +78,7 @@ world_transforms = augmentations.Compose([
 clutter_transforms = augmentations.Compose([
     augmentations.Visibility(p=0.6),
     augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
+    augmentations.Rotation(z=(0, 270, 90)),  # (low, high, step): turned by 0, 90, 180 or 270 degrees
 ])
 
 # orbit the camera around both parts, always aimed at their center, zoom without changing
