@@ -12,11 +12,72 @@ your dataset as composed steps, in the style of torchvision / albumentations:
 
 **Documentation: [blendmentation.docs.csmx.eu](https://blendmentation.docs.csmx.eu/)**
 
+## Approach
+
+Blendmentation automates and augments ordinary Blender scenes, built with the workflows
+you already use. Instead of a custom function for every use case, the variation in your
+synthetic data generation (SDG) pipeline lives in Blender itself, in shader nodes and
+geometry nodes. Blendmentation randomizes it by changing their values (`Number`,
+`Vector`, `Boolean`, `Menu`, `Seed`), so whatever you can build with nodes, you can
+augment.
+
+A few augmentations are shortcuts for common setups, so a basic pipeline is quick and
+easy to get going: `KeepAbove`, `PlaceOn`, `LookAt`, `Material`, `FocalLength` and
+`DepthOfField`. The transforms (`Translation`, `Rotation`, `Scale`) are there for simple
+scenes, and for small changes outside of a geometry nodes setup. For cluttered scenes,
+we recommend placing the objects with geometry nodes instead.
+
+The generating step is different. Apart from the color render, producing training data
+(masks, bounding boxes, poses, labels) is not part of the usual Blender workflow, so
+Blendmentation does it itself.
+
 ## Requirements
 
 - Blender 4.0 or newer. It is tested on 4.0 and 5.2.
 - Nothing else. The code runs in Blender's bundled Python, and uses `numpy` and
   `OpenImageIO`, which ship with Blender.
+
+## Quick start
+
+A scene with two cars, "Car.001" and "Car.002", using the material "CarPaint":
+
+```python
+import bpy
+from blendmentation.augmentations import augmentations as aug
+from blendmentation.export import export
+from blendmentation.generating import generating as gen
+from blendmentation.state import state
+
+cars = [bpy.data.objects["Car.001"], bpy.data.objects["Car.002"]]
+classes = {"car": cars}
+
+# 1. augment
+objects_aug = aug.Compose([
+    aug.Translation(x=0.5, y=0.5),
+    aug.Rotation(z=180),
+    aug.Material("CarPaint", hue=(0, 1)),
+])
+
+# 2. what to save for every datapoint
+generator = gen.Compose([
+    gen.Render(),
+    gen.BBox(classes),
+    gen.Segmentation(classes),
+], path="//dataset", resolution=(640, 480))
+
+# 3. the scene state to go back to
+initial = state.State(cars)
+
+for _ in range(1000):
+    objects_aug(cars)
+    generator()
+    initial.restore()
+
+# 4. training-ready annotations
+export.coco("//dataset")
+```
+
+More examples, built up step by step, are in the [Quick start](https://blendmentation.docs.csmx.eu/quick-start/) of the docs.
 
 ## Installation
 
@@ -41,213 +102,9 @@ from there (this needs `git`). The `main` branch always holds the
   pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"
   ```
 
-## Quick start
-
-All snippets below start with these imports:
-
-```python
-import bpy
-from blendmentation.augmentations import augmentations as aug
-from blendmentation.export import export
-from blendmentation.generating import generating as gen
-from blendmentation.state import state
-```
-
-More setups, each built up step by step (a material with shader nodes, an HDRI
-world), are in the [Quick start](https://blendmentation.docs.csmx.eu/#quick-start) of the
-docs.
-
-### Chained transform augmentations
-
-The scene has a milk carton "Milk Box" standing on a floor "Floor", with its rotation at
-(0, 0, 0). We want about 80% of the datapoints with the carton standing up, with a
-random heading and position, and about 20% with it lying on its side. The first
-`Compose` handles the standing carton, and its `p=0.8` sets how often it runs. The second
-one lays the carton down: a single `Rotation` tips it over around X and picks the side it
-lies on with a stepped Y rotation, which turns it around its long axis, and `PlaceOn`,
-after the transforms, moves it up or down until it rests on the floor. The generating
-`Compose` saves the image, its bounding boxes, and `BBoxImage`, a copy of the image with
-the boxes drawn on it. The loop uses the lying-down augmentation only when the standing
-one didn't happen: `applied` tells whether the last call of a `Compose` ran. `State`
-restores the carton after every datapoint.
-
-```python
-milk_box = bpy.data.objects["Milk Box"]
-floor = bpy.data.objects["Floor"]
-
-# standing on its base: any heading, moved on the floor
-standing_aug = aug.Compose([
-    aug.Rotation(z=180),
-    aug.Translation(x=0.5, y=0.5),
-], p=0.8)
-
-# lying on one of its four sides
-lying_aug = aug.Compose([
-    # tipped over around X, turned around its long axis in 90 degree
-    # steps (which side is down), any heading
-    aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
-    aug.Translation(x=0.5, y=0.5),
-    # after the transforms: sets it down on the floor
-    aug.PlaceOn(floor),
-])
-
-generator = gen.Compose(
-    [
-        gen.Render(),
-        gen.BBox({"milk_box": [milk_box]}),
-        # a copy of the image with the boxes drawn, to check them
-        gen.BBoxImage(),
-    ],
-    path="//dataset",
-    resolution=(640, 480),
-)
-
-initial = state.State([milk_box])
-
-for _ in range(100):
-    standing_aug([milk_box])
-    # the 20% where it isn't standing
-    if not standing_aug.applied:
-        lying_aug([milk_box])
-    generator()
-    initial.restore()
-```
-
-<img src="docs/images/carton-bboxes.jpg" alt="Three BBoxImage previews of the milk carton, standing and lying, with its box drawn" width="100%">
-
-### Full example
-
-The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
-class and may hide them, a floor "Floor" with pebbles scattered on it by a geometry nodes group
-"Scatter", a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
-shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
-(Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
-is next to the .blend file.
-
-```python
-car_1 = bpy.data.objects["Car.001"]
-car_2 = bpy.data.objects["Car.002"]
-table = [bpy.data.objects["TableTop"], bpy.data.objects["TableLegs"]]
-plant = bpy.data.objects["Plant"]
-floor = bpy.data.objects["Floor"]
-lamp = bpy.data.objects["Light"]
-camera = bpy.context.scene.camera
-scatter = bpy.data.node_groups["Scatter"]
-
-# 1. augmentations, applied to every object in the list
-keep_above = aug.KeepAbove(floor, margin=0.01)
-objects_aug = aug.Compose([
-    aug.Translation(x=0.5, y=0.5),
-    aug.Rotation(z=180),
-    aug.Material(
-        "CarPaint",
-        hue=(0, 1),
-        saturation=(0.5, 1),
-        roughness=(0.1, 0.6),
-    ),
-    # after the transforms: lifts the cars out of the floor
-    keep_above,
-])
-lamp_aug = aug.Compose([
-    aug.Number("data.energy", value_range=(600, 1400)),
-    aug.Vector("data.color", value_range=(0.8, 1.0)),
-    aug.Menu("data.type", options=["POINT", "SPOT"]),
-    aug.Boolean("data.use_shadow", p=0.8),
-])
-plant_aug = aug.Compose([
-    # in the render 70% of the time, labels follow
-    aug.Visibility(p=0.7),
-    # only half of the time; BOP needs fixed-size cars
-    aug.Scale(x=10, y=10, z=10, p=0.5),
-    # one of 8 headings, 45 degrees apart: (low, high, step)
-    aug.Rotation(z=(0, 315, 45)),
-])
-# a new random value for every seed in the node group
-scatter_seed = aug.Seed(scatter)
-camera_aug = aug.Compose([
-    aug.LookAt(
-        [car_1, car_2],
-        distance=(6, 12),
-        elevation=(10, 45),
-        azimuth=(0, 360),
-    ),
-    aug.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
-    # blurred in half of the images, sharp in the others
-    aug.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),
-])
-
-# 2. what to save for every datapoint
-classes = {
-    "car": [car_1, car_2],
-    # wins over the BBox argument
-    "table": {"instances": [table], "max_truncation": 0.8},
-}
-steps = [
-    gen.Render(),
-    # random background behind the render
-    gen.Background(
-        weights={
-            "color": 1,
-            "white_noise": 1,
-            "color_noise": 1,
-            "image": 2,
-        },
-        images_path="//backgrounds",
-    ),
-    gen.AOVToImage(["Albedo"]),
-    gen.Passes(["Depth", "Normal"]),
-    gen.BBox(
-        classes,
-        iou_deconflict=0.5,
-        max_truncation=0.3,
-        max_occlusion=0.5,
-    ),
-    # copy of the image with the boxes drawn, to check them
-    gen.BBoxImage(),
-    gen.Segmentation(
-        classes,
-        per="both",
-        skip_empty=True,  # no file for empty masks
-        full_masks=True,  # + masks ignoring occlusion, for BOP
-    ),
-    # copy of the image with the masks drawn
-    gen.SegmentationImage(),
-    gen.RotationMatrix([car_1, car_2]),
-    # 6D pose of every instance, OpenCV camera axes
-    gen.Pose(classes),
-    gen.CameraData(),
-    gen.Keypoints({"car_1": car_1, "car_1_corner": (car_1, 0)}),
-    gen.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
-]
-generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
-
-# 3. the scene state to go back to after every datapoint
-initial = state.State(
-    [car_1, car_2, plant, lamp, camera, scatter],
-    fields=objects_aug.augmentations + lamp_aug.augmentations,
-)
-
-for _ in range(1000):
-    objects_aug([car_1, car_2])
-    # the whole Compose 70% of the time
-    lamp_aug([lamp], p=0.7)
-    plant_aug([plant])
-    camera_aug([camera])
-    scatter_seed()
-    # extra label key: how far each car was lifted
-    generator({"lift": keep_above.results})
-    initial.restore()
-
-# 4. training-ready annotations
-export.coco("//dataset")
-# boxes of the visible pixels, from the masks
-export.yolo("//dataset", bbox_from="mask")
-# 6D pose: poses, masks, depth
-export.bop("//dataset")
-```
-
 ## Documentation
 
+- [Quick start](https://blendmentation.docs.csmx.eu/quick-start/): examples built up step by step, and a full example with every feature.
 - [Installation](https://blendmentation.docs.csmx.eu/installation/): inside Blender, or as a Python module.
 - [Augmentations](https://blendmentation.docs.csmx.eu/augmentations/): transforms, camera, materials and any value by data path.
 - [State](https://blendmentation.docs.csmx.eu/state/): saving and restoring the scene.
