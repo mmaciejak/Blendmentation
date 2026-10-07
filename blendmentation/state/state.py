@@ -18,16 +18,20 @@ class State:
 
     - the transforms;
     - the render visibility (`hide_render`);
-    - all unlinked node input values of its materials;
+    - the whole node tree of its materials: every node's settings (e.g. a Math
+      node's operation, muting), its input and output values (Value and RGB nodes
+      keep theirs on the output), color ramp stops, curve points, images, and the
+      nodes inside node groups;
     - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
       `focus_distance`, `aperture_fstop`).
 
     `objects` can also hold a World (or another datablock with a node tree, such as a
-    material or light data). For those it saves the unlinked node input values, and
-    relative paths in `fields` resolve on them too.
+    material or light data). For those it saves the whole node tree, and relative
+    paths in `fields` resolve on them too.
 
     It also saves the value at every data path in `fields`. A data path augmentation
-    that isn't passed in `fields` is not restored.
+    that changes something outside of these (a light's energy, a shape key) is only
+    restored when it is passed in `fields`.
 
     Args:
         objects: objects to save, and worlds or other datablocks with a node tree.

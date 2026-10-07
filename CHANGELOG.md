@@ -9,9 +9,16 @@ All notable changes to Blendmentation. The format follows
 ### Added
 
 - `state.State` takes a World (or another datablock with a node tree, such as a material)
-  in `objects`: it saves and restores its unlinked node input values, and relative paths
-  in `fields` resolve on it. Pass the world to a `Compose` to augment it with relative
-  data paths, e.g. `world_aug([bpy.context.scene.world])`.
+  in `objects`: it saves and restores its node tree, and relative paths in `fields`
+  resolve on it. Pass the world to a `Compose` to augment it with relative data paths,
+  e.g. `world_aug([bpy.context.scene.world])`.
+
+### Changed
+
+- `state.State` restores the whole node tree of materials (and of worlds), not only the
+  unlinked input values: node settings such as a Math node's operation or muting, the
+  values of Value, RGB and Vector nodes, color ramp stops, curve points, images, and
+  the nodes inside node groups. Augmentations of these no longer need `fields`.
 
 ## [0.6.0] - 2026-10-07
 

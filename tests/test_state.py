@@ -108,3 +108,54 @@ def test_restore_world(cube):
     assert background.inputs["Strength"].default_value == pytest.approx(strength)
     assert bpy_paths.get_value(rotation, world) == pytest.approx(0)
     assert obj.location.x == pytest.approx(0)
+
+
+def test_restore_whole_material(cube):
+    """Node settings, output values (Value nodes), color ramp stops, curve points, images,
+    muting and node groups are restored, not only the input values."""
+    obj = cube("Cube")
+    material = new_material(obj, "Mat")
+    nodes = material.node_tree.nodes
+    value = nodes.new("ShaderNodeValue")
+    value.outputs[0].default_value = 0.5
+    math = nodes.new("ShaderNodeMath")
+    ramp = nodes.new("ShaderNodeValToRGB")
+    curves = nodes.new("ShaderNodeRGBCurve")
+    texture = nodes.new("ShaderNodeTexImage")
+    image = bpy.data.images.new("Image", 4, 4)
+    texture.image = image
+    group = bpy.data.node_groups.new("Group", "ShaderNodeTree")
+    group_math = group.nodes.new("ShaderNodeMath")
+    group_node = nodes.new("ShaderNodeGroup")
+    group_node.node_tree = group
+    vector = None
+    try:
+        vector = nodes.new("FunctionNodeInputVector")  # shader nodes only from blender 5
+    except RuntimeError:
+        pass
+
+    initial = state.State([obj])
+    value.outputs[0].default_value = 0.9
+    math.operation = "POWER"
+    math.mute = True
+    ramp.color_ramp.elements[1].position = 0.3
+    ramp.color_ramp.elements[0].color = (1, 0, 0, 1)
+    curves.mapping.curves[3].points[1].location = (1, 0.2)
+    texture.image = bpy.data.images.new("Other", 4, 4)
+    group_math.operation = "SINE"
+    group_math.inputs[1].default_value = 7
+    if vector is not None:
+        vector.vector = (1, 2, 3)
+    initial.restore()
+
+    assert value.outputs[0].default_value == pytest.approx(0.5)
+    assert math.operation == "ADD"
+    assert not math.mute
+    assert ramp.color_ramp.elements[1].position == pytest.approx(1)
+    assert tuple(ramp.color_ramp.elements[0].color) == pytest.approx((0, 0, 0, 1))
+    assert tuple(curves.mapping.curves[3].points[1].location) == pytest.approx((1, 1))
+    assert texture.image == image
+    assert group_math.operation == "ADD"
+    assert group_math.inputs[1].default_value == pytest.approx(0.5)
+    if vector is not None:
+        assert tuple(vector.vector) == pytest.approx((0, 0, 0))
