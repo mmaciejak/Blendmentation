@@ -86,7 +86,8 @@ camera_transforms = augmentations.Compose(
     [
         augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360), roll=(-5, 5)),
         augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True),
-        augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), p=0.5),
+        # blurred in half of the datapoints; otherwise=False turns it off in the others
+        augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),
     ]
 )
 

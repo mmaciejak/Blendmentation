@@ -138,7 +138,7 @@ world_aug = augmentations.Compose([                        # call it with [world
 camera_aug = augmentations.Compose([
     augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
-    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5),          # after LookAt/FocalLength
+    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),  # after LookAt/FocalLength; sharp otherwise
 ])
 
 scene = bpy.context.scene
@@ -275,6 +275,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
   `FocalLength`, `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number.
+- **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength`,
+  `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
+  `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `DepthOfField(car, p=0.5, otherwise=False)`
+  (sharp in the other half). None keeps the value; `Boolean` and `Visibility` default to
+  False (hidden). Not with `FocalLength(keep_size=True)`. A skipped `Compose` sets nothing.
 - **What an augmentation did**: `aug.actual` (`actual_x/y/z`) and `aug.applied` describe
   only the last call, so after a `Compose` call only its last object. `aug.results` is
   `{object name: actual}` for every object of the last `Compose` call (`(x, y, z)` for

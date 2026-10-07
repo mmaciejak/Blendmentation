@@ -3,7 +3,8 @@
 `Compose` applies a list of augmentations to every object it is called with. Each
 augmentation takes `p`, the probability that it runs, drawn per object. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
-it set. Each call overwrites them, so after a `Compose` call they describe only the
+it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
+`DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
@@ -42,6 +43,16 @@ def check_p(p: float) -> float:
     if not 0 <= p <= 1:
         raise ValueError("p must be between 0 and 1")
     return p
+
+
+def is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def check_otherwise(otherwise: Any, valid: bool, expected: str) -> Any:
+    if otherwise is not None and not valid:
+        raise ValueError(f"otherwise must be {expected} or None, got {otherwise!r}")
+    return otherwise
 
 
 def happens(p: float) -> bool:
@@ -124,10 +135,15 @@ class Augmentation:
     """Base class of the augmentations.
 
     It runs with probability `p`, drawn on every call, so once per object in a
-    `Compose`. A skipped augmentation leaves the object unchanged. `Boolean` is the
-    exception, it sets False when skipped, and so is `Visibility`, it hides the object.
+    `Compose`. A skipped augmentation leaves the object unchanged, unless it has an
+    `otherwise` value: then it sets that. `Number`, `Vector`, `Boolean`, `Menu`,
+    `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
+    the value) by default, except for `Boolean` (False) and `Visibility` (hidden).
+    A `Compose` skipped by its own `p` runs none of its augmentations, so their
+    `otherwise` isn't set either.
 
-    Subclasses implement `apply(obj)` and store what they sampled in `actual`.
+    Subclasses implement `apply(obj)` and store what they sampled in `actual`, and
+    `set_otherwise(obj)` when they take `otherwise`.
 
     `applied` and `actual` (`actual_x/y/z` for `Translation`, `Rotation` and `Scale`)
     describe only the last call. A `Compose` calls each augmentation once per object,
@@ -135,8 +151,8 @@ class Augmentation:
     `a` and `b` were overwritten. `results` keeps them for every object: each call
     stores its `actual` under the object's name (`None` for a call without an object,
     e.g. an absolute data path), and `Translation`, `Rotation` and `Scale` store
-    `(x, y, z)`. A skipped call stores what it set, which is `None` for most
-    augmentations (`False` for `Boolean` and `Visibility`). A `Compose` call clears
+    `(x, y, z)`. A skipped call stores what it set: its `otherwise` value, or `None`
+    when it left the value unchanged. A `Compose` call clears
     `results` first; direct calls add to it, so clear it yourself
     (`aug.results.clear()`) when you call an augmentation in your own loop.
 
@@ -145,7 +161,8 @@ class Augmentation:
 
     Attributes:
         applied (bool | None): whether the last call applied it.
-        actual (Any): the values set by the last call, None when it was skipped.
+        actual (Any): the values set by the last call, None when it was skipped
+            and left the value unchanged.
         results (dict[str | None, Any]): the values set for each object, by object
             name, since the last `Compose` call (or since it was cleared).
 
@@ -163,8 +180,9 @@ class Augmentation:
         ```
     """
 
-    def __init__(self, p: float = 1.0):
+    def __init__(self, p: float = 1.0, otherwise: Any = None):
         self.p = check_p(p)
+        self.otherwise = otherwise
         self.applied: Optional[bool] = None
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
@@ -190,7 +208,11 @@ class Augmentation:
         raise NotImplementedError
 
     def skip(self, obj: Optional[Object]) -> None:
-        self.actual = None
+        self.actual = None if self.otherwise is None else self.set_otherwise(obj)
+
+    def set_otherwise(self, obj: Optional[Object]) -> Any:
+        """Sets the `otherwise` value, and returns what is stored in `actual`."""
+        raise NotImplementedError
 
 
 class AxisAugmentation(Augmentation):
@@ -320,10 +342,13 @@ class Visibility(Augmentation):
 
     Args:
         p: probability that the object is visible.
+        otherwise: what happens the rest of the time: False hides the object, None
+            leaves its visibility unchanged.
 
     Attributes:
-        actual (bool | None): whether the last call made the object visible. In a
-            `Compose` that is the last object; `results` has every object.
+        actual (bool | None): whether the last call made the object visible, None when
+            it left it unchanged. In a `Compose` that is the last object; `results` has
+            every object.
 
     Example:
         ```python
@@ -331,11 +356,14 @@ class Visibility(Augmentation):
         distractors_aug([box_1, box_2, box_3])   # each one in about 70 % of the images
         visibility = distractors_aug.augmentations[0]
         visible = [name for name, shown in visibility.results.items() if shown]
+
+        # shown in 70 % of the images, otherwise as it is in the scene
+        augmentations.Visibility(p=0.7, otherwise=None)
         ```
     """
 
-    def __init__(self, p: float = 0.5):
-        super().__init__(p)
+    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False):
+        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
 
     def apply(self, obj: Optional[Object]) -> None:
         """Args:
@@ -343,8 +371,8 @@ class Visibility(Augmentation):
         """
         self.actual = bpy_a.visibility(obj, True)
 
-    def skip(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.visibility(obj, False)
+    def set_otherwise(self, obj: Optional[Object]) -> bool:
+        return bpy_a.visibility(obj, self.otherwise)
 
 
 class KeepAbove(Augmentation):
@@ -480,21 +508,27 @@ class FocalLength(Augmentation):
             or a point `(x, y, z)`. Needed for `keep_size`.
         keep_size: move the camera so the target keeps its size in the image.
         p: probability of applying the augmentation.
+        otherwise: lens in mm to set when it doesn't run, None keeps the lens. Not
+            with `keep_size`.
 
     Raises:
-        ValueError: `keep_size` without a `target`.
+        ValueError: `keep_size` without a `target`, or `otherwise` with `keep_size`.
 
     Example:
         ```python
         augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True)
+        # a random lens in 30 % of the images, otherwise 50 mm
+        augmentations.FocalLength((24, 85), p=0.3, otherwise=50)
         ```
     """
 
     def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
-                 p: float = 1.0):
-        super().__init__(p)
+                 p: float = 1.0, otherwise: Optional[float] = None):
+        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"))
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
+        if keep_size and otherwise is not None:
+            raise ValueError("otherwise can't be used with keep_size")
         self.focal_length = focal_length
         self.target = target
         self.keep_size = keep_size
@@ -504,6 +538,9 @@ class FocalLength(Augmentation):
         camera obj (bpy.object.type == 'CAMERA') : camera to augment
         """
         self.actual = bpy_a.focal_length(obj, self.focal_length, self.target, self.keep_size)
+
+    def set_otherwise(self, obj: Optional[Object]) -> dict[str, float]:
+        return bpy_a.focal_length(obj, self.otherwise, None, False)
 
 
 class DepthOfField(Augmentation):
@@ -517,18 +554,25 @@ class DepthOfField(Augmentation):
             point `(x, y, z)` to focus on. None keeps the current focus.
         f_stop: aperture f-stop, a `(min, max)` range or an exact number, lower gives
             more blur. None keeps the current one.
-        p: probability of applying the augmentation. When skipped, the depth of field
-            settings are left unchanged, so with depth of field off in the scene only
-            some images are blurred.
+        p: probability of applying the augmentation.
+        otherwise: what happens the rest of the time: False turns depth of field off,
+            None leaves the depth of field settings unchanged.
+
+    Attributes:
+        actual (dict | bool | None): `{"f_stop", "focus_distance"}` set by the last
+            call, False when it turned depth of field off, None when it left it
+            unchanged.
 
     Example:
         ```python
-        augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5)
+        # blurred in half of the images, sharp in the others
+        augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False)
         ```
     """
 
-    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None, p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None, p: float = 1.0,
+                 otherwise: Optional[bool] = None):
+        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"))
         self.target = target
         self.f_stop = f_stop
 
@@ -537,6 +581,9 @@ class DepthOfField(Augmentation):
         camera obj (bpy.object.type == 'CAMERA') : camera to augment
         """
         self.actual = bpy_a.depth_of_field(obj, self.target, self.f_stop)
+
+    def set_otherwise(self, obj: Optional[Object]) -> bool:
+        return bpy_a.disable_depth_of_field(obj)
 
 
 class Material(Augmentation):
@@ -607,6 +654,7 @@ class Number(Augmentation):
             the object (or the World, material… passed in its place). Use `[index]` for one vector component, e.g. `'location[2]'`.
         value_range: `(min, max)` range of the new value.
         p: probability of applying the augmentation.
+        otherwise: value to set when it doesn't run, None keeps the value.
 
     !!! info "Use it inside a Compose"
         With an absolute path (starting with `bpy.`) it doesn't use the object passed
@@ -618,11 +666,15 @@ class Number(Augmentation):
         ```python
         augmentations.Number("data.energy", value_range=(600, 1400))
         augmentations.Number('data.shape_keys.key_blocks["Smile"].value', value_range=(0, 1))
+        # rust in 20 % of the images, none in the others
+        augmentations.Number('node_tree.nodes["Rust"].outputs[0].default_value',
+                             value_range=(0.5, 1), p=0.2, otherwise=0)
         ```
     """
 
-    def __init__(self, data_path: str, value_range: tuple[float, float], p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, data_path: str, value_range: tuple[float, float], p: float = 1.0,
+                 otherwise: Optional[float] = None):
+        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"))
         self.data_path = data_path
         self.value_range = value_range
 
@@ -631,6 +683,9 @@ class Number(Augmentation):
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
         self.actual = bpy_a.number(obj, self.data_path, self.value_range)
+
+    def set_otherwise(self, obj: Optional[Object]) -> float:
+        return bpy_a.number(obj, self.data_path, (self.otherwise, self.otherwise))
 
 
 class Vector(Augmentation):
@@ -645,6 +700,8 @@ class Vector(Augmentation):
             the object (or the World, material… passed in its place).
         value_range: `(min, max)` bounds of the new values.
         p: probability of applying the augmentation.
+        otherwise: vector to set when it doesn't run, a number for all components or
+            one value per component (None keeps that component). None keeps the vector.
 
     !!! info "Use it inside a Compose"
         With an absolute path (starting with `bpy.`) it doesn't use the object passed
@@ -660,11 +717,17 @@ class Vector(Augmentation):
             'bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value',
             value_range=((0, 0, 0, None), (1, 1, 1, None)),
         )
+        # a random offset in half of the images, no offset in the others
+        augmentations.Vector('node_tree.nodes["Offset"].vector', value_range=(-1, 1), p=0.5, otherwise=0)
         ```
     """
 
-    def __init__(self, data_path: str, value_range: tuple[Bound, Bound], p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, data_path: str, value_range: tuple[Bound, Bound], p: float = 1.0,
+                 otherwise: Optional[Bound] = None):
+        valid = is_number(otherwise) or (
+            isinstance(otherwise, Sequence) and not isinstance(otherwise, str)
+            and all(value is None or is_number(value) for value in otherwise))
+        super().__init__(p, check_otherwise(otherwise, valid, "a number or one value per component"))
         self.data_path = data_path
         self.value_range = value_range
 
@@ -674,10 +737,13 @@ class Vector(Augmentation):
         """
         self.actual = bpy_a.vector(obj, self.data_path, self.value_range)
 
+    def set_otherwise(self, obj: Optional[Object]) -> tuple:
+        return bpy_a.vector(obj, self.data_path, (self.otherwise, self.otherwise))
+
 
 class Boolean(Augmentation):
     """Sets any boolean value, given by its data path, to True with probability `p`,
-    otherwise to False.
+    otherwise to `otherwise` (False by default).
 
     For geometry nodes switches, object visibility, modifier toggles and so on.
 
@@ -685,6 +751,7 @@ class Boolean(Augmentation):
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
             the object (or the World, material… passed in its place).
         p: probability of True.
+        otherwise: value to set the rest of the time, None keeps the value.
 
     !!! info "Use it inside a Compose"
         With an absolute path (starting with `bpy.`) it doesn't use the object passed
@@ -694,11 +761,13 @@ class Boolean(Augmentation):
     Example:
         ```python
         augmentations.Boolean("data.use_shadow", p=0.8)
+        # turned on in 30 % of the images, otherwise as it is in the scene
+        augmentations.Boolean("data.use_shadow", p=0.3, otherwise=None)
         ```
     """
 
-    def __init__(self, data_path: str, p: float = 0.5):
-        super().__init__(p)
+    def __init__(self, data_path: str, p: float = 0.5, otherwise: Optional[bool] = False):
+        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
         self.data_path = data_path
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -707,8 +776,8 @@ class Boolean(Augmentation):
         """
         self.actual = bpy_a.boolean(obj, self.data_path, True)
 
-    def skip(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.boolean(obj, self.data_path, False)
+    def set_otherwise(self, obj: Optional[Object]) -> bool:
+        return bpy_a.boolean(obj, self.data_path, self.otherwise)
 
 
 class Menu(Augmentation):
@@ -724,6 +793,8 @@ class Menu(Augmentation):
             Blender doesn't list them, e.g. for menu sockets not on a Menu Switch node.
         weights: relative probability of each option. None = equal.
         p: probability of applying the augmentation.
+        otherwise: option to set when it doesn't run, None keeps the value. It doesn't
+            have to be one of `options`.
 
     Raises:
         ValueError: the number of weights and options differ.
@@ -736,12 +807,14 @@ class Menu(Augmentation):
     Example:
         ```python
         augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1])
+        # a spot or area light in 30 % of the images, a point light in the others
+        augmentations.Menu("data.type", options=["SPOT", "AREA"], p=0.3, otherwise="POINT")
         ```
     """
 
     def __init__(self, data_path: str, options: Optional[Sequence[Any]] = None,
-                 weights: Optional[Sequence[float]] = None, p: float = 1.0):
-        super().__init__(p)
+                 weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None):
+        super().__init__(p, otherwise)
         if options is not None and weights is not None and len(options) != len(weights):
             raise ValueError("Give one weight per option")
         self.data_path = data_path
@@ -753,3 +826,6 @@ class Menu(Augmentation):
         obj (bpy.object) : Object relative paths start from, not needed for absolute paths
         """
         self.actual = bpy_a.menu(obj, self.data_path, self.options, self.weights)
+
+    def set_otherwise(self, obj: Optional[Object]) -> Any:
+        return bpy_a.menu(obj, self.data_path, [self.otherwise], None)

@@ -8,6 +8,14 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `otherwise` on `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
+  `DepthOfField`: the value to set when the augmentation doesn't run because of its `p`,
+  e.g. `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `FocalLength((24, 85), p=0.3,
+  otherwise=50)` or `DepthOfField(target, p=0.5, otherwise=False)` (depth of field off).
+  None keeps the value, the default except for `Boolean` (False) and `Visibility`
+  (hidden), which work as before. `Boolean(..., otherwise=None)` and
+  `Visibility(..., otherwise=None)` leave the value unchanged instead.
+
 - `state.State` takes a World (or another datablock with a node tree, such as a material)
   in `objects`: it saves and restores its node tree, and relative paths in `fields`
   resolve on it. Pass the world to a `Compose` to augment it with relative data paths,

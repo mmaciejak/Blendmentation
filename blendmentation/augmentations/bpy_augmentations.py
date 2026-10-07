@@ -263,6 +263,17 @@ def depth_of_field(obj, target, f_stop):
     return {"f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
 
 
+def disable_depth_of_field(obj):
+    """Turns depth of field off, the focus and f-stop settings are kept.
+
+    Returns:
+        bool: False, depth of field is off
+    """
+    check_camera(obj)
+    obj.data.dof.use_dof = False
+    return False
+
+
 def is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 

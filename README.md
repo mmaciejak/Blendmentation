@@ -103,9 +103,10 @@ material_aug = aug.Compose([
 <p align="center"><img src="docs/images/material-surface.jpg" alt="Three renders with different surface damage" width="480"></p>
 
 With `p` you control the probability of an augmentation, here how often rust appears
-in the dataset.
+in the dataset. `otherwise` is the value set the rest of the time, here no rust; without
+it the value stays as it is.
 
-```python hl_lines="15-20"
+```python hl_lines="15-21"
 material = bpy.data.materials["Cube Material"]
 
 # the paths are relative to the material
@@ -120,11 +121,12 @@ material_aug = aug.Compose([
         'node_tree.nodes["Surface Damage"].outputs[0].default_value',
         value_range=(0, 1),
     ),
-    # rust in 20% of the images, and then clearly visible
+    # rust in 20% of the images, clearly visible; none in the others
     aug.Number(
         'node_tree.nodes["Rust Amount"].outputs[0].default_value',
         value_range=(0.5, 1),
         p=0.2,
+        otherwise=0,
     ),
 ])
 ```
@@ -135,7 +137,7 @@ To render the images, and a mask of the rust we just added, we can use a setup l
 this. The rust factor goes to an AOV Output "rust" (Value), and a Value AOV "rust" is
 added in View Layer Properties → Passes → Shader AOV. The engine is Cycles or EEVEE.
 
-```python hl_lines="22-30"
+```python hl_lines="23-31"
 material = bpy.data.materials["Cube Material"]
 
 # the paths are relative to the material
@@ -150,11 +152,12 @@ material_aug = aug.Compose([
         'node_tree.nodes["Surface Damage"].outputs[0].default_value',
         value_range=(0, 1),
     ),
-    # rust in 20% of the images, and then clearly visible
+    # rust in 20% of the images, clearly visible; none in the others
     aug.Number(
         'node_tree.nodes["Rust Amount"].outputs[0].default_value',
         value_range=(0.5, 1),
         p=0.2,
+        otherwise=0,
     ),
 ])
 generator = gen.Compose(
@@ -171,7 +174,7 @@ generator = gen.Compose(
 Before we start generating, it is a good idea to save the state of the material, so it
 can be restored after every augmentation.
 
-```python hl_lines="31-32"
+```python hl_lines="32-33"
 material = bpy.data.materials["Cube Material"]
 
 # the paths are relative to the material
@@ -186,11 +189,12 @@ material_aug = aug.Compose([
         'node_tree.nodes["Surface Damage"].outputs[0].default_value',
         value_range=(0, 1),
     ),
-    # rust in 20% of the images, and then clearly visible
+    # rust in 20% of the images, clearly visible; none in the others
     aug.Number(
         'node_tree.nodes["Rust Amount"].outputs[0].default_value',
         value_range=(0.5, 1),
         p=0.2,
+        otherwise=0,
     ),
 ])
 generator = gen.Compose(
@@ -209,7 +213,7 @@ initial = state.State([material])
 And now we can generate the images with the rust masks. The label lists each mask under
 `"aovs"`, and `None` for the images without rust.
 
-```python hl_lines="34-37"
+```python hl_lines="35-38"
 material = bpy.data.materials["Cube Material"]
 
 # the paths are relative to the material
@@ -224,11 +228,12 @@ material_aug = aug.Compose([
         'node_tree.nodes["Surface Damage"].outputs[0].default_value',
         value_range=(0, 1),
     ),
-    # rust in 20% of the images, and then clearly visible
+    # rust in 20% of the images, clearly visible; none in the others
     aug.Number(
         'node_tree.nodes["Rust Amount"].outputs[0].default_value',
         value_range=(0.5, 1),
         p=0.2,
+        otherwise=0,
     ),
 ])
 generator = gen.Compose(
@@ -350,7 +355,8 @@ camera_aug = aug.Compose([
         azimuth=(0, 360),
     ),
     aug.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
-    aug.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5),
+    # blurred in half of the images, sharp in the others
+    aug.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),
 ])
 
 # 2. what to save for every datapoint

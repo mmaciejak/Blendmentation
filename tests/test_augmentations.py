@@ -390,3 +390,86 @@ def test_results(cube):
     lift = A.Number('bpy.data.objects["Cube.0"].location[2]', value_range=(1, 2))
     lift()
     assert list(lift.results) == [None] and lift.results[None] == lift.actual
+
+
+def test_otherwise_data_paths(cube):
+    """A skipped data path augmentation sets otherwise, or keeps the value with None."""
+    obj, path = geonode_cube(cube)
+    light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
+    light.data.energy = 100
+
+    energy = A.Number("data.energy", value_range=(500, 600), p=0, otherwise=10)
+    energy(light)
+    assert energy.applied is False and energy.actual == 10 and light.data.energy == 10
+    kept = A.Number("data.energy", value_range=(500, 600), p=0)
+    kept(light)
+    assert kept.actual is None and light.data.energy == 10
+    count = A.Number(path("Count"), value_range=(1, 5), p=0, otherwise=7.4)
+    count(obj)
+    assert count.actual == 7 and bpy_paths.get_value(path("Count"), obj) == 7
+
+    color = A.Vector("data.color", value_range=(0, 1), p=0, otherwise=(1, None, 0.5))
+    light.data.color = (0.2, 0.3, 0.4)
+    color(light)
+    assert tuple(light.data.color) == pytest.approx((1, 0.3, 0.5))
+    A.Vector(path("Offset"), value_range=(2, 3), p=0, otherwise=0)(obj)
+    assert tuple(bpy_paths.get_value(path("Offset"), obj)) == (0, 0, 0)
+
+    light.data.use_shadow = True
+    A.Boolean("data.use_shadow", p=0)(light)       # default: False
+    assert not light.data.use_shadow
+    A.Boolean("data.use_shadow", p=0, otherwise=None)(light)
+    assert not light.data.use_shadow
+    A.Boolean("data.use_shadow", p=0, otherwise=True)(light)
+    assert light.data.use_shadow
+
+    menu = A.Menu("data.type", options=["SPOT", "AREA"], p=0, otherwise="SUN")
+    menu(light)
+    assert menu.actual == "SUN" and light.data.type == "SUN"
+    A.Menu("data.type", options=["SPOT", "AREA"], p=0)(light)
+    assert light.data.type == "SUN"
+
+
+def test_otherwise_objects_and_cameras(scene, cube):
+    obj = cube("Cube")
+    keep = A.Visibility(p=0, otherwise=None)
+    keep(obj)
+    assert keep.actual is None and not obj.hide_render
+    A.Visibility(p=0)(obj)                          # default: hidden
+    assert obj.hide_render
+
+    camera = scene.camera
+    camera.data.lens = 35
+    lens = A.FocalLength((24, 85), p=0, otherwise=50)
+    lens(camera)
+    assert camera.data.lens == 50 and lens.actual == {"focal_length": 50}
+
+    dof = camera.data.dof
+    dof.use_dof = True
+    off = A.DepthOfField(obj, f_stop=2, p=0, otherwise=False)
+    off(camera)
+    assert off.actual is False and not dof.use_dof
+    on = A.DepthOfField(obj, f_stop=2, p=1, otherwise=False)
+    on(camera)
+    assert dof.use_dof and on.actual["f_stop"] == pytest.approx(2)
+
+
+@pytest.mark.parametrize("make", [
+    lambda: A.Number("data.energy", value_range=(0, 1), otherwise="high"),
+    lambda: A.Number("data.energy", value_range=(0, 1), otherwise=True),
+    lambda: A.Vector("data.color", value_range=(0, 1), otherwise=(1, "a", 0)),
+    lambda: A.Boolean("data.use_shadow", otherwise=1),
+    lambda: A.Visibility(otherwise="hidden"),
+    lambda: A.FocalLength(50, otherwise=(24, 85)),
+    lambda: A.FocalLength(50, target=(0, 0, 0), keep_size=True, otherwise=50),
+    lambda: A.DepthOfField(otherwise=True),
+])
+def test_otherwise_errors(make):
+    with pytest.raises(ValueError):
+        make()
+
+
+def test_otherwise_not_set_when_compose_skipped(cube):
+    obj = cube("Cube")
+    A.Compose([A.Visibility(p=0)], p=0)([obj])
+    assert not obj.hide_render
