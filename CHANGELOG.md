@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-08
+
 ### Added
 
 - `generating.Instances(parent, of=None)` labels the instances that geometry nodes make on
@@ -199,7 +201,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.2...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.3...dev
+[0.7.3]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.6.0...v0.7.0
