@@ -418,6 +418,57 @@ Data Path gives them (`'bpy.data.worlds["World"].node_tree.nodes["Background"].i
 the same works, and the world doesn't have to be passed to `State`:
 `state.State([], fields=world_aug.augmentations)`.
 
+## Cluttered scene with geometry nodes
+
+For many objects, let geometry nodes build the scene and only change their seeds. Here
+a geometry nodes modifier on "Floor" (node group "Geometry Nodes") displaces the floor
+with a Noise Texture moved by a Random Value, scatters points on it with Distribute
+Points on Faces (Poisson Disk), and puts a random object from a collection on each point
+(Collection Info with Separate Children, Instance on Points with Pick Instance), then
+turns each instance with another Random Value. The collection holds the milk carton
+"Milk Box" and colored boxes, which are clutter and get no class.
+
+![Geometry nodes: Displace Geometry with a Noise Texture, Distribute Points on Faces, Instance on Points from a Collection Info, Rotate Instances with a Random Value](images/scatter-nodes.jpg)
+
+`Seed` gives every unlinked Seed input of the node group a new random value, so the
+floor shape, the points and the rotations change together. `Instances` labels every milk
+carton the floor's geometry nodes instance as its own instance of the class.
+
+```python
+floor = bpy.data.objects["Floor"]
+milk_box = bpy.data.objects["Milk Box"]
+geo_node_tree = bpy.data.node_groups["Geometry Nodes"]
+
+# a new random value for every seed in the node group
+nodes_aug = aug.Compose([aug.Seed(geo_node_tree)])
+
+# every milk carton instanced on the floor; the colored boxes have no class
+classes = {"milk_box": [gen.Instances(floor, of=milk_box)]}
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.Segmentation(classes),
+        # a copy of the image with the masks drawn, to check them
+        gen.SegmentationImage(),
+    ],
+    path="//dataset",
+    resolution=(640, 640),
+)
+# the node group holds the seeds
+initial = state.State([floor, geo_node_tree])
+
+for _ in range(100):
+    # Seed ignores the object, so it runs once
+    nodes_aug([floor])
+    generator()
+    initial.restore()
+```
+
+![Three renders of milk cartons and boxes scattered on a displaced floor](images/scatter-renders.jpg){ .full-width }
+
+![Three SegmentationImage previews with the milk carton masks drawn](images/scatter-segmentation.jpg){ .full-width }
+
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
