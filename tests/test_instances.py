@@ -18,7 +18,7 @@ def mask(out, file_name):
     return read_image(os.path.join(out, file_name), 0) > 0.5
 
 
-def scatter(name, source, points=POINTS, separate_children=True, ids=False):
+def scatter(name, source, points=POINTS, separate_children=True, ids=False, as_instance=True):
     """A mesh of loose points with geometry nodes instancing source (an object, as an instance,
     or a collection) on them. With a collection and separate_children, every point picks one
     of its objects in turn, otherwise every point gets the whole collection. With ids, the
@@ -42,7 +42,7 @@ def scatter(name, source, points=POINTS, separate_children=True, ids=False):
     else:
         info = nodes.new("GeometryNodeObjectInfo")
         info.inputs["Object"].default_value = source
-        info.inputs["As Instance"].default_value = True
+        info.inputs["As Instance"].default_value = as_instance
     points_output = group_input.outputs[0]
     if ids:
         store = nodes.new("GeometryNodeStoreNamedAttribute")
@@ -247,3 +247,36 @@ def test_visible_source_occludes_only_visible_masks(scene, cube, out):
     rows, columns = np.nonzero(full)
     box = data["bboxes"][1]["bbox"]
     assert columns.min() == pytest.approx(box[0], abs=1.5) and columns.max() + 1 == pytest.approx(box[2], abs=1.5)
+
+
+def test_mesh_copies_are_found_by_their_mesh(scene, cube, out):
+    car = cube("car", size=0.5)
+    hidden_collection("sources", [car])
+    # Object Info without As Instance instances a copy of the mesh
+    copies = scatter("Copies", car, as_instance=False)
+    # nodes after the instancing that change the meshes make copies too
+    smoothed = scatter("Smoothed", car)
+    tree = smoothed.modifiers[0].node_group
+    smooth = tree.nodes.new("GeometryNodeSetShadeSmooth")
+    output = next(node for node in tree.nodes if node.bl_idname == "NodeGroupOutput")
+    tree.links.new(output.inputs[0].links[0].from_socket, smooth.inputs["Geometry"])
+    tree.links.new(smooth.outputs[0], output.inputs[0])
+    smoothed.location.y = 5
+    classes = {"car": [G.Instances(copies, of=car)], "smoothed": [G.Instances(smoothed, of=car)]}
+    assert G.Compose([G.BBox(classes), G.Segmentation(classes)], out, (320, 240))()
+    data = label(out)
+    names = [b["objects"] for b in data["bboxes"]]
+    assert names == [[f"Copies/{i}/car"] for i in range(4)] + [[f"Smoothed/{i}/car"] for i in range(4)]
+    assert all(m.any() for m in [mask(out, e["mask"]) for e in data["masks"]][:4])
+
+
+def test_meshes_made_in_geometry_nodes(scene, cube, out):
+    car = cube("car", size=0.5)
+    parent = scatter("Scatter", car)
+    tree = parent.modifiers[0].node_group
+    on_points = next(node for node in tree.nodes if node.bl_idname == "GeometryNodeInstanceOnPoints")
+    tree.links.new(tree.nodes.new("GeometryNodeMeshCube").outputs[0], on_points.inputs["Instance"])
+    with pytest.raises(ValueError, match="of=None"):
+        G.Compose([G.BBox({"car": [G.Instances(parent, of=car)]})], out, (320, 240))()
+    assert G.Compose([G.BBox({"cube": [G.Instances(parent)]})], out, (320, 240))()
+    assert len(label(out)["bboxes"]) == 4

@@ -208,6 +208,12 @@ def instance_members(view_layer, parent):
 
 
 def read_instance_members(depsgraph, parent):
+    # a geometry instance is a copy of a mesh, named like it: Object Info without As Instance,
+    # or nodes after the instancing that change the instanced meshes (Smooth by Angle)
+    mesh_users = {}
+    for obj in bpy.data.objects:
+        if obj.type == "MESH" and obj.data is not None:
+            mesh_users.setdefault(obj.data.name, []).append(obj)
     tops, coords = {}, {}
     for instance in depsgraph.object_instances:
         if not instance.is_instance or instance.parent is None or instance.parent.original != parent:
@@ -221,12 +227,20 @@ def read_instance_members(depsgraph, parent):
         if key not in coords:
             coords[key] = mesh_coords(obj)
         source = instance.instance_object.original
-        source_name = source.name if source != parent else (obj.data.name if obj.data else obj.name)
+        found = [source]
+        if source == parent:
+            mesh_name = obj.data.name if obj.data else obj.name
+            # None: no object behind it
+            found = mesh_users.get(mesh_name, [None]) if obj.type == "MESH" else [None]
+            source = found[0] or parent
+            source_name = found[0].name if found[0] else mesh_name
+        else:
+            source_name = source.name
         name = f"{parent.name}/{'.'.join(map(str, reversed(path)))}/{source_name}"
         member = InstanceMember(parent, source, path[-1], name, obj.type, instance.matrix_world.copy(), coords[key])
         members, sources = tops.setdefault(path[-1], ([], set()))
         members.append(member)
-        sources.add(source)
+        sources.update(found)
     # the path inside the top-level instance only tells its objects apart
     for top, (members, _) in tops.items():
         if len(members) == 1:
@@ -978,8 +992,16 @@ class Frame:
         if parent not in self.instances:
             self.instances[parent] = instance_members(self.view_layer, parent)
         sources = instance_sources(spec.of)
-        return [members for _, (members, found) in sorted(self.instances[parent].items())
-                if sources is None or found & sources]
+        tops = sorted(self.instances[parent].items())
+        groups = [members for _, (members, found) in tops if sources is None or found & sources]
+        unknown = sum(None in found for _, (_, found) in tops)
+        if not groups and unknown:
+            raise ValueError(
+                f"Instances of '{parent.name}': none is of {sorted(obj.name for obj in sources)}, and {unknown} of its "
+                "instances are meshes that no object uses: geometry nodes changed them after Instance on Points, so "
+                "they no longer point to their object. Change the meshes before instancing them, or use of=None"
+            )
+        return groups
 
     def file_name(self, suffix):
         return f"{self.index:06d}{suffix}"

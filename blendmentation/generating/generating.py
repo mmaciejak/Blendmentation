@@ -110,8 +110,11 @@ class Instances:
 
     Put it in a class's list in `classes` (`BBox`, `Pose`, `Segmentation`), next to
     objects: every top-level instance of `parent` that has an object of `of` becomes one
-    instance of the class. An instance of a collection (Collection Info without
-    Separate Children) is one instance with all its objects. The instances are read
+    instance of the class. With Collection Info, Separate Children decides what one
+    instance is: on (with Pick Instance on Instance on Points), every point gets one
+    object of the collection, and each is its own instance; off, every point gets the
+    whole collection, which is one instance with all its objects (a car body and its
+    wheels). The instances are read
     after the augmentations, so their number can change from datapoint to datapoint.
     They don't need Realize Instances, and realized instances are not found: they are
     part of the parent's mesh.
@@ -129,9 +132,12 @@ class Instances:
             instances of `parent`.
 
     Note:
-        `of` finds instances of objects: Object Info with As Instance, or Collection
-        Info. Object Info without As Instance instances a copy of the object's mesh,
-        which only `of=None` labels; its object name in the label is the mesh's.
+        `of` finds the instances of an object by the object, or, when the instance is a
+        copy of its mesh, by the mesh: Object Info without As Instance copies it, and so
+        do nodes after Instance on Points that change the instanced meshes (Smooth by
+        Angle, Set Shade Smooth). A mesh made in geometry nodes (a Cube node) belongs
+        to no object; label it with `of=None`. When none of the instances is of `of`
+        and some are such meshes, generating raises.
         Masks (`Segmentation`) and `BBox(max_occlusion=...)` of instances need a Cycles
         id render with a material override, whatever the engine: a temporary geometry
         nodes modifier on `parent` stores the id of every instance, and an emission

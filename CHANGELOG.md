@@ -16,7 +16,9 @@ All notable changes to Blendmentation. The format follows
   (an object, a list or a collection). In the labels, an instance's objects are named
   `<parent>/<instance index>/<object>`. Its masks come from a Cycles id render, whatever the
   engine. Geometry nodes instances block `Keypoints` even when the object they instance
-  is hidden.
+  is hidden. `of` also finds instances that geometry nodes turned into copies of the
+  object's mesh (Object Info without As Instance, Smooth by Angle after the instancing), and
+  raises when it finds none because the instances are meshes of no object.
 
 ### Changed
 
