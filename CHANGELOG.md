@@ -6,6 +6,13 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Objects in a collection excluded from the view layer or disabled in renders are treated
+  as hidden in the labels, like objects hidden with `Visibility`: `BBox` gives them no box
+  (and they don't make `max_truncation` skip the datapoint), `Pose` no pose, they don't
+  block `Keypoints` and a keypoint on one is not visible.
+
 ## [0.7.2] - 2026-10-07
 
 ### Changed

@@ -112,7 +112,8 @@ class BBox:
     into account, so hidden parts are inside the box (amodal). For boxes of only the
     visible pixels, add `Segmentation` and export with `bbox_from="mask"` (`export.coco`,
     `export.yolo`, `export.voc`). An instance out of frame gets
-    None. Objects hidden in the render (e.g. by `Visibility`) are left out of the box,
+    None. Objects hidden in the render (e.g. by `Visibility`, or in a collection excluded
+    from the view layer or disabled in renders) are left out of the box,
     and an instance with all its objects hidden gets None and never skips the datapoint.
 
     In the label JSON: `"bboxes": [{"class", "objects", "bbox"}]`.

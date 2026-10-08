@@ -463,6 +463,35 @@ def test_hidden_in_render(scene, cube, out):
     assert not label(out, 1)["keypoints"][0]["visible"]
 
 
+def test_hidden_by_collection(scene, cube, out):
+    car1 = cube("car1", (-2, 0, 0))
+    car2 = cube("car2", (2, 0, 0))
+    wall = cube("wall", (-2, -3, 0), 2)  # in front of car1
+    # car2 in a collection excluded from the view layer, the wall in a child of one disabled in renders
+    excluded = bpy.data.collections.new("excluded")
+    disabled = bpy.data.collections.new("disabled")
+    child = bpy.data.collections.new("child")
+    scene.collection.children.link(excluded)
+    scene.collection.children.link(disabled)
+    disabled.children.link(child)
+    for obj, collection in ((car2, excluded), (wall, child)):
+        scene.collection.objects.unlink(obj)
+        collection.objects.link(obj)
+    bpy.context.view_layer.layer_collection.children["excluded"].exclude = True
+    disabled.hide_render = True
+    classes = {"car": [car1, car2], "wall": [wall]}
+    front = (car1, next(v.index for v in car1.data.vertices if v.co.y < 0))
+    steps = [G.Render(), G.BBox(classes, max_truncation=0), G.Segmentation(classes), G.Pose(classes),
+             G.Keypoints({"car1": front})]
+    assert G.Compose(steps, out, (320, 240))()
+    data = label(out)
+    boxes = [b["bbox"] for b in data["bboxes"]]
+    assert boxes[0] == pytest.approx(projected_bbox(scene, [car1], 320, 240)) and boxes[1:] == [None, None]
+    assert [mask(out, f"000000_mask_{i}.png").any() for i in range(3)] == [True, False, False]
+    assert [p["R"] is not None for p in data["poses"]] == [True, False, False]
+    assert data["keypoints"][0]["visible"]
+
+
 def test_max_occlusion(scene, cube, out, renders):
     scene.render.engine = "CYCLES"
     target = cube("target")

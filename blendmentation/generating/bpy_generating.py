@@ -554,6 +554,17 @@ def to_json(value):
     return str(value)
 
 
+def collection_objects(layer_collection):
+    """Objects in the render of a view layer's collections: in a collection that is not
+    excluded from the view layer or disabled in renders, and neither is any of its parents."""
+    if layer_collection.exclude or layer_collection.collection.hide_render:
+        return set()
+    objects = set(layer_collection.collection.objects)
+    for child in layer_collection.children:
+        objects |= collection_objects(child)
+    return objects
+
+
 def group_key(groups):
     return tuple(tuple(obj.name for obj in group) for group in groups)
 
@@ -585,6 +596,11 @@ class Frame:
         # groups whose ids are the pass indices of the beauty render, set by Segmentation in Cycles
         self.index_groups = None
         self.changed = []
+        self.collection_objects = collection_objects(self.view_layer.layer_collection)
+
+    def in_render(self, obj):
+        """Whether obj is in the render: not hidden itself (e.g. by Visibility) or by its collections."""
+        return not obj.hide_render and obj in self.collection_objects
 
     def file_name(self, suffix):
         return f"{self.index:06d}{suffix}"
@@ -726,7 +742,7 @@ def bboxes(frame, classes, settings):
         entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
         entries.append(entry)
         # objects hidden in the render are not in the image, an instance of only them has no bbox
-        rendered = [obj for obj in group if not obj.hide_render]
+        rendered = [obj for obj in group if frame.in_render(obj)]
         if not rendered:
             continue
         bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
@@ -781,7 +797,7 @@ def poses(frame, classes):
     entries = []
     for class_name, group in to_instances(classes):
         entry = {"class": class_name, "objects": [obj.name for obj in group], "R": None, "t": None, "scale": None}
-        if any(not obj.hide_render for obj in group):
+        if any(frame.in_render(obj) for obj in group):
             location, rotation, scale = group[0].matrix_world.decompose()
             entry.update(
                 R=[list(row) for row in world_to_camera @ rotation.to_matrix()],
@@ -1277,7 +1293,7 @@ def keypoint_visible(frame, location):
         hit, hit_location, _, _, hit_object, _ = frame.scene.ray_cast(frame.depsgraph, start, direction, distance=remaining)
         if not hit or (hit_location - origin).length >= distance - tolerance:
             return True
-        if not hit_object.original.hide_render:
+        if frame.in_render(hit_object.original):
             return False
         start = hit_location + direction * max(1e-5, distance * 1e-6)
 
@@ -1292,7 +1308,7 @@ def keypoints(frame, points):
         in_frame = 0.0 <= view.x <= 1.0 and 0.0 <= view.y <= 1.0 and view.z > 0
         obj = keypoint_object(source)
         # a keypoint on an object hidden in the render is not in the image
-        rendered = obj is None or not obj.hide_render
+        rendered = obj is None or frame.in_render(obj)
         entries.append({
             "name": name,
             "position": [view.x * frame.width, (1.0 - view.y) * frame.height],
@@ -1357,7 +1373,7 @@ def full_mask_packs(frame, groups):
     """
     packs, pack_boxes = [], []
     for number, group in enumerate(groups):
-        rendered = [obj for obj in group if not obj.hide_render]
+        rendered = [obj for obj in group if frame.in_render(obj)]
         if not rendered:
             continue
         if any(obj.type not in PACKABLE_TYPES for obj in rendered):
