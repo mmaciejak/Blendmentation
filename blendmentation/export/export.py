@@ -155,7 +155,8 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     Masks are stored as uncompressed RLE from the instance masks. Instances whose mask
     is empty (fully hidden), or was not written because it was empty
     (`Segmentation(skip_empty=True)`), are skipped. Each annotation also has an
-    `"objects"` field with the object names.
+    `"objects"` field with the object names. The steps it needs are in the
+    [COCO example](quick-start.md#coco) of the Quick start.
 
     !!! warning "Visible boxes need instance masks"
         By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
@@ -246,7 +247,9 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal[
 
     Writes `<index>.txt` next to every image, with one `class x_center y_center width
     height` line per bbox (normalized to 0-1), `classes.txt`, and `dataset.yaml`
-    pointing at the folder, ready for Ultralytics.
+    pointing at the folder, ready for Ultralytics. The steps it needs are in the
+    [YOLO examples](quick-start.md#yolo) of the Quick start, with visible boxes from masks
+    in the second one.
 
     !!! warning "Visible boxes need instance masks"
         By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
@@ -309,7 +312,8 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal[
 def voc(path: str, output_dir: Optional[str] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
 
-    Boxes touching the image border are marked `truncated`.
+    Boxes touching the image border are marked `truncated`. The steps it needs are in the
+    [Pascal VOC example](quick-start.md#pascal-voc) of the Quick start.
 
     !!! warning "Visible boxes need instance masks"
         By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
@@ -432,7 +436,8 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
     camera, and `<output>/obj_ids.json` the class name of every `obj_id`. Image ids
     are the datapoint indices, and `obj_id`s number the classes from 1. Instances
     hidden in the render are left out. Distances are converted to mm with the camera's
-    `unit_scale`.
+    `unit_scale`. The minimal steps are in the [BOP example](quick-start.md#bop) of the
+    Quick start.
 
     !!! warning "What it needs"
         Steps in the generating `Compose`, in every datapoint:
