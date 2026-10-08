@@ -6,6 +6,18 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `generating.Instances(parent, of=None)` labels the instances that geometry nodes make on
+  `parent` (Instance on Points with Object Info or Collection Info, no Realize Instances
+  needed): put it in a class's list in `classes`, and every top-level instance becomes an
+  instance of the class, with its own box (`BBox`, all skip settings included), pose
+  (`Pose`) and masks (`Segmentation`, full masks too). `of` picks the instanced objects
+  (an object, a list or a collection). In the labels, an instance's objects are named
+  `<parent>/<instance index>/<object>`. Its masks come from a Cycles id render, whatever the
+  engine. Geometry nodes instances block `Keypoints` even when the object they instance
+  is hidden.
+
 ### Fixed
 
 - Objects in a collection excluded from the view layer or disabled in renders are treated

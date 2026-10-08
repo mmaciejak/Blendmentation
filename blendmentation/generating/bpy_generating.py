@@ -88,9 +88,157 @@ def split_class(class_name, value):
     return value["instances"], settings
 
 
-def to_instances(classes):
+# persistent_id of a depsgraph instance is its path through the nested instances, innermost
+# first, padded with this value
+INSTANCE_PATH_END = 2**31 - 1
+# object types that have no geometry, they are left out of the instances
+NO_GEOMETRY_TYPES = {"EMPTY", "LIGHT", "LIGHT_PROBE", "LIGHTPROBE", "CAMERA", "SPEAKER", "ARMATURE", "LATTICE"}
+# object types that can have a geometry nodes modifier, needed for the id render of instances
+NODES_MODIFIER_TYPES = {"MESH", "CURVE", "FONT", "CURVES", "POINTCLOUD", "VOLUME", "GREASEPENCIL"}
+# instance attribute and custom property holding the ids in the id render of instances
+ID_ATTRIBUTE = "blendmentation_id"
+
+
+def is_instances(entry):
+    """Whether a classes entry is an `Instances` (the instances of a parent object)."""
+    return not isinstance(entry, bpy.types.ID) and hasattr(entry, "parent") and hasattr(entry, "of")
+
+
+def instance_sources(of):
+    """The objects an `Instances` of= selects: None for all, or a set of objects."""
+    if of is None:
+        return None
+    if isinstance(of, bpy.types.Collection):
+        return set(of.all_objects)
+    objects = list(of) if isinstance(of, (list, tuple)) else [of]
+    if not objects or not all(isinstance(obj, bpy.types.Object) for obj in objects):
+        raise TypeError(f"Instances of= must be None, an object, a list of objects or a collection, got {of!r}")
+    return set(objects)
+
+
+def check_instances(class_name, spec):
+    if not isinstance(spec.parent, bpy.types.Object):
+        raise TypeError(f"Class '{class_name}': Instances needs the object that makes the instances, got {spec.parent!r}")
+    instance_sources(spec.of)
+
+
+class InstanceMember:
+    """One object of an instance that geometry nodes or collection instancing make, read
+    from the depsgraph. It stands in for an object in a group: it has a name, type and
+    matrix_world, and the vertices of its evaluated geometry in its local space."""
+
+    def __init__(self, parent, source, top, name, type, matrix_world, coords):
+        self.parent = parent
+        # the instanced object, the parent for a geometry instance
+        self.source = source
+        # index of the top-level instance of the parent it belongs to
+        self.top = top
+        self.name = name
+        self.type = type
+        self.matrix_world = matrix_world
+        self.coords = coords
+
+
+def mesh_coords(obj_eval):
+    """(n, 3) array of the vertices of an evaluated object in its local space."""
+    mesh = obj_eval.to_mesh() if obj_eval.type not in NO_GEOMETRY_TYPES else None
+    if mesh is None:
+        return np.empty((0, 3))
+    try:
+        coords = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+        mesh.vertices.foreach_get("co", coords)
+    finally:
+        obj_eval.to_mesh_clear()
+    return coords.reshape(-1, 3)
+
+
+def socket(sockets, name):
+    """The socket of a node by name. Blender 4.0 nodes have one socket per data type with
+    the same name, only the one of the node's data type is enabled."""
+    return next(socket for socket in sockets if socket.name == name and socket.enabled)
+
+
+def node_group(name):
+    """New geometry nodes group with a geometry input and output."""
+    tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
+    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    return tree
+
+
+def index_id_nodes():
+    """Geometry nodes group that sets the id attribute of the instances to their index."""
+    tree = node_group("blendmentation index ids")
+    nodes, link = tree.nodes, tree.links.new
+    store = nodes.new("GeometryNodeStoreNamedAttribute")
+    store.data_type = "INT"
+    store.domain = "INSTANCE"
+    store.inputs["Name"].default_value = "id"
+    link(nodes.new("NodeGroupInput").outputs[0], store.inputs["Geometry"])
+    link(nodes.new("GeometryNodeInputIndex").outputs[0], socket(store.inputs, "Value"))
+    link(store.outputs["Geometry"], nodes.new("NodeGroupOutput").inputs[0])
+    return tree
+
+
+def instance_members(view_layer, parent):
+    """The instances of parent in the depsgraph, by top-level instance index.
+
+    The persistent id of an instance holds its id attribute when it has one (Distribute
+    Points on Faces makes it), otherwise its index. For the index, a temporary geometry
+    nodes modifier sets the ids to the indices while the instances are read; the renders
+    keep the real ids.
+
+    Returns:
+        dict: {top-level index: ([InstanceMember], {source objects})}, the source of a
+            geometry instance (no object behind it, like Object Info without As Instance)
+            is the parent
+    """
+    modifier = None
+    if parent.type in NODES_MODIFIER_TYPES:
+        modifier = parent.modifiers.new("blendmentation index ids", "NODES")
+        modifier.node_group = index_id_nodes()
+    try:
+        return read_instance_members(bpy.context.evaluated_depsgraph_get(), parent)
+    finally:
+        if modifier is not None:
+            tree = modifier.node_group
+            parent.modifiers.remove(modifier)
+            bpy.data.node_groups.remove(tree)
+            view_layer.update()
+
+
+def read_instance_members(depsgraph, parent):
+    tops, coords = {}, {}
+    for instance in depsgraph.object_instances:
+        if not instance.is_instance or instance.parent is None or instance.parent.original != parent:
+            continue
+        obj = instance.object
+        path = [index for index in instance.persistent_id if index != INSTANCE_PATH_END]
+        if not path or obj.type in NO_GEOMETRY_TYPES:
+            continue
+        # the evaluated geometry is only valid while iterating, instances of one source share it
+        key = (obj.data.as_pointer() if obj.data else obj.as_pointer(), obj.type)
+        if key not in coords:
+            coords[key] = mesh_coords(obj)
+        source = instance.instance_object.original
+        source_name = source.name if source != parent else (obj.data.name if obj.data else obj.name)
+        name = f"{parent.name}/{'.'.join(map(str, reversed(path)))}/{source_name}"
+        member = InstanceMember(parent, source, path[-1], name, obj.type, instance.matrix_world.copy(), coords[key])
+        members, sources = tops.setdefault(path[-1], ([], set()))
+        members.append(member)
+        sources.add(source)
+    # the path inside the top-level instance only tells its objects apart
+    for top, (members, _) in tops.items():
+        if len(members) == 1:
+            members[0].name = f"{parent.name}/{top}/{members[0].name.rsplit('/', 1)[1]}"
+    return tops
+
+
+def to_instances(classes, frame=None):
     """Normalizes {class name: [objects or sublists]} to a list of (class name, [objects]).
     An object alone is an instance of one object, the objects of a sublist are one instance.
+    An `Instances` is one instance per top-level instance of its parent, with
+    `InstanceMember`s for objects; it needs the frame, without it is only checked.
     A class can also be {"instances": [...], setting: value}, see `class_settings`."""
     if not isinstance(classes, dict):
         raise TypeError("classes must be a dict {class name: [objects or sublists of objects]}")
@@ -100,9 +248,16 @@ def to_instances(classes):
         if not isinstance(entries, (list, tuple)):
             raise TypeError(f"Class '{class_name}' must map to a list of objects or sublists of objects")
         for entry in entries:
+            if is_instances(entry):
+                check_instances(class_name, entry)
+                if frame is not None:
+                    instances.extend((class_name, group) for group in frame.instance_groups(entry))
+                continue
             group = list(entry) if isinstance(entry, (list, tuple)) else [entry]
             if not group:
                 raise ValueError(f"Class '{class_name}' has an empty sublist")
+            if any(is_instances(obj) for obj in group):
+                raise TypeError(f"Class '{class_name}': Instances can't be in a sublist, list it in the class")
             instances.append((class_name, group))
     names = [obj.name for _, group in instances for obj in group]
     duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -124,22 +279,20 @@ def next_index(path):
 
 
 def camera_view_coords(scene, camera, obj, depsgraph):
-    """Projects the evaluated object's vertices to normalized camera view coordinates.
+    """Projects the evaluated object's (or InstanceMember's) vertices to normalized camera
+    view coordinates.
 
     Returns:
         tuple: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the
             camera, and whether any vertex is behind it
     """
-    obj_eval = obj.evaluated_get(depsgraph)
-    mesh = obj_eval.to_mesh()
-    try:
-        coords = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
-        mesh.vertices.foreach_get("co", coords)
-    finally:
-        obj_eval.to_mesh_clear()
-    coords = coords.reshape(-1, 3)
+    if isinstance(obj, InstanceMember):
+        coords, matrix_world = obj.coords, obj.matrix_world
+    else:
+        obj_eval = obj.evaluated_get(depsgraph)
+        coords, matrix_world = mesh_coords(obj_eval), obj_eval.matrix_world
 
-    to_camera = np.array(camera.matrix_world.inverted() @ obj_eval.matrix_world)
+    to_camera = np.array(camera.matrix_world.inverted() @ matrix_world)
     coords = coords @ to_camera[:3, :3].T + to_camera[:3, 3]
     # the camera looks down its -z axis, drop everything behind it
     in_front = coords[:, 2] < 0
@@ -480,6 +633,213 @@ def render_index_ids(scene, view_layer, groups, file_path):
     return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
 
 
+def has_instances(groups):
+    return any(isinstance(obj, InstanceMember) for group in groups for obj in group)
+
+
+def instance_id_nodes(lut, keep_own_geometry, hide_others):
+    """Geometry nodes group that stores the id of every top-level instance, read from the
+    point attribute of the lut object at the instance index, as an instance attribute.
+    With hide_others, instances with no id are deleted, and so is the parent's own
+    geometry unless keep_own_geometry."""
+    tree = node_group("blendmentation ids")
+    nodes, link = tree.nodes, tree.links.new
+    group_input, group_output = nodes.new("NodeGroupInput"), nodes.new("NodeGroupOutput")
+    info = nodes.new("GeometryNodeObjectInfo")
+    info.inputs["Object"].default_value = lut
+    attribute = nodes.new("GeometryNodeInputNamedAttribute")
+    attribute.data_type = "INT"
+    attribute.inputs["Name"].default_value = ID_ATTRIBUTE
+    sample = nodes.new("GeometryNodeSampleIndex")
+    sample.data_type = "INT"
+    sample.domain = "POINT"
+    # instances past the lut get its last value, -1
+    sample.clamp = True
+    link(info.outputs["Geometry"], sample.inputs["Geometry"])
+    link(socket(attribute.outputs, "Attribute"), socket(sample.inputs, "Value"))
+    link(nodes.new("GeometryNodeInputIndex").outputs[0], sample.inputs["Index"])
+    store = nodes.new("GeometryNodeStoreNamedAttribute")
+    store.data_type = "INT"
+    store.domain = "INSTANCE"
+    store.inputs["Name"].default_value = ID_ATTRIBUTE
+    link(socket(sample.outputs, "Value"), socket(store.inputs, "Value"))
+    geometry = group_input.outputs[0]
+    if hide_others and not keep_own_geometry:
+        separate = nodes.new("GeometryNodeSeparateComponents")
+        link(geometry, separate.inputs[0])
+        geometry = separate.outputs["Instances"]
+    link(geometry, store.inputs["Geometry"])
+    geometry = store.outputs["Geometry"]
+    if hide_others:
+        compare = nodes.new("FunctionNodeCompare")
+        compare.data_type = "FLOAT"
+        compare.operation = "LESS_THAN"
+        link(socket(sample.outputs, "Value"), compare.inputs[0])
+        compare.inputs[1].default_value = 0.5
+        delete = nodes.new("GeometryNodeDeleteGeometry")
+        delete.domain = "INSTANCE"
+        link(geometry, delete.inputs["Geometry"])
+        link(compare.outputs[0], delete.inputs["Selection"])
+        geometry = delete.outputs["Geometry"]
+    link(geometry, group_output.inputs[0])
+    return tree
+
+
+def instance_id_material(hide_others):
+    """Emission material showing the id: the instance attribute of an instance that has one
+    (-1, an instance of no group, is 0), otherwise the object's custom property. With
+    hide_others, what has no id is transparent."""
+    material = bpy.data.materials.new("blendmentation ids")
+    # blender 5 materials always have nodes, use_nodes is deprecated
+    if material.node_tree is None:
+        material.use_nodes = True
+    nodes, link = material.node_tree.nodes, material.node_tree.links.new
+    nodes.clear()
+
+    def math(operation, a, b=None):
+        node = nodes.new("ShaderNodeMath")
+        node.operation = operation
+        for socket, value in zip(node.inputs, (a, b)):
+            if isinstance(value, (int, float)):
+                socket.default_value = value
+            elif value is not None:
+                link(value, socket)
+        return node.outputs[0]
+
+    attributes = {}
+    for kind in ("INSTANCER", "OBJECT"):
+        node = nodes.new("ShaderNodeAttribute")
+        node.attribute_type = kind
+        node.attribute_name = ID_ATTRIBUTE
+        attributes[kind] = node.outputs["Fac"]
+    instance_id, object_id = attributes["INSTANCER"], attributes["OBJECT"]
+    is_instance = math("GREATER_THAN", math("ABSOLUTE", instance_id), 0.5)
+    # object_id + is_instance * (max(instance_id, 0) - object_id)
+    difference = math("SUBTRACT", math("MAXIMUM", instance_id, 0.0), object_id)
+    group_id = math("ADD", object_id, math("MULTIPLY", is_instance, difference))
+    emission = nodes.new("ShaderNodeEmission")
+    link(group_id, emission.inputs["Color"])
+    surface = emission.outputs[0]
+    if hide_others:
+        mix = nodes.new("ShaderNodeMixShader")
+        link(math("GREATER_THAN", group_id, 0.5), mix.inputs[0])
+        link(nodes.new("ShaderNodeBsdfTransparent").outputs[0], mix.inputs[1])
+        link(surface, mix.inputs[2])
+        surface = mix.outputs[0]
+    output = nodes.new("ShaderNodeOutputMaterial")
+    link(surface, output.inputs["Surface"])
+    return material
+
+
+def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False):
+    """Renders the group ids of groups with instances (`InstanceMember`s) with Cycles at
+    1 sample and an emission material override, whatever the engine. A temporary geometry
+    nodes modifier on each parent stores the ids of its top-level instances as an instance
+    attribute; objects get theirs as a custom property. Everything is restored afterwards.
+    Without hide_others, all other objects and instances are 0 and still occlude;
+    with it, they are hidden.
+
+    Returns:
+        np.ndarray: (height, width) array of group ids, 0 = background or other objects
+    """
+    names = [
+        (scene.render, ("engine", "film_transparent", "use_compositing", "use_sequencer", "use_motion_blur")),
+        (scene.cycles, ("samples", "use_denoising", "use_adaptive_sampling", "pixel_filter_type", "filter_width",
+                        "film_exposure", "sample_clamp_direct", "sample_clamp_indirect", "transparent_max_bounces")),
+        (view_layer, ("material_override", "samples")),
+        (scene.view_settings, ("view_transform", "look", "exposure", "gamma", "use_curve_mapping")),
+    ]
+    saved = [(owner, {name: getattr(owner, name) for name in names if hasattr(owner, name)}) for owner, names in names]
+    editable = [obj for obj in bpy.data.objects if obj.library is None]
+    objects, parents, sources = {}, {}, set()
+    for group_id, group in enumerate(groups, start=1):
+        for obj in group:
+            if isinstance(obj, InstanceMember):
+                parents.setdefault(obj.parent, {})[obj.top] = group_id
+                sources.add(obj.source)
+            else:
+                objects[obj] = group_id
+    # hiding a source hides its instances in blender 4.0, the material hides what has no id
+    hidden = [obj for obj in editable if hide_others and obj not in objects and obj not in parents
+              and obj not in sources and not obj.hide_render]
+    saved_properties = {obj: obj.get(ID_ATTRIBUTE) for obj in objects}
+    created, modifiers = [], []
+    try:
+        for obj in hidden:
+            obj.hide_render = True
+        for obj, group_id in objects.items():
+            obj[ID_ATTRIBUTE] = float(group_id)
+        for parent, tops in parents.items():
+            lut_ids = [-1] * (max(tops) + 2)
+            for top, group_id in tops.items():
+                lut_ids[top] = group_id
+            mesh = bpy.data.meshes.new("blendmentation ids")
+            mesh.vertices.add(len(lut_ids))
+            mesh.attributes.new(ID_ATTRIBUTE, "INT", "POINT").data.foreach_set("value", lut_ids)
+            lut = bpy.data.objects.new("blendmentation ids", mesh)
+            tree = instance_id_nodes(lut, parent in objects, hide_others)
+            created += [lut, mesh, tree]
+            modifier = parent.modifiers.new("blendmentation ids", "NODES")
+            modifier.node_group = tree
+            modifiers.append((parent, modifier))
+        material = instance_id_material(hide_others)
+        created.append(material)
+
+        scene.render.engine = "CYCLES"
+        scene.render.film_transparent = True
+        scene.render.use_compositing = False
+        scene.render.use_sequencer = False
+        scene.render.use_motion_blur = False
+        cycles = scene.cycles
+        cycles.samples = 1
+        cycles.use_denoising = False
+        cycles.use_adaptive_sampling = False
+        # one sample near the pixel center, the ids are not blended
+        cycles.pixel_filter_type = "BOX"
+        cycles.filter_width = 0.01
+        cycles.film_exposure = 1.0
+        cycles.sample_clamp_direct = 0.0
+        cycles.sample_clamp_indirect = 0.0
+        cycles.transparent_max_bounces = 1024
+        view_layer.material_override = material
+        if hasattr(view_layer, "samples"):
+            view_layer.samples = 0
+        view_settings = scene.view_settings
+        view_settings.view_transform = "Standard"
+        view_settings.look = "None"
+        view_settings.exposure = 0.0
+        view_settings.gamma = 1.0
+        view_settings.use_curve_mapping = False
+
+        bpy.ops.render.render()
+        set_file_format(scene.render.image_settings, "OPEN_EXR")
+        scene.render.image_settings.color_mode = "RGBA"
+        scene.render.image_settings.color_depth = "32"
+        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
+    finally:
+        for parent, modifier in modifiers:
+            parent.modifiers.remove(modifier)
+        for owner, values in saved:
+            for name, value in values.items():
+                setattr(owner, name, value)
+        for datablock in created:
+            collection = {bpy.types.Object: bpy.data.objects, bpy.types.Mesh: bpy.data.meshes,
+                          bpy.types.Material: bpy.data.materials}.get(type(datablock), bpy.data.node_groups)
+            collection.remove(datablock)
+        for obj, value in saved_properties.items():
+            if value is None:
+                del obj[ID_ATTRIBUTE]
+            else:
+                obj[ID_ATTRIBUTE] = value
+        for obj in hidden:
+            obj.hide_render = False
+
+    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
+    ids = np.rint(pixels[:, :, 0]).astype(np.int64)
+    ids[pixels[:, :, 3] < 0.5] = 0
+    return ids
+
+
 def write_mask(path, file_name, mask):
     """Writes a boolean (height, width) mask as a black and white PNG."""
     height, width = mask.shape
@@ -597,10 +957,26 @@ class Frame:
         self.index_groups = None
         self.changed = []
         self.collection_objects = collection_objects(self.view_layer.layer_collection)
+        self.instances = {}
 
     def in_render(self, obj):
-        """Whether obj is in the render: not hidden itself (e.g. by Visibility) or by its collections."""
+        """Whether obj is in the render: not hidden itself (e.g. by Visibility) or by its
+        collections. An InstanceMember is when its parent is."""
+        if isinstance(obj, InstanceMember):
+            obj = obj.parent
         return not obj.hide_render and obj in self.collection_objects
+
+    def instance_groups(self, spec):
+        """The groups of InstanceMembers of an `Instances`: one per top-level instance of its
+        parent with an object of `of`, none when the parent is not in the render."""
+        parent = spec.parent
+        if not self.in_render(parent):
+            return []
+        if parent not in self.instances:
+            self.instances[parent] = instance_members(self.view_layer, parent)
+        sources = instance_sources(spec.of)
+        return [members for _, (members, found) in sorted(self.instances[parent].items())
+                if sources is None or found & sources]
 
     def file_name(self, suffix):
         return f"{self.index:06d}{suffix}"
@@ -673,14 +1049,17 @@ class Frame:
         if key not in self.id_images:
             self.replace_render()
             file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
-            self.id_images[key] = render_ids(self.scene, groups, file_path, hide_others)
+            if has_instances(groups):
+                self.id_images[key] = render_instance_ids(self.scene, self.view_layer, groups, file_path, hide_others)
+            else:
+                self.id_images[key] = render_ids(self.scene, groups, file_path, hide_others)
         return self.id_images[key]
 
     def full_ids(self, groups):
         """Id image of the groups with every other object hidden, so nothing occludes
         them: in Cycles from the Object Index pass of a 1 sample render (see
         `render_index_ids`), otherwise from the workbench (`ids`, shared with BBox occlusion)."""
-        if self.scene.render.engine != "CYCLES":
+        if self.scene.render.engine != "CYCLES" or has_instances(groups):
             return self.ids(groups, hide_others=True)
         key = (group_key(groups), "index")
         if key not in self.id_images:
@@ -709,6 +1088,22 @@ def check_bboxes(classes, settings):
     to_instances(classes)
     for name, value in settings.items():
         check_threshold(name, value, "BBox")
+    limits = class_settings(classes, settings)
+    check_instance_renders({name: value for name, value in classes.items()
+                            if limits[name]["max_occlusion"] is not None}, "BBox max_occlusion")
+
+
+def check_instance_renders(classes, step_name):
+    """Raises if the instances of a class can't be in an id render: their parent needs a
+    temporary geometry nodes modifier."""
+    for class_name, value in classes.items():
+        for entry in split_class(class_name, value)[0]:
+            if is_instances(entry) and entry.parent.type not in NODES_MODIFIER_TYPES:
+                raise TypeError(
+                    f"{step_name} of the instances of '{entry.parent.name}' (class '{class_name}') needs geometry "
+                    f"nodes on it, a {entry.parent.type.lower()} can't have them: make the instances with a "
+                    "geometry nodes modifier (Collection Info, Object Info) on a mesh instead"
+                )
 
 
 def occlusions(frame, groups):
@@ -736,7 +1131,7 @@ def bboxes(frame, classes, settings):
             out, an instance with all of them hidden has bbox None and never skips.
     """
     settings = class_settings(classes, settings)
-    instances = to_instances(classes)
+    instances = to_instances(classes, frame)
     entries, boxes, limits = [], [], []
     for class_name, group in instances:
         entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
@@ -795,7 +1190,7 @@ def poses(frame, classes):
     camera_location, camera_rotation, _ = frame.camera.matrix_world.decompose()
     world_to_camera = BLENDER_TO_OPENCV @ camera_rotation.to_matrix().transposed()
     entries = []
-    for class_name, group in to_instances(classes):
+    for class_name, group in to_instances(classes, frame):
         entry = {"class": class_name, "objects": [obj.name for obj in group], "R": None, "t": None, "scale": None}
         if any(frame.in_render(obj) for obj in group):
             location, rotation, scale = group[0].matrix_world.decompose()
@@ -1290,10 +1685,12 @@ def keypoint_visible(frame, location):
         remaining = distance - (start - origin).length
         if remaining <= 0:
             return True
-        hit, hit_location, _, _, hit_object, _ = frame.scene.ray_cast(frame.depsgraph, start, direction, distance=remaining)
+        hit, hit_location, _, _, hit_object, hit_matrix = frame.scene.ray_cast(
+            frame.depsgraph, start, direction, distance=remaining)
         if not hit or (hit_location - origin).length >= distance - tolerance:
             return True
-        if frame.in_render(hit_object.original):
+        # an instance (geometry nodes, collection) renders whether or not its source object does
+        if hit_matrix != hit_object.matrix_world or frame.in_render(hit_object.original):
             return False
         start = hit_location + direction * max(1e-5, distance * 1e-6)
 
@@ -1323,15 +1720,18 @@ def check_segmentation(classes, per):
     if per not in ("instance", "class", "both"):
         raise ValueError('Segmentation per must be "instance", "class" or "both"')
     to_instances(classes)
+    check_instance_renders(classes, "Segmentation")
 
 
 def prepare_segmentation(frame, classes):
     """In Cycles, the masks come from the Object Index pass of the beauty render, which
     respects alpha (pass_alpha_threshold), displacement and hair: every instance gets its
     id as pass index, all other objects 0. Other engines, a second Segmentation with other
-    classes, or more instances than pass indices use the workbench id render."""
-    groups = [group for _, group in to_instances(classes)]
-    if frame.scene.render.engine != "CYCLES" or frame.index_groups is not None or len(groups) > MAX_PASS_INDEX:
+    classes, or more instances than pass indices use the workbench id render, and
+    geometry nodes instances the Cycles one of `render_instance_ids`."""
+    groups = [group for _, group in to_instances(classes, frame)]
+    if (frame.scene.render.engine != "CYCLES" or frame.index_groups is not None or len(groups) > MAX_PASS_INDEX
+            or has_instances(groups)):
         return
     frame.set(frame.view_layer, "use_pass_object_index", True)
     # instanced collections may use objects that are not in the scene, so all objects are set
@@ -1413,7 +1813,7 @@ def full_masks(frame, groups):
 def segmentation(frame, classes, per, skip_empty=False, full=False):
     """Saves masks of the visible pixels, adds {"class", "objects", "mask", "per"} to the
     labels under "masks", and with full, the masks ignoring occlusion under "full_masks"."""
-    instances = to_instances(classes)
+    instances = to_instances(classes, frame)
     groups = [group for _, group in instances]
     # the visible masks first, they may read the beauty render that the full masks replace
     ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)

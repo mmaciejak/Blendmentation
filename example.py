@@ -6,8 +6,10 @@ The scene needs:
 - a mesh object "Clutter" that is in no class and can hide the parts, it is in the
   render in 60% of the datapoints and is set down on the floor
 - a mesh object "Floor" under the parts, they are kept above it
-- a geometry nodes group "Scatter" with a Distribute Points on Faces node, e.g. pebbles
-  scattered on the floor
+- a geometry nodes group "Scatter" in a modifier on "Floor", with a Distribute Points on
+  Faces node, scattering pebbles on the floor: instances of the objects of a collection
+  "Pebbles" (Collection Info with Separate Children, Instance on Points with Pick
+  Instance), without random scale (BOP has one size per class)
 - a point light "Light" and the scene camera
 - a world with a "Background" node (the default world has one)
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
@@ -41,6 +43,7 @@ lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 world = bpy.context.scene.world
 scatter = bpy.data.node_groups["Scatter"]
+pebbles = bpy.data.collections["Pebbles"]
 output_path = "//dataset"
 n_datapoints = 100
 
@@ -100,7 +103,11 @@ camera_transforms = augmentations.Compose(
 )
 
 # per-class skip settings win over the BBox arguments
-classes = {"part": {"instances": [obj1, obj2], "iou_deconflict": 0.3}}
+classes = {
+    "part": {"instances": [obj1, obj2], "iou_deconflict": 0.3},
+    # every pebble the Floor's geometry nodes scatter, cut by the frame or hidden by the parts as they come
+    "pebble": {"instances": [generating.Instances(floor, of=pebbles)], "max_truncation": None, "max_occlusion": None},
+}
 image_generator = generating.Compose(
     [
         generating.Render(),

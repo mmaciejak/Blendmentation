@@ -89,12 +89,17 @@ print("AOVs:", [(aov.name, aov.type) for aov in bpy.context.view_layer.aovs])
 for obj in scene.objects:
     print(obj.name, obj.type, "| hidden" if obj.hide_render else "",
           "| materials:", [slot.material.name for slot in obj.material_slots if slot.material],
-          "| collections:", [c.name for c in obj.users_collection])
+          "| collections:", [c.name for c in obj.users_collection],
+          "| modifiers:", [(m.name, m.type) for m in obj.modifiers])
 ```
 
 Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a
-  sublist of objects labeled as one (`{"table": [[top, legs]]}`).
+  sublist of objects labeled as one (`{"table": [[top, legs]]}`). Objects scattered by
+  geometry nodes (a `NODES` modifier) are not objects in the scene: label them with
+  `generating.Instances(parent, of=...)` in the class list, e.g.
+  `{"rock": [generating.Instances(ground, of=rocks_collection)]}`, one instance per
+  scattered object, no Realize Instances needed.
 - **augmentations**: what varies (objects, camera, lights, materials, any value by data path).
 - **outputs**: render, passes, AOVs, masks, bboxes, keypoints, 6D poses, camera data, preview images,
   export format.
@@ -146,7 +151,7 @@ scene = bpy.context.scene
 scene.render.film_transparent = True                      # Background needs a transparent RGBA render;
 scene.render.image_settings.color_mode = "RGBA"           # these change the scene, tell the user
 
-classes = {"car": [car_1, car_2]}
+classes = {"car": [car_1, car_2]}   # scattered by geometry nodes: [generating.Instances(floor, of=rocks)]
 generator = generating.Compose(
     [
         generating.Render(),
@@ -266,6 +271,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   instance hidden by objects that are in no class; costs two Workbench renders). Set them
   per class with `{"car": {"instances": [car_1, car_2], "max_occlusion": 0.3}}`; a class's
   own value wins over the `BBox` argument, even `None`. `Segmentation` ignores them.
+- **`Instances(parent, of=None)`** in a class list: every top-level geometry nodes
+  instance of `parent` (of the objects in `of`: object, list or collection) is one
+  instance; label names `<parent>/<index>/<object>`. Boxes, poses and all skip settings
+  work; masks and `max_occlusion` use one Cycles render with a material override (no
+  alpha, no displacement), whatever the engine, and need geometry nodes on `parent`.
 - **`Background`** needs Film > Transparent and RGBA output, or it raises. `weights` is
   `{"color", "white_noise", "color_noise", "image": weight}` (left out = never);
   `images_path` (a folder) is only needed when `"image"` has a weight above 0; with

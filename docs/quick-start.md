@@ -422,7 +422,8 @@ the same works, and the world doesn't have to be passed to `State`:
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
 class and may hide them, a floor "Floor" with pebbles scattered on it by a geometry nodes group
-"Scatter", a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+"Scatter" in a modifier on the floor (instances of the objects of a collection "Pebbles", from a
+Collection Info node, without random scale), a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
 (Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
 is next to the .blend file.
@@ -436,6 +437,7 @@ floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
 scatter = bpy.data.node_groups["Scatter"]
+pebbles = bpy.data.collections["Pebbles"]
 
 # 1. augmentations, applied to every object in the list
 keep_above = aug.KeepAbove(floor, margin=0.01)
@@ -484,6 +486,12 @@ classes = {
     "car": [car_1, car_2],
     # wins over the BBox argument
     "table": {"instances": [table], "max_truncation": 0.8},
+    # every pebble the floor's geometry nodes scatter
+    "pebble": {
+        "instances": [gen.Instances(floor, of=pebbles)],
+        "max_truncation": None,
+        "max_occlusion": None,
+    },
 }
 steps = [
     gen.Render(),

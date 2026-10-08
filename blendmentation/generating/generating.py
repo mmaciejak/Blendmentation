@@ -18,23 +18,24 @@ instance is an object, or a sublist of objects labeled as one:
 `{"car": [car_1, car_2], "table": [[table_top, table_legs]]}`. A class can also be a
 dict with its own `BBox` skip settings, `{"instances": [...], "max_truncation": 0.5}`,
 which win over the `BBox` arguments; `Segmentation` ignores them, so both steps can
-share one classes dict.
+share one classes dict. `Instances(parent, of=...)` in a class labels the instances that
+geometry nodes (or collection instancing) make on `parent`, one per instance.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from . import bpy_generating as bpy_g
 
 if TYPE_CHECKING:
-    from bpy.types import Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import Collection, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
-#: an object, or a sublist of objects labeled as one instance
-Instances = Sequence[Union["Object", Sequence["Object"]]]
+#: an object, a sublist of objects labeled as one instance, or the instances of an object's geometry nodes
+InstanceList = Sequence[Union["Object", Sequence["Object"], "Instances"]]
 #: {class name: [instances] | {"instances": [instances], "iou_deconflict": ..., "max_truncation": ..., "max_occlusion": ...}}
-Classes = dict[str, Union[Instances, dict[str, Any]]]
+Classes = Mapping[str, Union[InstanceList, Mapping[str, Any]]]
 #: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
 KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
 
@@ -104,6 +105,56 @@ class Compose:
         return bpy_g.generate(self.path, resolution, self.steps, custom_dict)
 
 
+class Instances:
+    """The instances that an object's geometry nodes make, as instances of a class.
+
+    Put it in a class's list in `classes` (`BBox`, `Pose`, `Segmentation`), next to
+    objects: every top-level instance of `parent` that has an object of `of` becomes one
+    instance of the class. An instance of a collection (Collection Info without
+    Separate Children) is one instance with all its objects. The instances are read
+    after the augmentations, so their number can change from datapoint to datapoint.
+    They don't need Realize Instances, and realized instances are not found: they are
+    part of the parent's mesh.
+
+    In the labels, the `objects` of an instance are named
+    `<parent>/<instance path>/<object>`, e.g. `"Scatter/3/car"`, where the path is the
+    index of the top-level instance, followed by the indices inside it for nested
+    instances (`"Scatter/3.0.1/wheel"`).
+
+    Args:
+        parent: the object with the geometry nodes modifier. The instances are in
+            the render when it is.
+        of: the objects to label the instances of: an object, a list of objects or a
+            collection (its objects, nested collections included). None labels all
+            instances of `parent`.
+
+    Note:
+        `of` finds instances of objects: Object Info with As Instance, or Collection
+        Info. Object Info without As Instance instances a copy of the object's mesh,
+        which only `of=None` labels; its object name in the label is the mesh's.
+        Masks (`Segmentation`) and `BBox(max_occlusion=...)` of instances need a Cycles
+        id render with a material override, whatever the engine: a temporary geometry
+        nodes modifier on `parent` stores the id of every instance, and an emission
+        material shows it (both removed afterwards). The override has no shader
+        displacement and alpha, so alpha-clipped parts count. Collection instancing on
+        an Empty works for boxes and poses, but not in masks, which need geometry nodes.
+
+    Example:
+        ```python
+        classes = {
+            "car": [generating.Instances(scatter, of=car)],     # every car scattered on the ground
+            "rock": [generating.Instances(scatter, of=rocks)],  # rocks: a collection
+            "house": [house],                                  # objects still work
+        }
+        generating.BBox(classes)
+        ```
+    """
+
+    def __init__(self, parent: Object, of: Union[Object, Sequence[Object], Collection, None] = None):
+        self.parent = parent
+        self.of = of
+
+
 class BBox:
     """Adds the 2D bounding box of every instance to the label.
 
@@ -120,7 +171,8 @@ class BBox:
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
-            objects labeled as one (its box is the union of the members). A class can
+            objects labeled as one (its box is the union of the members), and
+            `Instances(parent, of=...)` adds every geometry nodes instance. A class can
             instead be `{"instances": [instances], "iou_deconflict": ...,
             "max_truncation": ..., "max_occlusion": ...}` to set its own skip settings
             (all keys but `instances` optional).
@@ -226,7 +278,8 @@ class Pose:
     `unit_scale` in `CameraData`). The object's scale is not in `R`; it is saved as
     `scale`, so a 3D model of the object should have it applied. An instance of several
     objects has the pose of its first object. An instance with all its objects hidden in
-    the render (e.g. by `Visibility`) has `R`, `t` and `scale` None.
+    the render (e.g. by `Visibility`) has `R`, `t` and `scale` None. An `Instances`
+    instance has the pose its geometry nodes give it.
 
     In the label JSON: `"poses": [{"class", "objects", "R", "t", "scale"}]`.
 
@@ -325,7 +378,8 @@ class Keypoints:
 
     Vertices include deformations from armatures and modifiers. A point is visible when
     it is in frame and a ray cast from the camera reaches it. Objects hidden in the render
-    don't block the ray, and a point on one of them is not visible.
+    don't block the ray, and a point on one of them is not visible. Geometry nodes
+    instances block it, even when the object they instance is not in the render.
 
     In the label JSON: `"keypoints": [{"name", "position", "depth", "in_frame",
     "visible"}]`, with `position` in pixels from the top-left corner and `depth` along the
@@ -599,6 +653,11 @@ class Segmentation:
     - **EEVEE and Workbench**: one extra, fast Workbench render, which draws every
       object solid: alpha-clipped and transparent parts are in the mask and hide what is
       behind them, and shader displacement is missing. EEVEE has no Object Index pass.
+    - **Classes with `Instances`**: one Cycles render with a material override, whatever
+      the engine, since instances share their object's index and color: every
+      instance's number is written as an instance attribute by a temporary geometry
+      nodes modifier and shown by an emission material. Like Workbench, it has no
+      alpha and no shader displacement.
 
     In the label JSON: `"masks": [{"class", "objects", "mask", "per"}]`, with `per`
     `"instance"` or `"class"`, and `mask` None for a mask skipped by `skip_empty`; with
@@ -606,7 +665,7 @@ class Segmentation:
 
     Args:
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
-            objects labeled as one (one mask). A class given as a dict with
+            objects labeled as one (one mask), or an `Instances`. A class given as a dict with
             `"instances"` (see `BBox`) works too; its skip settings are ignored here.
         per: `"instance"`, `"class"` or `"both"`.
         skip_empty: don't write empty masks (an instance or class with no visible
