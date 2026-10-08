@@ -469,6 +469,140 @@ for _ in range(100):
 
 ![Three SegmentationImage previews with the milk carton masks drawn](images/scatter-segmentation.jpg){ .full-width }
 
+## Exporting
+
+The export functions turn the generated `<index>.json` labels into a standard format.
+Each example here has only the generating steps that format needs; generate with the loop
+from the sections above (augment, `generator()`, `initial.restore()`), then call the
+export once on the same path. The examples use the milk carton from the first section.
+
+### COCO
+
+Boxes and instance masks for detection and instance segmentation. With masks, the boxes
+are the extent of the visible pixels of each mask.
+
+```python
+milk_box = bpy.data.objects["Milk Box"]
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.Segmentation({"milk_box": [milk_box]}),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+# ... generate ...
+
+# writes //dataset/coco.json
+export.coco("//dataset")
+```
+
+For boxes only, use `gen.BBox` in place of `gen.Segmentation`.
+
+### YOLO
+
+Detection boxes, a `.txt` file next to every image and a `dataset.yaml` for Ultralytics.
+
+```python
+milk_box = bpy.data.objects["Milk Box"]
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.BBox({"milk_box": [milk_box]}),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+# ... generate ...
+
+# writes //dataset/<index>.txt, classes.txt and dataset.yaml
+export.yolo("//dataset")
+```
+
+`BBox` boxes are amodal: they cover the whole object, also the parts hidden behind other
+objects. A milk carton half behind a box gets a box around all of it. Most detection
+datasets use modal boxes instead, around only the visible pixels. For those, generate
+instance masks with `Segmentation` and export with `bbox_from="mask"`: each box is then
+the extent of its mask, and a fully hidden carton gets no box. `BBox` can stay, for its
+skip settings (`max_truncation`, `max_occlusion`), but it isn't needed.
+
+```python hl_lines="6 15"
+milk_box = bpy.data.objects["Milk Box"]
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.Segmentation({"milk_box": [milk_box]}),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+# ... generate ...
+
+# boxes of the visible pixels, from the masks
+export.yolo("//dataset", bbox_from="mask")
+```
+
+### Pascal VOC
+
+Detection boxes, one XML file per image.
+
+```python
+milk_box = bpy.data.objects["Milk Box"]
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.BBox({"milk_box": [milk_box]}),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+# ... generate ...
+
+# writes //dataset/Annotations/<index>.xml
+export.voc("//dataset")
+```
+
+For boxes of only the visible pixels, use `Segmentation` and `bbox_from="mask"` as in
+the second YOLO example.
+
+### BOP
+
+6D poses for pose estimation. It needs the pose of every instance and the camera's
+intrinsics, with a perspective camera. Every object of a class must keep the same mesh
+and scale, so no `Scale` augmentation on it.
+
+```python
+milk_box = bpy.data.objects["Milk Box"]
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        gen.Pose({"milk_box": [milk_box]}),
+        gen.CameraData(),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+# ... generate ...
+
+# writes //dataset/bop/train_pbr/000000
+export.bop("//dataset")
+```
+
+For the masks and visible fractions, add
+`gen.Segmentation({"milk_box": [milk_box]}, full_masks=True)`; for depth images,
+`gen.Passes(["Depth"])` with Cycles or EEVEE. The 3D model of each class
+(`models/obj_<obj_id>.ply`, in mm) is not written; export it from Blender.
+
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
