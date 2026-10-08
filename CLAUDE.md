@@ -89,9 +89,9 @@ The subpackages:
   - **Label JSON:** written only when there is more than the image (e.g. `Render()` alone writes no JSON). It holds:
     - `resolution`, `image`, `aovs: {name: file}`, `passes: {name: file}`;
     - `bboxes: [{class, objects, bbox}]`;
-    - `masks: [{class, objects, mask, per}]`, with instance masks `<index>_mask_<n>.png` (n counts instances through all classes and `Segmentation` steps of the datapoint) first, then class masks `<index>_mask_<class>.png` (name sanitized); a taken file name gets `_2`, `_3`, ... (`save_masks` gets the earlier steps' entries as `previous`);
+    - `masks: [{class, objects, mask, per}]`, with instance masks `<index>_mask_<class>_<n>.png` (n counts instances through all classes and `Segmentation` steps of the datapoint) first, then class masks `<index>_class_<class>.png` (name sanitized); a taken file name gets `_2`, `_3`, ... (`save_masks` gets the earlier steps' entries as `previous`);
     - `skip_empty=True` (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an all-zero image (masks: no pixel; layers: every non-alpha channel 0, `layer_empty`) and stores `None` as its file. The datapoint is kept. Code reading these files must handle `None` (`segmentation_image` skips them, COCO export skips the instance);
-    - `full_masks: [{class, objects, mask}]` (`<index>_mask_<n>_full.png`, n counting full masks through the steps), with `full_masks=True`;
+    - `full_masks: [{class, objects, mask}]` (`<index>_mask_<class>_<n>_full.png`, n counting full masks through the steps), with `full_masks=True`;
     - `rotation_matrices: [{object, rotation_matrix}]` (Blender camera axes);
     - `poses: [{class, objects, R, t, scale}]`: the first object's pose in OpenCV camera axes (`BLENDER_TO_OPENCV`, as `extrinsics_opencv`), `t` in Blender units, scale removed from `R` and saved; all members hidden → `None`s;
     - `background: {mode, color | noise_size | image}`;

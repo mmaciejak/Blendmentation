@@ -137,7 +137,7 @@ def test_coco_skips_masks_not_written(out, cube):
     hidden, far = cube("hidden", (-3, 5, 0), 0.5), cube("far", (60, 0, 0))
     classes = {"car": [car1, car2, hidden, far]}
     G.Compose([G.Render(), G.BBox(classes), G.Segmentation(classes, skip_empty=True)], out, (320, 240))()
-    assert [m["mask"] for m in load(out)["masks"]] == ["000000_mask_0.png", "000000_mask_1.png", None, None]
+    assert [m["mask"] for m in load(out)["masks"]] == ["000000_mask_car_0.png", "000000_mask_car_1.png", None, None]
     data = json.load(open(export.coco(out)))
     assert [a["objects"] for a in data["annotations"]] == [["car1"], ["car2"]]
     assert all("segmentation" in a for a in data["annotations"])

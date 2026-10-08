@@ -17,6 +17,11 @@ def mask(out, file_name):
     return read_image(os.path.join(out, file_name), 0) > 0.5
 
 
+def instance_masks(out, index=0):
+    """The instance masks of a datapoint, in the order of the label."""
+    return [mask(out, m["mask"]) for m in label(out, index)["masks"] if m["per"] == "instance"]
+
+
 def projected_bbox(scene, objects, width, height):
     scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = width, height, 100
     bpy.context.view_layer.update()
@@ -94,14 +99,14 @@ def test_segmentation_skip_empty(scene, cube, out):
     assert G.Compose(steps, out, (64, 48))()
     masks = [(m["objects"], m["per"], m["mask"]) for m in label(out)["masks"]]
     assert masks == [
-        (["visible"], "instance", "000000_mask_0.png"),
+        (["visible"], "instance", "000000_mask_car_0.png"),
         (["hidden"], "instance", None),
         (["far"], "instance", None),
-        (["visible", "hidden"], "class", "000000_mask_car.png"),
+        (["visible", "hidden"], "class", "000000_class_car.png"),
         (["far"], "class", None),
     ]
     files = os.listdir(out)
-    assert "000000_mask_1.png" not in files and "000000_mask_gone.png" not in files and "000000_segmentation.png" in files
+    assert "000000_mask_car_1.png" not in files and "000000_class_gone.png" not in files and "000000_segmentation.png" in files
     # only empty masks: the preview still works
     assert G.Compose([G.Render(), G.Segmentation({"gone": [far]}, skip_empty=True), G.SegmentationImage()], out, (64, 48))()
 
@@ -109,16 +114,16 @@ def test_segmentation_skip_empty(scene, cube, out):
 def test_mask_names_are_unique(scene, cube, out):
     a, b, c, d = cube("a", (-2, 0, 0)), cube("b", (-0.7, 0, 0)), cube("c", (0.7, 0, 0)), cube("d", (2, 0, 0))
     steps = [
-        # "car 1" and "car/1" both become car_1, "0" is also an instance mask name
+        # "car 1" and "car/1" both become car_1
         G.Segmentation({"car 1": [a], "car/1": [b], "0": [c]}, per="both"),
         G.Segmentation({"car 1": [d]}, per="both"),
     ]
     assert G.Compose(steps, out, (320, 240))()
     masks = label(out)["masks"]
     assert [(m["objects"], m["mask"]) for m in masks] == [
-        (["a"], "000000_mask_0.png"), (["b"], "000000_mask_1.png"), (["c"], "000000_mask_2.png"),
-        (["a"], "000000_mask_car_1.png"), (["b"], "000000_mask_car_1_2.png"), (["c"], "000000_mask_0_2.png"),
-        (["d"], "000000_mask_3.png"), (["d"], "000000_mask_car_1_3.png"),
+        (["a"], "000000_mask_car_1_0.png"), (["b"], "000000_mask_car_1_1.png"), (["c"], "000000_mask_0_2.png"),
+        (["a"], "000000_class_car_1.png"), (["b"], "000000_class_car_1_2.png"), (["c"], "000000_class_0.png"),
+        (["d"], "000000_mask_car_1_3.png"), (["d"], "000000_class_car_1_3.png"),
     ]
     # every file holds its own object
     for entry in masks:
@@ -177,11 +182,12 @@ def test_full_masks(scene, cube, out, renders, engine):
     assert G.Compose(steps, out, (320, 240))()
     data = label(out)
     assert [(m["objects"], m["mask"]) for m in data["full_masks"]] == [
-        (["front"], "000000_mask_0_full.png"), (["back"], "000000_mask_1_full.png"), (["apart"], "000000_mask_2_full.png"),
+        (["front"], "000000_mask_box_0_full.png"), (["back"], "000000_mask_box_1_full.png"),
+        (["apart"], "000000_mask_box_2_full.png"),
     ]
     assert [m["per"] for m in data["masks"]] == ["instance"] * 3 + ["class"]
-    visible = [mask(out, f"000000_mask_{i}.png") for i in range(3)]
-    full = [mask(out, f"000000_mask_{i}_full.png") for i in range(3)]
+    visible = [mask(out, f"000000_mask_box_{i}.png") for i in range(3)]
+    full = [mask(out, f"000000_mask_box_{i}_full.png") for i in range(3)]
     # front and apart don't overlap and share a render, back has its own
     expected = ["CYCLES"] * 3 if engine == "CYCLES" else [engine, engine, engine, engine]
     assert renders == expected
@@ -198,7 +204,7 @@ def test_full_masks(scene, cube, out, renders, engine):
     back.hide_render = True
     renders.clear()
     assert G.Compose([G.Segmentation(classes, skip_empty=True, full_masks=True)], out, (320, 240))()
-    assert [m["mask"] for m in label(out, 1)["full_masks"]] == ["000001_mask_0_full.png", None, "000001_mask_2_full.png"]
+    assert [m["mask"] for m in label(out, 1)["full_masks"]] == ["000001_mask_box_0_full.png", None, "000001_mask_box_2_full.png"]
     assert len(renders) == 2
 
 
@@ -254,12 +260,12 @@ def test_bboxes_masks_and_classes(scene, cube, out, renders):
     data = label(out)
     assert [(b["class"], b["objects"]) for b in data["bboxes"]] == [("car", ["car1"]), ("car", ["car2"]), ("table", ["top", "leg"])]
     assert [(m["class"], m["mask"], m["per"]) for m in data["masks"]] == [
-        ("car", "000000_mask_0.png", "instance"), ("car", "000000_mask_1.png", "instance"),
-        ("table", "000000_mask_2.png", "instance"), ("car", "000000_mask_car.png", "class"),
-        ("table", "000000_mask_table.png", "class"),
+        ("car", "000000_mask_car_0.png", "instance"), ("car", "000000_mask_car_1.png", "instance"),
+        ("table", "000000_mask_table_2.png", "instance"), ("car", "000000_class_car.png", "class"),
+        ("table", "000000_class_table.png", "class"),
     ]
-    instance = [mask(out, f"000000_mask_{i}.png") for i in range(3)]
-    car_mask, table_mask = mask(out, "000000_mask_car.png"), mask(out, "000000_mask_table.png")
+    instance = instance_masks(out)
+    car_mask, table_mask = mask(out, "000000_class_car.png"), mask(out, "000000_class_table.png")
     assert all(m.any() for m in instance)
     assert (car_mask == (instance[0] | instance[1])).all() and (table_mask == instance[2]).all()
     # car2 is hidden where car1 is, its bbox (geometric) still overlaps car1
@@ -348,11 +354,11 @@ def test_many_instances(scene, cube, out):
     objects = [cube(f"C{i}", ((i % 20 - 9.5) * 0.3, 0, (i // 20 - 7) * 0.3), 0.2) for i in range(300)]
     G.Compose([G.Segmentation({"c": objects}, per="both")], out, (400, 300))()
     for i in (0, 255, 256, 299):
-        ys, xs = np.nonzero(mask(out, f"000000_mask_{i}.png"))
+        ys, xs = np.nonzero(mask(out, f"000000_mask_c_{i}.png"))
         box = projected_bbox(scene, [objects[i]], 400, 300)
         assert len(xs) and box[0] - 1 <= xs.mean() <= box[2] + 1 and box[1] - 1 <= ys.mean() <= box[3] + 1
-    total = sum(mask(out, f"000000_mask_{i}.png").sum() for i in range(300))
-    assert mask(out, "000000_mask_c.png").sum() == total
+    total = sum(m.sum() for m in instance_masks(out))
+    assert mask(out, "000000_class_c.png").sum() == total
 
 
 def test_iou_deconflict_skips_before_render(scene, cube, out, renders):
@@ -453,7 +459,7 @@ def test_hidden_in_render(scene, cube, out):
     assert boxes[0] == pytest.approx(projected_bbox(scene, [car1], 320, 240))
     # a hidden instance has no box and doesn't skip, a hidden member is left out
     assert boxes[1] is None and boxes[2] == pytest.approx(projected_bbox(scene, [top], 320, 240))
-    assert [mask(out, f"000000_mask_{i}.png").any() for i in range(3)] == [True, False, True]
+    assert [m.any() for m in instance_masks(out)] == [True, False, True]
     found = {k["name"]: k for k in data["keypoints"]}
     assert found["car1"]["visible"] and found["car2"]["in_frame"] and not found["car2"]["visible"]
     assert car2.hide_render and wall.hide_render and not wall.hide_viewport
@@ -487,7 +493,7 @@ def test_hidden_by_collection(scene, cube, out):
     data = label(out)
     boxes = [b["bbox"] for b in data["bboxes"]]
     assert boxes[0] == pytest.approx(projected_bbox(scene, [car1], 320, 240)) and boxes[1:] == [None, None]
-    assert [mask(out, f"000000_mask_{i}.png").any() for i in range(3)] == [True, False, False]
+    assert [m.any() for m in instance_masks(out)] == [True, False, False]
     assert [p["R"] is not None for p in data["poses"]] == [True, False, False]
     assert data["keypoints"][0]["visible"]
 
@@ -518,12 +524,12 @@ def test_segmentation_reuses_the_occlusion_render(scene, cube, out, renders):
     steps = [G.Segmentation(classes), G.BBox(classes, max_occlusion=0.7)]
     assert G.Compose(steps, out, (320, 240))()
     assert len(renders) == 2
-    visible = mask(out, "000000_mask_0.png")
+    visible = instance_masks(out)[0]
     # only the left half of the target is visible, so its mask stops at the image center
     assert visible.any() and not visible[:, 161:].any()
     renders.clear()
     assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
-    assert len(renders) == 1 and (mask(out, "000001_mask_0.png") == visible).all() and not wall.hide_render
+    assert len(renders) == 1 and (instance_masks(out, 1)[0] == visible).all() and not wall.hide_render
 
 
 def half_transparent(obj):
@@ -553,8 +559,8 @@ def test_cycles_segmentation_uses_the_object_index_pass(scene, cube, out, render
     assert G.Compose(steps, out, (320, 240))()
     # the masks come from the beauty render, no workbench render
     assert renders == ["CYCLES"]
-    cycles = [mask(out, f"000000_mask_{i}.png") for i in range(2)]
-    assert (mask(out, "000000_mask_car.png") == (cycles[0] | cycles[1])).all()
+    cycles = instance_masks(out)
+    assert (mask(out, "000000_class_car.png") == (cycles[0] | cycles[1])).all()
     # the ObjectIndex pass holds the instance ids, the other object 0
     ids = read_image(os.path.join(out, "000000_ObjectIndex.exr"), 0)
     assert set(np.unique(ids)) == {0, 1, 2} and (cycles[1] == (ids == 2)).all()
@@ -564,7 +570,7 @@ def test_cycles_segmentation_uses_the_object_index_pass(scene, cube, out, render
     scene.render.engine = "BLENDER_WORKBENCH"
     assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
     for i in range(2):
-        workbench = mask(out, f"000001_mask_{i}.png")
+        workbench = instance_masks(out, 1)[i]
         assert (workbench != cycles[i]).sum() < 0.05 * workbench.sum()
 
 
@@ -578,7 +584,7 @@ def test_cycles_masks_respect_alpha(scene, cube, out, renders):
 
     scene.render.engine = "CYCLES"
     assert G.Compose(steps, out, (320, 240))()
-    target_mask, card_mask = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_1.png")
+    target_mask, card_mask = instance_masks(out)
     assert target_mask[:, :155].any() and not target_mask[:, 165:].any()
     assert card_mask[:, 165:].any() and not card_mask[:, :155].any()
 
@@ -586,7 +592,8 @@ def test_cycles_masks_respect_alpha(scene, cube, out, renders):
     scene.render.engine = "BLENDER_EEVEE_NEXT" if bpy.app.version < (5, 0) else "BLENDER_EEVEE"
     assert G.Compose([G.Segmentation(classes)], out, (320, 240))()
     assert renders[-1] == "BLENDER_WORKBENCH"
-    assert not mask(out, "000001_mask_0.png").any() and mask(out, "000001_mask_1.png")[:, :155].any()
+    target_mask, card_mask = instance_masks(out, 1)
+    assert not target_mask.any() and card_mask[:, :155].any()
 
 
 def test_second_cycles_segmentation_uses_workbench(scene, cube, out, renders):
@@ -595,7 +602,7 @@ def test_second_cycles_segmentation_uses_workbench(scene, cube, out, renders):
     steps = [G.Segmentation({"a": [a]}), G.Segmentation({"b": [b]}), G.SegmentationImage()]
     assert G.Compose(steps, out, (320, 240))()
     assert renders == ["CYCLES", "BLENDER_WORKBENCH"]
-    first, second = mask(out, "000000_mask_0.png"), mask(out, "000000_mask_1.png")
+    first, second = instance_masks(out)
     assert first[:, :150].any() and not first[:, 170:].any()
     assert second[:, 170:].any() and not second[:, :150].any()
     assert [m["objects"] for m in label(out)["masks"]] == [["a"], ["b"]]

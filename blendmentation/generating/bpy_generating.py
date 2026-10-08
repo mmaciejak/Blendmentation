@@ -60,7 +60,7 @@ FONT = {
 MAX_PASS_INDEX = 32767
 BACKGROUND_MODES = ("color", "white_noise", "color_noise", "image")
 BACKGROUND_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".tga")
-# output files start with the datapoint index: 000012.png, 000012_mask_0.png, 000012_Albedo.exr
+# output files start with the datapoint index: 000012.png, 000012_mask_car_0.png, 000012_Albedo.exr
 INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
 
@@ -852,9 +852,10 @@ def write_mask(path, file_name, mask):
 
 def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), full=None, previous_full=()):
     """Saves black and white mask PNGs of the visible pixels, per instance as
-    <path>/<index>_mask_<n>.png and/or per class as <path>/<index>_mask_<class>.png,
-    and the full masks as <path>/<index>_mask_<n>_full.png. A name that is already taken
-    gets _2, _3, ... before the extension.
+    <path>/<index>_mask_<class>_<n>.png and/or per class as <path>/<index>_class_<class>.png,
+    and the full masks as <path>/<index>_mask_<class>_<n>_full.png, with the class name
+    sanitized for file names. A name that is already taken gets _2, _3, ... before the
+    extension.
 
     Args:
         ids (np.ndarray): id image of the instances, from `render_ids`
@@ -876,27 +877,29 @@ def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), 
     def mask_file(name, mask):
         if skip_empty and not mask.any():
             return None
-        file_name, copy = f"{index:06d}_mask_{name}.png", 2
+        file_name, copy = f"{index:06d}_{name}.png", 2
         while file_name in taken:
-            file_name, copy = f"{index:06d}_mask_{name}_{copy}.png", copy + 1
+            file_name, copy = f"{index:06d}_{name}_{copy}.png", copy + 1
         taken.add(file_name)
         return write_mask(path, file_name, mask)
+
+    def safe(class_name):
+        return re.sub(r"[^\w.-]", "_", class_name)
 
     entries = []
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
-            file_name = mask_file(start + number, ids == number + 1)
+            file_name = mask_file(f"mask_{safe(class_name)}_{start + number}", ids == number + 1)
             entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name, "per": "instance"})
     if per in ("class", "both"):
         for class_name in dict.fromkeys(class_name for class_name, _ in instances):
             numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
-            safe_name = re.sub(r"[^\w.-]", "_", class_name)
-            file_name = mask_file(safe_name, np.isin(ids, [n + 1 for n in numbers]))
+            file_name = mask_file(f"class_{safe(class_name)}", np.isin(ids, [n + 1 for n in numbers]))
             objects = [obj.name for number in numbers for obj in instances[number][1]]
             entries.append({"class": class_name, "objects": objects, "mask": file_name, "per": "class"})
     full_entries = []
     for number, ((class_name, group), mask) in enumerate(zip(instances, full or ())):
-        file_name = mask_file(f"{len(previous_full) + number}_full", mask)
+        file_name = mask_file(f"mask_{safe(class_name)}_{len(previous_full) + number}_full", mask)
         full_entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name})
     return entries, full_entries
 

@@ -630,14 +630,15 @@ class Segmentation:
     """Saves black-and-white masks of the visible pixels of every instance or class.
 
     Objects that are not in `classes` still hide what is behind them. Files are
-    `<index>_mask_<n>.png` per instance, where `n` counts instances across all classes
-    (and across `Segmentation` steps of the same `Compose`), and
-    `<index>_mask_<class>.png` per class, with `_2`, `_3`, ... added when that name is
-    already taken (two class names that differ only in characters not allowed in file
-    names, or the same class in two steps). Masks are not anti-aliased.
+    `<index>_mask_<class>_<n>.png` per instance, e.g. `000012_mask_car_3.png`, where `n`
+    counts instances across all classes (and across `Segmentation` steps of the same
+    `Compose`), and `<index>_class_<class>.png` per class. Characters not allowed in file
+    names become `_`, and `_2`, `_3`, ... is added when a name is already taken (two
+    class names that differ only in such characters, or the same class in two steps).
+    Masks are not anti-aliased.
 
     With `full_masks=True`, every instance also gets a full mask
-    `<index>_mask_<n>_full.png`: its whole silhouette, as if no other object were in
+    `<index>_mask_<class>_<n>_full.png`: its whole silhouette, as if no other object were in
     the scene (BOP's `mask`, next to the visible `mask_visib`). They need extra renders
     with every other object hidden; instances whose boxes don't overlap share one, so
     a scene of separate objects needs one.

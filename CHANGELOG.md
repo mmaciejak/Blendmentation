@@ -18,6 +18,14 @@ All notable changes to Blendmentation. The format follows
   engine. Geometry nodes instances block `Keypoints` even when the object they instance
   is hidden.
 
+### Changed
+
+- Mask files have the class in their name: instance masks are
+  `<index>_mask_<class>_<n>.png` (was `<index>_mask_<n>.png`), full masks
+  `<index>_mask_<class>_<n>_full.png`, and class masks `<index>_class_<class>.png` (was
+  `<index>_mask_<class>.png`). The label JSON lists every mask file as before, and the
+  exports read them from it.
+
 ### Fixed
 
 - Objects in a collection excluded from the view layer or disabled in renders are treated

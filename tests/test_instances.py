@@ -135,7 +135,7 @@ def test_collection_instance_is_one_instance(scene, cube, out):
     # the box and the mask cover the body and the wheel
     left = reference_bbox(scene, cube, (POINTS[0][0], 0, POINTS[0][1]), 0.5, 320, 240)
     assert first["bbox"][0] == pytest.approx(left[0]) and first["bbox"][2] > left[2]
-    pixels = mask(out, "000000_mask_0.png")
+    pixels = mask(out, "000000_mask_car_0.png")
     columns = np.nonzero(pixels.any(axis=0))[0]
     assert columns.min() == pytest.approx(left[0], abs=1.5) and columns.max() > left[2]
 
@@ -169,7 +169,7 @@ def test_masks_occlusion_and_full_masks(scene, cube, out, renders):
     # the wall hides part of instance 0 only
     assert visible[0].sum() < 0.8 * full[0].sum()
     assert all((v == f).all() for v, f in zip(visible[1:], full[1:]))
-    car_mask = mask(out, "000000_mask_car.png")
+    car_mask = mask(out, "000000_class_car.png")
     assert (car_mask == np.any(visible[:4], axis=0)).all()
 
     # a stricter limit skips the datapoint, the occlusion is measured on the instance
@@ -208,7 +208,7 @@ def test_hidden_parent(scene, cube, out):
     data = label(out)
     assert [b["objects"] for b in data["bboxes"]] == [["car"]]
     assert [m["objects"] for m in data["masks"]] == [["car"]]
-    assert mask(out, "000000_mask_0.png").any()
+    assert mask(out, "000000_mask_car_0.png").any()
 
 
 def test_checks(scene, cube, out):
