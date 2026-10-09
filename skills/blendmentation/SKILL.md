@@ -137,7 +137,10 @@ objects_aug = augmentations.Compose([
 lamp_aug = augmentations.Compose([
     augmentations.OneOf([                                 # one of them per call, picked by weight
         augmentations.Number("data.energy", value_range=(600, 1400)),     # any value by data path
-        augmentations.Vector("data.color", value_range=(0.8, 1.0)),
+        augmentations.Chain([                             # a whole list as one augmentation: dim and warm
+            augmentations.Number("data.energy", value_range=(300, 600)),
+            augmentations.Vector("data.color", value_range=((1, 0.7, 0.5), (1, 0.85, 0.7))),
+        ]),
     ], weights=[2, 1]),
 ])
 plant_aug = augmentations.Compose([
@@ -302,12 +305,13 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
   for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
-  `active_material...` paths reach it), and `OneOf` to pick
-  one of several. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
+  `active_material...` paths reach it), `OneOf` to pick
+  one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
+  `OneOf` option). Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
-- **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength`,
-  `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
+- **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
+  `FocalLength`, `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
   `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `DepthOfField(car, p=0.5, otherwise=False)`
   (sharp in the other half). None keeps the value; `Boolean` and `Visibility` default to
   False (hidden). Not with `FocalLength(keep_size=True)`. A skipped `Compose` sets nothing.
@@ -331,6 +335,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   picked by weight, again for every object in a `Compose`; its `results` hold the picked
   index. The others don't run, so they don't set their `otherwise`. It can be nested, and
   `State(fields=compose.augmentations)` and `Compose`'s clearing of `results` reach inside it.
+  To pick a whole sequence, put a `Chain([...])` in it; e.g. a material and its own `Node`:
+  `OneOf([Chain([MaterialSlot(["Metal"]), Node('active_material.node_tree.nodes["Metal"]', {...})]), ...])`.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
   others are relative to each object (`"data.energy"`). A world can be passed in place of
   an object (`world_aug([bpy.context.scene.world])`, paths like `'node_tree.nodes["Background"].inputs[1].default_value'`).

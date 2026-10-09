@@ -768,11 +768,18 @@ objects_aug = aug.Compose([
     keep_above,
 ])
 lamp_aug = aug.Compose([
-    # a new brightness or a new color, brightness twice as often
+    # a new brightness, or half as often a dim warm light
     aug.OneOf(
         [
             aug.Number("data.energy", value_range=(600, 1400)),
-            aug.Vector("data.color", value_range=(0.8, 1.0)),
+            # a whole list, applied as one augmentation
+            aug.Chain([
+                aug.Number("data.energy", value_range=(300, 600)),
+                aug.Vector(
+                    "data.color",
+                    value_range=((1, 0.7, 0.5), (1, 0.85, 0.7)),
+                ),
+            ]),
         ],
         weights=[2, 1],
     ),

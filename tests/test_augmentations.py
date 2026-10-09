@@ -530,6 +530,51 @@ def test_material_slot_errors(cube, make, error):
         make(obj)
 
 
+def test_chain(cube):
+    obj = cube("Cube")
+    move = A.Translation(x=(1, 1))
+    lift = A.Number("location[2]", value_range=(2, 2))
+    chain = A.Chain([move, lift])
+    initial = state.State([obj], fields=[chain])
+    chain(obj)
+    assert tuple(obj.location) == pytest.approx((1, 0, 2))
+    assert chain.actual == [None, pytest.approx(2)], "Translation has actual_x/y/z, no actual"
+
+    chain(obj, p=0)
+    assert chain.applied is False and chain.actual is None and obj.location.x == pytest.approx(1)
+
+    # in a OneOf: the whole sequence or nothing of it; Compose clears the results inside
+    other = A.Number("location[1]", value_range=(5, 5))
+    one_of = A.OneOf([A.Chain([move, lift]), other], weights=[1, 0])
+    compose = A.Compose([one_of])
+    lift.results["stale"] = 1
+    compose([obj])
+    assert one_of.actual == 0 and obj.location.x == pytest.approx(2) and other.results == {}
+    assert "stale" not in lift.results and lift.results == {"Cube": pytest.approx(2)}
+    initial.restore()
+
+    with pytest.raises(ValueError):
+        A.Chain([])
+
+
+def test_chain_material(cube):
+    obj = slotted_cube(cube)
+    path = 'active_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value'
+    material_aug = A.Compose([A.OneOf([
+        A.Chain([A.MaterialSlot(["B"]), A.Number(path, value_range=(0.9, 0.9))]),
+        A.Chain([A.MaterialSlot(["C"]), A.Number(path, value_range=(0.1, 0.1))]),
+    ], weights=[0, 1])])
+    initial = state.State([obj, bpy.data.materials["B"], bpy.data.materials["C"]])
+    before = bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
+    material_aug([obj])
+    roughness = {name: bpy.data.materials[name].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
+                 for name in "BC"}
+    assert obj.active_material.name == "C" and roughness["C"] == pytest.approx(0.1)
+    assert roughness["B"] == before, "only the picked material is augmented"
+    initial.restore()
+    assert obj.active_material.name == "A"
+
+
 def test_number_vector_boolean(cube):
     obj, path = geonode_cube(cube)
     obj.shape_key_add(name="Basis")

@@ -16,7 +16,8 @@ geometry nodes setup), each with its own range, `p` and `otherwise`, given as an
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
 group (e.g. a geometry nodes scatter) its own random value. `OneOf` applies one
-augmentation from a list, picked at random by weight.
+augmentation from a list, picked at random by weight, and `Chain` applies a list to one
+object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -270,7 +271,8 @@ class OneOf(Augmentation):
     On every call it picks one augmentation and calls it with the object. In a
     `Compose` it picks again for every object. The picked augmentation then draws its
     own `p`; the others don't run, so they don't set their `otherwise` either. A
-    `OneOf` can contain another `OneOf`. `Compose` clears the `results` of the
+    `OneOf` can contain another `OneOf`, and a
+    [`Chain`][blendmentation.augmentations.augmentations.Chain] to pick a whole sequence. `Compose` clears the `results` of the
     augmentations inside it too, and `State(fields=compose.augmentations)` saves the
     data paths of the ones inside it.
 
@@ -319,6 +321,79 @@ class OneOf(Augmentation):
         """
         self.actual = random.choices(range(len(self.augmentations)), weights=self.weights)[0]
         self.augmentations[self.actual](obj)
+
+
+class Chain(Augmentation):
+    """Applies a list of augmentations to one object, in order, as one augmentation.
+
+    Where `Compose` is called with a list of objects, a `Chain` is called with one
+    object like any other augmentation, so it can go where one augmentation goes: in a
+    `OneOf`, to pick between whole sequences, or in a `Compose`. Each augmentation in it
+    draws its own `p`; when the `Chain` itself doesn't run, none of them do, so they
+    don't set their `otherwise` either. `Compose` clears the `results` of the
+    augmentations inside it, and `State(fields=compose.augmentations)` saves their
+    data paths.
+
+    Args:
+        augmentations: augmentations to apply, each a callable taking one object.
+        p: probability of applying the whole list.
+
+    Attributes:
+        actual (list | None): the `actual` of each augmentation after the last call
+            (`None` for those without one), None when it was skipped.
+
+    Raises:
+        ValueError: `augmentations` is empty.
+
+    Example:
+        ```python
+        # a dim, warm light, or just another brightness
+        lamp_aug = augmentations.Compose([
+            augmentations.OneOf([
+                augmentations.Number("data.energy", value_range=(600, 1400)),
+                augmentations.Chain([
+                    augmentations.Number("data.energy", value_range=(300, 600)),
+                    augmentations.Vector("data.color", value_range=((1, 0.7, 0.5), (1, 0.85, 0.7))),
+                ]),
+            ], weights=[2, 1]),
+        ])
+        ```
+
+        A material picked from the object's slots, augmented only when it is picked:
+
+        ```python
+        material_aug = augmentations.Compose([
+            augmentations.OneOf([
+                augmentations.Chain([
+                    augmentations.MaterialSlot(["Ferrous metal"]),
+                    augmentations.Node('active_material.node_tree.nodes["Ferrous metal"]', {
+                        "Rust strength": augmentations.Input((0.3, 1)),
+                    }),
+                ]),
+                augmentations.Chain([
+                    augmentations.MaterialSlot(["Plastic"]),
+                    augmentations.Node('active_material.node_tree.nodes["Principled BSDF"]', {
+                        "Roughness": augmentations.Input((0.1, 0.6)),
+                    }),
+                ]),
+            ], weights=[3, 1]),
+        ])
+        ```
+    """
+
+    def __init__(self, augmentations: list[Callable[[Optional[Object]], Any]], p: float = 1.0):
+        super().__init__(p)
+        if not augmentations:
+            raise ValueError("Give at least one augmentation")
+        self.augmentations = augmentations
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : object passed to every augmentation
+        """
+        for augmentation in self.augmentations:
+            augmentation(obj)
+        self.actual = [getattr(augmentation, "actual", None) for augmentation in self.augmentations]
 
 
 class AxisAugmentation(Augmentation):
@@ -874,7 +949,9 @@ class MaterialSlot(Augmentation):
         ```
 
         Each material augmented its own way: a `Node` with an absolute path per
-        material. The ones that weren't picked don't show.
+        material. The ones that weren't picked are changed too, but don't show; to
+        augment only the picked one, see the example of
+        [`Chain`][blendmentation.augmentations.augmentations.Chain].
 
         ```python
         cube_aug = augmentations.Compose([
