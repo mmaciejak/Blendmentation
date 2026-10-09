@@ -78,7 +78,7 @@ More examples, built up step by step, are in the [Quick start](quick-start.md).
 ## Next steps
 
 - [Quick start](quick-start.md): examples built up step by step, and a full example with every feature.
-- [Installation](installation.md): inside Blender, or as a Python module.
+- [Installation](installation.md): inside Blender (as an add-on, or from a copy), or as a Python module.
 - [Augmentations](augmentations.md), [State](state.md), [Generating](generating.md) and [Export](export.md): the reference for each module, with examples.
 - [Compatibility with Blender MCP](blender-mcp.md): an agent skill so AI agents can build datasets in your open Blender through Blender MCP.
 

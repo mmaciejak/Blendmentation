@@ -11,6 +11,8 @@ last object; `results` holds the values for every object, by name. Augment insid
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
 geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
 `Modifier` does the same for the inputs of a geometry nodes modifier, by name.
+`Node.template` writes a `Node` with every input of a node and its range, to paste and
+edit; the Blender add-on copies it for the selected node.
 `MaterialSlot` gives an object one of the materials in its own slots.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
@@ -38,7 +40,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import bpy_augmentations as bpy_a
 
 if TYPE_CHECKING:
-    from bpy.types import NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import Node as BpyNode, NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
 #: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
 #: (low, high, step) picks one of low, low + step, ... up to high
@@ -1599,6 +1601,70 @@ class Node(Augmentation):
         for augmentation in self.augmentations:
             augmentation(obj)
             self.actual[augmentation.key] = augmentation.actual
+
+    @staticmethod
+    def template(node: Union[str, BpyNode], obj: Optional[Object] = None, prefix: str = "augmentations.") -> str:
+        """Writes the source of a `Node` that sets every input of a node, to paste into a
+        script and edit.
+
+        Each input gets an `Input` with the widest range the node allows, so you narrow
+        the ranges you want and delete the inputs to leave alone:
+
+        | Socket | Written as |
+        | --- | --- |
+        | Float, Int, Vector | `(min, max)` of the socket: for a group node, Min and Max of the input in the group's interface; for other nodes, the socket type's (0 to 1 for a factor). Without one, `(v, v)` with the current value |
+        | Rotation | `(v, v)` with the current X, Y, Z angles in radians |
+        | Color | `(0.0, 1.0)`: any color, alpha kept |
+        | Boolean | `p=0.5` |
+        | Menu | every option, when they can be found |
+
+        A comment after each input gives its type and current value. Connected inputs
+        and sockets `Node` can't set (shader, geometry, string, object...) are only
+        comments, and hidden ones (unavailable in the node's current mode) are left out.
+        Inputs that share a name are keyed by index, with the name in the comment. The
+        node's name and the input names are written exactly, trailing spaces included.
+
+        In the Blender app, the add-on does the same for the active node in the node
+        editor and copies it to the clipboard: Node menu (or right click a node) > Copy
+        Blendmentation Template, or search for it with F3. See
+        [Installation](installation.md#inside-blender-as-an-add-on).
+
+        Args:
+            node: the node, or its data path. A path is kept in the text as it is, so a
+                path relative to `obj` makes a relative template; a node gets its
+                absolute path.
+            obj: object a relative path starts from.
+            prefix: written before `Node` and `Input`, e.g. `"aug."` after
+                `from blendmentation.augmentations import augmentations as aug`.
+
+        Returns:
+            The source of the `Node`, ending in a newline.
+
+        Raises:
+            TypeError: `node` is not a node.
+            ValueError: the node has no inputs.
+
+        Example:
+            ```python
+            print(augmentations.Node.template(
+                'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]'
+            ))
+            ```
+
+            prints
+
+            ```python
+            augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
+                # "Texture Coordinate": connected
+                "Base metal color": augmentations.Input((0.0, 1.0)),   # color, now (0.1385, 0.1385, 0.1385, 1.0)
+                "Base metal type": augmentations.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+                "Texture scale": augmentations.Input((-10000.0, 10000.0)),  # float, now 1.0
+                "Rust strength": augmentations.Input((0.0, 1.0)),      # float, now 0.0
+                ...
+            })
+            ```
+        """
+        return bpy_a.node_template(node, obj, prefix)
 
 
 def input_key(key: Union[str, int]) -> str:

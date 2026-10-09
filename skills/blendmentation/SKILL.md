@@ -94,6 +94,13 @@ for obj in scene.objects:
           "| modifiers:", [(m.name, m.type) for m in obj.modifiers])
 ```
 
+Before writing a `Node`, print the node's template:
+`print(augmentations.Node.template('bpy.data.materials["Mat"].node_tree.nodes["Group"]'))`.
+It writes a `Node` with the node's exact path and every input by its exact name (group
+nodes show their group's name, not the node's; menus show their current option; names
+can end in a space), with its type, current value, widest range and menu options, and
+connected or unsupported inputs as comments. Narrow it down with the user.
+
 Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a
   sublist of objects labeled as one (`{"table": [[top, legs]]}`). Objects scattered by
@@ -306,7 +313,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
-  the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
+  the augmentation picked by socket type; a color range keeps alpha; `Node.template(node)`
+  writes one with every input of a node and its range, to start from), `Modifier` (the same
   for the inputs of a geometry nodes modifier, by name, in every version),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `OneOf` to pick

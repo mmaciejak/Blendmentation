@@ -1,6 +1,8 @@
 import colorsys
+import json
 import math
 import random
+from collections import Counter
 
 import bpy
 from mathutils import Euler, Matrix, Quaternion, Vector
@@ -752,3 +754,145 @@ def modifier_input(obj, modifier_path, key):
                            f"its inputs are {[name for name, _, _ in inputs]}")
         identifier, kind = matches[0]
     return modifier_path + bpy_paths.modifier_input_path(modifier, identifier), kind
+
+
+# a socket limit this far from 0 is the "no limit" default (about 3.4e38 for floats, 2**31 for ints)
+UNBOUNDED = 1e9
+# Node template comments are aligned after the inputs up to this long
+TEMPLATE_ALIGN = 60
+
+
+def socket_limits(socket):
+    """(min, max) of a number or vector input socket: for a group node, its group
+    interface's min and max; otherwise those of the socket type (e.g. 0 to 1 for a
+    factor). None when it has no finite limits."""
+    group = getattr(socket.node, "node_tree", None)
+    item = None
+    if group is not None:
+        item = next((item for item in group.interface.items_tree
+                     if item.item_type == "SOCKET" and item.in_out == "INPUT"
+                     and item.identifier == socket.identifier), None)
+    if item is not None and hasattr(item, "min_value"):
+        low, high = item.min_value, item.max_value
+    else:
+        prop = socket.bl_rna.properties.get("default_value")
+        if prop is None or not hasattr(prop, "hard_min"):
+            return None
+        low, high = prop.hard_min, prop.hard_max
+    if abs(low) >= UNBOUNDED or abs(high) >= UNBOUNDED:
+        return None
+    return low, high
+
+
+def template_number(value):
+    """A number as source text, floats rounded to 4 decimals."""
+    if isinstance(value, (bool, int)):
+        return repr(value)
+    return repr(round(value, 4) + 0.0)  # + 0.0 turns -0.0 into 0.0
+
+
+def template_value(value, short=False):
+    """A number, or a vector as a tuple of numbers, as source text. With short, a
+    vector with equal components is written as one number."""
+    if isinstance(value, (bool, int, float)):
+        return template_number(value)
+    texts = [template_number(v) for v in value]
+    if short and len(set(texts)) == 1:
+        return texts[0]
+    return "(" + ", ".join(texts) + ")"
+
+
+def template_string(text):
+    """A string as source text, in double quotes."""
+    return json.dumps(text, ensure_ascii=False)
+
+
+def node_path(node):
+    """The absolute data path of a node, with double quoted names."""
+    full = repr(node)
+    if not full.startswith("bpy."):
+        raise ValueError(f"Cannot find the data path of {full}, pass it as a string")
+    path = "bpy"
+    for kind, key in bpy_paths.parse(full)[1:]:
+        if kind == "attr":
+            path += "." + key
+        else:
+            path += f"[{key}]" if isinstance(key, int) else f"[{template_string(key)}]"
+    return path
+
+
+def template_input(socket):
+    """The Input arguments and the comment of one unlinked input socket in a Node
+    template, None for a socket type Node can't set. Numbers and vectors get the
+    socket's min and max, or the current value when it has none."""
+    kind = socket.type
+    if kind in ("VALUE", "INT", "VECTOR"):
+        word = {"VALUE": "float", "INT": "int", "VECTOR": "vector"}[kind]
+        now = template_value(socket.default_value)
+        limits = socket_limits(socket)
+        if limits is None:
+            bound = template_value(socket.default_value, short=True)
+            return f"({bound}, {bound})", f"{word}, now {now}, no min/max"
+        return f"({template_number(limits[0])}, {template_number(limits[1])})", f"{word}, now {now}"
+    if kind == "ROTATION":
+        now = template_value(socket.default_value)
+        return f"({now}, {now})", f"rotation in radians, now {now}"
+    if kind == "RGBA":
+        return "(0.0, 1.0)", f"color, now {template_value(socket.default_value)}"
+    if kind == "BOOLEAN":
+        return "p=0.5", f"boolean, now {socket.default_value}"
+    if kind == "MENU":
+        options = socket_menu_options(socket)
+        arguments = "options=[" + ", ".join(template_string(o) for o in options) + "]" if options else ""
+        return arguments, f"menu, now {template_string(socket.default_value)}"
+    return None
+
+
+def node_template(node, obj=None, prefix="augmentations."):
+    """Source text of a Node augmentation that sets every input of the node, see
+    augmentations.Node.template.
+
+    Args:
+        node (str | bpy.types.Node): the node, or its data path (absolute, or relative
+            to obj), which is then kept in the text
+        obj (bpy.types.Object): object a relative path starts from
+        prefix (str): written before Node and Input
+    """
+    if isinstance(node, str):
+        path, node = node, bpy_paths.get_value(node, obj)
+    else:
+        path = None
+    if not isinstance(getattr(node, "inputs", None), bpy.types.bpy_prop_collection) or not hasattr(node, "bl_idname"):
+        raise TypeError(f"{node!r} is not a node")
+    if path is None:
+        path = node_path(node)
+    sockets = [(index, socket) for index, socket in enumerate(node.inputs)
+               if socket.enabled and socket.bl_idname != "NodeSocketVirtual"]
+    if not sockets:
+        raise ValueError(f"Node '{node.name}' has no inputs")
+    names = Counter(socket.name for _, socket in sockets)
+    rows = []  # (code, comment), code None for an input that is only a comment
+    for index, socket in sockets:
+        # inputs that share a name are keyed by index, the name goes in the comment
+        if names[socket.name] == 1:
+            key, named = template_string(socket.name), ""
+        else:
+            key, named = str(index), f"{template_string(socket.name)}, "
+        entry = None if socket.is_linked or socket.hide_value else template_input(socket)
+        if socket.is_linked:
+            rows.append((None, f"{key}: {named}connected"))
+        elif socket.hide_value:
+            # e.g. Normal: only a link sets it, the node shows no value
+            rows.append((None, f"{key}: {named}no value on the node"))
+        elif entry is None:
+            rows.append((None, f"{key}: {named}{socket.type.lower()} socket, not supported"))
+        else:
+            arguments, comment = entry
+            rows.append((f"{key}: {prefix}Input({arguments}),", named + comment))
+    # comments aligned, past longer lines (e.g. a menu with many options) only by two spaces
+    width = max((len(code) for code, _ in rows if code and len(code) <= TEMPLATE_ALIGN), default=0)
+    lines = [f"{prefix}Node({path!r}, {{"]
+    for code, comment in rows:
+        lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
+    lines.append("})")
+    return "\n".join(lines) + "\n"

@@ -83,6 +83,11 @@ It is not on PyPI yet, so get it from GitHub: clone the repository, or pip insta
 from there (this needs `git`). The `main` branch always holds the
 [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest).
 
+- **Inside Blender, as an add-on:** download `blendmentation-addon-<version>.zip` from the
+  [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest) and
+  install it in Edit > Preferences > Add-ons > Install from Disk. Scripts can then import
+  it, and the node editor gets Node > Copy Blendmentation Template, which copies a `Node`
+  augmentation with every input of the selected node and its range.
 - **Inside Blender, from a copy of the repository:** clone it and add the cloned folder
   to `sys.path` in your script (`sys.path.append("/path/to/Blendmentation")`):
 
@@ -103,7 +108,7 @@ from there (this needs `git`). The `main` branch always holds the
 ## Documentation
 
 - [Quick start](https://blendmentation.docs.csmx.eu/quick-start/): examples built up step by step, and a full example with every feature.
-- [Installation](https://blendmentation.docs.csmx.eu/installation/): inside Blender, or as a Python module.
+- [Installation](https://blendmentation.docs.csmx.eu/installation/): inside Blender (as an add-on, or from a copy), or as a Python module.
 - [Augmentations](https://blendmentation.docs.csmx.eu/augmentations/): transforms, camera, materials and any value by data path.
 - [State](https://blendmentation.docs.csmx.eu/state/): setting the scene back after every datapoint.
 - [Generating](https://blendmentation.docs.csmx.eu/generating/): renders, passes, AOVs, masks, labels and preview images.

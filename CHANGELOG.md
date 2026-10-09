@@ -15,6 +15,15 @@ All notable changes to Blendmentation. The format follows
   fraction of its length. Put `Translation` and `Rotation` after it to move or turn the
   object from there, or `LookAt(target)` to aim it at something. `actual` holds the
   `position` and the world `location`.
+- Blendmentation is also a Blender add-on: install `blendmentation-addon-<version>.zip`
+  from the GitHub release in Preferences > Add-ons, and scripts can import it without
+  `sys.path` setup. It adds Node > Copy Blendmentation Template to the node editor (also
+  in the right click menu and F3 search), which copies an `augmentations.Node(...)` for
+  the selected node to the clipboard: every input by its exact name, with the widest range
+  the node allows (a group input's Min and Max), all menu options, and the type and
+  current value in a comment. The prefix (e.g. `aug.`) is set in the add-on's preferences.
+- `augmentations.Node.template(node, obj=None, prefix="augmentations.")` returns the same
+  text without the add-on, for a node or its data path.
 
 ## [0.8.0] - 2026-10-09
 

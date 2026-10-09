@@ -90,7 +90,9 @@ lamp_transforms = augmentations.Compose(
 
 # a world is augmented like an object, the path is relative to it. Node sets
 # several inputs of one node (e.g. a smart material's or a geometry nodes group node),
-# each its own way
+# each its own way. To start from every input of a node with its range, select it and use
+# Node > Copy Blendmentation Template (the add-on), or
+# print(augmentations.Node.template('node_tree.nodes["Background"]', world))
 world_transforms = augmentations.Compose([
     augmentations.Node('node_tree.nodes["Background"]', {
         "Strength": augmentations.Input((0.5, 1.5, 0.25)),  # (low, high, step): 0.5, 0.75, ... 1.5

@@ -22,6 +22,13 @@ from blendmentation.generating import generating as gen
 from blendmentation.state import state
 ```
 
+Or install it as a Blender add-on: download `blendmentation-addon-<version>.zip` from the
+[latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), then
+Edit > Preferences > Add-ons > Install from Disk (Install in Blender 4.0 and 4.1), and
+enable "Blendmentation". Scripts then import it without the two `sys.path` lines, and the
+node editor gets a tool that writes `Node` augmentations for you (see
+[A smart material](#a-smart-material)).
+
 To install it with pip, or to use Blender as a Python module, see
 [Installation](installation.md).
 
@@ -358,6 +365,8 @@ for _ in range(100):
 
 ## A smart material
 
+![The group node "Ferrous metal" with its inputs: Texture Coordinate (linked), Texture ofset, Base metal color, the menus "Base metal type" (showing "Shiny metal") and "Surface effect" (showing "Grinded"), Thin oxidation amount, Texture scale, Surface effect strenght, Rust strength, Rust spread, Paint spread, Paint Color, Paint disccoloration, Paint surface spots and Dust strength](images/smart-material-nodes.jpg)
+
 A smart material puts its settings on one group node, here a node of the group "Ferrous
 metal" in the material "Master material". `Node` sets many of its inputs in one
 augmentation: each input gets an `Input` with its range (or menu options), `p` and
@@ -372,7 +381,34 @@ in the Sidebar (N) > Node > Name, and rename it there (here to "Ferrous metal"),
 click an input > Copy Full Data Path. A menu input shows its current option instead of
 its name, so look the names up in the group's interface.
 
-![The group node "Ferrous metal" with its inputs: Texture Coordinate (linked), Texture ofset, Base metal color, the menus "Base metal type" (showing "Shiny metal") and "Surface effect" (showing "Grinded"), Thin oxidation amount, Texture scale, Surface effect strenght, Rust strength, Rust spread, Paint spread, Paint Color, Paint disccoloration, Paint surface spots and Dust strength](images/smart-material-nodes.jpg)
+Or let the add-on write it: select the node, then Node menu > Copy Blendmentation
+Template (or right click the node, or F3). It copies a `Node` with the node's path and
+every input, by its exact name, with the widest range the node allows (the Min and Max
+of the group's inputs) and all menu options. Set the prefix to `aug.` in the add-on's
+preferences, paste, narrow the ranges and delete the inputs to leave alone. Without the
+add-on, `print(aug.Node.template(ferrous_metal, prefix="aug."))` prints the same:
+
+```python
+aug.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
+    # "Texture Coordinate": connected
+    "Texture ofset": aug.Input(((75.9993, -93.0513, 48.2312), (75.9993, -93.0513, 48.2312))),  # vector, now (75.9993, -93.0513, 48.2312), no min/max
+    "Base metal color": aug.Input((0.0, 1.0)),         # color, now (0.1385, 0.1385, 0.1385, 1.0)
+    "Base metal type": aug.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+    "Thin oxidation amount": aug.Input((0.0, 1.0)),    # float, now 0.4287
+    "Texture scale": aug.Input((-10000.0, 10000.0)),   # float, now 1.0
+    "Surface effect": aug.Input(options=["Dotted", "Brushed", "Hammered", "Grinded", "Weathered"]),  # menu, now "Dotted"
+    "Surface effect strenght": aug.Input((0.0, 1.0)),  # float, now 0.7976
+    "Rust strength": aug.Input((0.0, 1.0)),            # float, now 0.0
+    "Rust spread": aug.Input((0.0, 1.0)),              # float, now 0.0
+    "Paint spread": aug.Input((0.0, 1.0)),             # float, now 0.0
+    "Paint Color": aug.Input((0.0, 1.0)),              # color, now (0.0009, 0.0, 0.1729, 1.0)
+    "Paint disccoloration": aug.Input((0.0, 1.0)),     # float, now 0.0
+    "Paint surface spots": aug.Input((0.0, 1.0)),      # float, now 0.0
+    "Dust strength": aug.Input((0.0, 1.0)),            # float, now 0.0
+})
+```
+
+Here it became four `Node`s:
 
 ```python
 # the node's name, not its title
@@ -708,7 +744,9 @@ objects_aug = aug.Compose([
         saturation=(0.5, 1),
         roughness=(0.1, 0.6),
     ),
-    # more inputs of the same material, each its own way
+    # more inputs of the same material, each its own way; to start from every input with
+    # its range: the add-on's Node > Copy Blendmentation Template, or
+    # print(aug.Node.template('active_material.node_tree.nodes["Principled BSDF"]', car_1, prefix="aug."))
     aug.Node(
         'active_material.node_tree.nodes["Principled BSDF"]',
         {

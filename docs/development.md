@@ -37,17 +37,19 @@ can do now or what behaves differently, not how it was implemented.
 
 Releases are made by `.github/workflows/release.yml`:
 
-1. On `dev`, set the new `version` in `pyproject.toml`, and in `CHANGELOG.md` rename
+1. On `dev`, set the new `version` in `pyproject.toml` and in `bl_info` in
+   `blendmentation/__init__.py` (the add-on's version), and in `CHANGELOG.md` rename
    `## [Unreleased]` to `## [<version>] - <YYYY-MM-DD>`, add an empty
-   `## [Unreleased]` above it, and update the compare links at the bottom. Commit both.
+   `## [Unreleased]` above it, and update the compare links at the bottom. Commit them.
    The tests fail when the version in `pyproject.toml` has no changelog section with
-   entries.
+   entries, or differs from `bl_info`.
 2. Merge `dev` into `main`: `git checkout main && git merge --ff-only dev && git push`.
 3. Tag that commit with the same version and push the tag:
    `git tag v0.7.3 && git push origin v0.7.3`.
 
-The workflow runs the tests, checks that the tag matches the version, builds the wheel
-and sdist, and creates a GitHub release with both files attached. Its notes are the
+The workflow runs the tests, checks that the tag matches the version, builds the wheel,
+the sdist and the Blender add-on zip (`blendmentation-addon-<version>.zip`, the
+`blendmentation` folder), and creates a GitHub release with the three files attached. Its notes are the
 version's section of `CHANGELOG.md` (`.github/scripts/release_notes.py`); without one,
 the release fails before anything is published. It is not
 published to PyPI yet; a specific release can be installed from its wheel, e.g.

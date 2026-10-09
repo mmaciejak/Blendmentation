@@ -5,8 +5,53 @@ from there (this needs `git`). The `main` branch always holds the
 [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), so both
 give you that.
 
-There are three ways to use it: point your script at a copy of this repository, install
-it into Blender with pip, or use Blender as a Python module without the app.
+There are four ways to use it: install it in Blender as an add-on, point your script at
+a copy of this repository, install it into Blender with pip, or use Blender as a Python
+module without the app. They are the same package; inside Blender, pick one of the first
+three, since with two copies your scripts import whichever Blender finds first.
+
+## Inside Blender, as an add-on
+
+1. Download `blendmentation-addon-<version>.zip` from the
+   [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), or
+   zip the `blendmentation` folder of a clone yourself. (GitHub's "Download ZIP" of the
+   repository doesn't work as an add-on: it has the repository folder on top.)
+2. In Blender, Edit > Preferences > Add-ons: in Blender 4.2 and newer, the arrow at the
+   top right > Install from Disk; in 4.0 and 4.1, Install. Pick the zip.
+3. Enable "Blendmentation" in the list.
+
+Blender copies the package to its add-ons folder, which is on `sys.path`, so scripts
+import it without any setup:
+
+```python
+from blendmentation.augmentations import augmentations
+from blendmentation.generating import generating
+from blendmentation.state import state
+```
+
+It also adds a tool for writing `Node` augmentations: select a node in a node editor (a
+smart material's group node, the Principled BSDF...), then Node menu > Copy
+Blendmentation Template, or right click > Copy Blendmentation Template, or search for
+it with F3. It copies a
+[`Node`][blendmentation.augmentations.augmentations.Node] with every input of the node and
+the widest range each allows to the clipboard, to paste into a script and narrow down:
+
+```python
+augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
+    # "Texture Coordinate": connected
+    "Base metal type": augmentations.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+    "Rust strength": augmentations.Input((0.0, 1.0)),  # float, now 0.0
+    "Paint Color": augmentations.Input((0.0, 1.0)),    # color, now (0.0009, 0.0, 0.1729, 1.0)
+    ...
+})
+```
+
+If your scripts import the module under another name (`... import augmentations as aug`),
+set the prefix in the add-on's preferences, e.g. `aug.`. Without the add-on,
+[`Node.template`][blendmentation.augmentations.augmentations.Node.template] returns the
+same text.
+
+To update, install the new zip the same way and restart Blender.
 
 ## Inside Blender, from a copy of the repository
 

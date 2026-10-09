@@ -271,6 +271,65 @@ def test_node(cube):
     assert node.inputs["Rust"].default_value == pytest.approx(0.3)
 
 
+def test_node_template(cube):
+    obj = cube("Cube")
+    material, node, has_menu = node_group_node(obj)
+    group = node.node_tree
+    group.interface.items_tree["Rust"].min_value = 0.25
+    group.interface.items_tree["Rust"].max_value = 2
+    group.interface.items_tree["Count"].min_value = 1
+    group.interface.items_tree["Count"].max_value = 20
+    node.inputs["Rust"].default_value = 0.5
+    group.interface.new_socket("Rust", in_out="INPUT", socket_type="NodeSocketFloat")  # a second "Rust"
+    texture = material.node_tree.nodes.new("ShaderNodeTexNoise")
+    material.node_tree.links.new(texture.outputs[0], node.inputs["Paint"])
+
+    text = A.Node.template(node)
+    lines = text.splitlines()
+    assert lines[0] == """augmentations.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"""
+    assert lines[-1] == "})" and text.endswith("\n")
+    rows = {line.split(":")[0].strip(): line for line in lines[1:-1]}
+    assert "Input((0.25, 2.0))" in rows["0"] and '# "Rust", float, now 0.5' in rows["0"], "the group's min and max"
+    second = str(len(node.inputs) - 1)
+    assert "Input((0.0, 0.0))" in rows[second] and "no min/max" in rows[second], "no limits: its current value"
+    assert "Input((1, 20))" in rows['"Count"'] and "# int, now 0" in rows['"Count"']
+    assert "Input((0.0, 0.0))" in rows['"Offset"'], "a vector without limits: its current value"
+    assert rows['# "Paint"'].endswith("connected")
+    assert "Input(p=0.5)" in rows['"Flag"'] and "now False" in rows['"Flag"']
+    assert rows['# "Linked"'].endswith("shader socket, not supported")
+    if has_menu:
+        assert 'Input(options=["Rough", "Polished"])' in rows['"Finish"'] and 'now "Rough"' in rows['"Finish"']
+    comments = [line.index("  #") for line in lines[1:-1]
+                if not line.lstrip().startswith("#") and line.index("  #") <= 4 + bpy_augmentations.TEMPLATE_ALIGN]
+    assert len(set(comments)) == 1, "the comments are aligned, past longer lines too"
+
+    # the template runs as it is, and changes only what it covers
+    smart = eval(text, {"augmentations": A})
+    with state.restoring():
+        smart()
+        assert 0.25 <= node.inputs[0].default_value <= 2
+        assert 1 <= node.inputs["Count"].default_value <= 20
+    assert node.inputs[0].default_value == 0.5
+
+    # a path is kept as it is, relative to the object, and the prefix is used
+    principled = A.Node.template('active_material.node_tree.nodes["Principled BSDF"]', obj, prefix="aug.")
+    assert principled.startswith("""aug.Node('active_material.node_tree.nodes["Principled BSDF"]', {""")
+    assert '"Metallic": aug.Input((0.0, 1.0)),' in principled, "a factor: 0 to 1"
+    assert '"Base Color": aug.Input((0.0, 1.0)),' in principled
+    assert '# "Normal": no value on the node' in principled
+    assert '"Weight"' not in principled, "unavailable inputs are left out"
+    assert eval(principled, {"aug": A}).inputs
+
+    # names are written exactly, quotes and trailing spaces included
+    group.interface.items_tree["Count"].name = 'Count "n" '
+    assert """"Count \\"n\\" ": augmentations.Input((1, 20)),""" in A.Node.template(node)
+
+    with pytest.raises(TypeError):
+        A.Node.template(obj)
+    with pytest.raises(ValueError):
+        A.Node.template(material.node_tree.nodes.new("ShaderNodeTexCoord"))
+
+
 def test_node_input(cube):
     obj = cube("Cube")
     material, node, has_menu = node_group_node(obj)
