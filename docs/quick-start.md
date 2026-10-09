@@ -169,6 +169,34 @@ for _ in range(100):
 
 ![Three BBoxImage previews of the milk carton, standing and lying, with its box drawn](images/carton-bboxes.jpg){ .full-width }
 
+!!! tip "The same with `OneOf`"
+    `OneOf` picks one augmentation from a list by weight, so the choice between standing
+    and lying can be a single `Compose`. Only the rotations differ; the translation and
+    `PlaceOn` follow them (a standing carton stays on the floor).
+
+    ```python
+    carton_aug = aug.Compose([
+        aug.OneOf(
+            [
+                # standing on its base: any heading
+                aug.Rotation(z=180),
+                # lying on one of its four sides
+                aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180),
+            ],
+            # standing 80% of the time
+            weights=[8, 2],
+        ),
+        aug.Translation(x=0.5, y=0.5),
+        # after the transforms: sets it down on the floor
+        aug.PlaceOn(floor),
+    ])
+
+    for _ in range(100):
+        carton_aug([milk_box])
+        generator()
+        initial.restore()
+    ```
+
 ## Augmenting a material with shader nodes
 
 ![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](images/rust-material-nodes.jpg)
