@@ -162,7 +162,6 @@ image_generator = generating.Compose(
 )
 
 
-
 def pipeline():
     # everything the augmentations change inside is set back when the block ends,
     # also when a step fails
