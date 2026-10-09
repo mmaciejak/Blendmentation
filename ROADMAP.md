@@ -2,15 +2,15 @@
 
 Ideas that are not decided yet. Nothing here has a date or a version.
 
-## `SmartMaterial` template generator
+## `Node` template generator
 
-Writing the `inputs` dict of a `SmartMaterial` by hand is slow. The node shows input
+Writing the `inputs` dict of a `Node` by hand is slow. The node shows input
 names shortened ("Paint Col...", "Base met..."), and you have to know each input's
 type to know what to give it. A generator would read a node in the scene and write a
 ready-to-edit `inputs` dict in the `Input` format, to paste into a script:
 
 ```python
-print(augmentations.SmartMaterial.template(
+print(augmentations.Node.template(
     'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]'
 ))
 ```
@@ -34,11 +34,11 @@ node's inputs, their types and their options.
 
 ### Open questions
 
-- **Where it lives:** a static method `SmartMaterial.template(node)`, a function in
-  `augmentations`, or a method on an existing `SmartMaterial`, which would print the
+- **Where it lives:** a static method `Node.template(node)`, a function in
+  `augmentations`, or a method on an existing `Node`, which would print the
   inputs it doesn't set yet.
 - **What it returns:** source text to print and paste, or a real dict of `Input`s that can
-  be passed to `SmartMaterial` as it is (and printed through `Input.__repr__`).
+  be passed to `Node` as it is (and printed through `Input.__repr__`).
 - **Default ranges:** the current value as `(v, v)`, so nothing changes until it is
   edited; the socket's min and max from the group interface (`min_value`, `max_value`),
   where it has them; or something in between, like the current value ± 10 %.

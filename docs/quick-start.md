@@ -371,29 +371,29 @@ for _ in range(100):
 ## A smart material
 
 A smart material puts its settings on one group node, here "Ferrous metal" in the
-material "Master material". `SmartMaterial` sets many of its inputs in one augmentation:
-each input gets a range, or an `Input` with its own `p` and `otherwise`. Inputs are set like
+material "Master material". `Node` sets many of its inputs in one augmentation:
+each input gets an `Input` with its range (or menu options), `p` and `otherwise`. Inputs are set like
 `Number`, `Vector`, `Boolean` or `Menu`, by their socket type, and a color range keeps
 alpha. The menus here need Blender 5.
 
 ![The group node "Ferrous metal" with its inputs: texture offset, menus "Grinded" and "Shiny metal", base metal color, rust, paint spread and paint color](images/smart-material-nodes.jpg)
 
 ```python
-ferrous_metal = aug.SmartMaterial(
+ferrous_metal = aug.Node(
     'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
     {
         # moves the textures: every axis
-        "Texture ofset": (-100, 100),
+        "Texture ofset": aug.Input((-100, 100)),
         # any option of the menu, read from the group
-        "Grinded": None,
+        "Grinded": aug.Input(),
         # 0, 0.25, ... 1: (low, high, step)
-        "Rust strength": (0, 1, 0.25),
+        "Rust strength": aug.Input((0, 1, 0.25)),
         # rust in 20% of the images, clearly visible; none in the others
         "Rust spread": aug.Input((0.5, 1), p=0.2, otherwise=0),
         # painted in half of the images
         "Paint spread": aug.Input((0.2, 0.9), p=0.5, otherwise=0),
         # any color: red, green and blue from 0 to 1
-        "Paint Color": (0, 1),
+        "Paint Color": aug.Input((0, 1)),
     },
 )
 generator = gen.Compose(
@@ -415,7 +415,9 @@ The inputs are named as in the group's interface (the node shows them shortened)
 `ferrous_metal.actual` holds the value set to each. To give every object its own copy
 of the material a different look, use a path relative to the object,
 `'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose` called with the
-objects.
+objects. `Node` works the same on a group node in geometry nodes,
+`'bpy.data.node_groups["Scatter"].nodes["Rock generator"]'`; the inputs of a geometry
+nodes modifier are set with `Number`, `Vector`, `Boolean` and `Menu` instead.
 
 ## HDRI world
 
@@ -685,11 +687,11 @@ objects_aug = aug.Compose([
         roughness=(0.1, 0.6),
     ),
     # more inputs of the same material, each its own way
-    aug.SmartMaterial(
+    aug.Node(
         'active_material.node_tree.nodes["Principled BSDF"]',
         {
             # (low, high, step): 0, 0.1, ... 0.5
-            "Coat Roughness": (0, 0.5, 0.1),
+            "Coat Roughness": aug.Input((0, 0.5, 0.1)),
             # a clear coat on 30% of the cars, none on the others
             "Coat Weight": aug.Input((0.5, 1), p=0.3, otherwise=0),
         },

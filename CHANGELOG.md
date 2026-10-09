@@ -14,11 +14,12 @@ All notable changes to Blendmentation. The format follows
   `Compose` clears the `results` of the augmentations inside it, and
   `state.State(fields=compose.augmentations)` saves the data paths of the `Number`, `Vector`,
   `Boolean` and `Menu` inside it.
-- `augmentations.SmartMaterial(node, inputs, p=1.0)` sets many inputs of one node, e.g. the
-  group node of a smart material, in one augmentation. `inputs` maps each input name (or
+- `augmentations.Node(node, inputs, p=1.0)` sets many inputs of one node, e.g. the
+  group node of a smart material or of a geometry nodes setup, in one augmentation. `inputs` maps each input name (or
   index) to a range, or to an `augmentations.Input(value_range, options, weights, p,
   otherwise)` (a dict with these keys works too); each input is set like a `Number`,
-  `Vector`, `Boolean` or `Menu`, picked by the socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
+  `Vector` (vectors, colors and rotations, in radians), `Boolean` or `Menu`, picked by the
+  socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
   value set to each input. Pass it to `state.State(fields=...)` to restore its inputs.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,
   min + step, ... max.

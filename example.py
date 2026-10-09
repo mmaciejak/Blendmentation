@@ -80,11 +80,12 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
-# a world is augmented like an object, the path is relative to it. SmartMaterial sets
-# several inputs of one node (e.g. a smart material's group node), each its own way
+# a world is augmented like an object, the path is relative to it. Node sets
+# several inputs of one node (e.g. a smart material's or a geometry nodes group node),
+# each its own way
 world_transforms = augmentations.Compose([
-    augmentations.SmartMaterial('node_tree.nodes["Background"]', {
-        "Strength": (0.5, 1.5, 0.25),  # (low, high, step): 0.5, 0.75, ... 1.5
+    augmentations.Node('node_tree.nodes["Background"]', {
+        "Strength": augmentations.Input((0.5, 1.5, 0.25)),  # (low, high, step): 0.5, 0.75, ... 1.5
         # tinted in 30% of the datapoints, white in the others; alpha is kept
         "Color": augmentations.Input((0.6, 1.0), p=0.3, otherwise=1.0),
     }),

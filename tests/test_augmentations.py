@@ -186,7 +186,7 @@ def test_material(cube):
         A.SimpleMaterial("Nope", roughness=(0, 1))(obj)
 
 
-def smart_group_node(obj):
+def node_group_node(obj):
     """Material "Mat" on obj with a group node "Smart" with inputs Rust (float), Count
     (int), Offset (vector), Paint (color), Flag (bool), Linked (shader) and, where shader
     trees have a Menu Switch, Finish (menu, options Rough and Polished, through a reroute)."""
@@ -220,9 +220,9 @@ def smart_group_node(obj):
     return material, node, switch is not None
 
 
-def test_smart_material(cube):
+def test_node(cube):
     obj = cube("Cube")
-    material, node, has_menu = smart_group_node(obj)
+    material, node, has_menu = node_group_node(obj)
     inputs = {
         "Rust": (0, 1, 0.25),
         "Count": {"value_range": (2, 5)},
@@ -233,7 +233,7 @@ def test_smart_material(cube):
     if has_menu:
         inputs["Finish"] = {"options": None, "weights": [0, 1]}
     path = 'bpy.data.materials["Mat"].node_tree.nodes["Smart"]'
-    smart = A.SmartMaterial(path, inputs)
+    smart = A.Node(path, inputs)
     initial = state.State([], fields=[smart])
     smart()
 
@@ -254,7 +254,7 @@ def test_smart_material(cube):
     assert tuple(node.inputs["Paint"].default_value) == (0.5, 0.5, 0.5, 0.25)
 
     # per input p and otherwise; a relative path, through a Compose
-    smart = A.SmartMaterial('active_material.node_tree.nodes["Smart"]', {
+    smart = A.Node('active_material.node_tree.nodes["Smart"]', {
         "Rust": {"value_range": (0.5, 1), "p": 0, "otherwise": 0.1},
         0: {"value_range": (0.5, 1), "p": 0},  # Rust by index, skipped without otherwise
         "Paint": {"value_range": (0, 1), "p": 0, "otherwise": 1},
@@ -267,13 +267,13 @@ def test_smart_material(cube):
 
     # its own p: no input changes, not even to otherwise
     node.inputs["Rust"].default_value = 0.3
-    A.SmartMaterial(path, {"Rust": {"value_range": (0, 1), "otherwise": 0}}, p=0)()
+    A.Node(path, {"Rust": {"value_range": (0, 1), "otherwise": 0}}, p=0)()
     assert node.inputs["Rust"].default_value == pytest.approx(0.3)
 
 
-def test_smart_material_input(cube):
+def test_node_input(cube):
     obj = cube("Cube")
-    material, node, has_menu = smart_group_node(obj)
+    material, node, has_menu = node_group_node(obj)
     node.inputs["Flag"].default_value = True
     inputs = {
         "Rust": A.Input((0.5, 1), p=0, otherwise=0.1),
@@ -283,7 +283,7 @@ def test_smart_material_input(cube):
     }
     if has_menu:
         inputs["Finish"] = A.Input(options=["Rough", "Polished"], weights=[0, 1])
-    smart = A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)
+    smart = A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)
     smart()
     assert node.inputs["Rust"].default_value == pytest.approx(0.1)
     assert node.inputs["Count"].default_value in (2, 4, 6)
@@ -293,9 +293,26 @@ def test_smart_material_input(cube):
         assert node.inputs["Finish"].default_value == "Polished"
 
     # left out, otherwise is the augmentation's default: False for a boolean
-    A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Flag": A.Input(p=0)})()
+    A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Flag": A.Input(p=0)})()
     assert node.inputs["Flag"].default_value is False
     assert repr(A.Input((0, 1), p=0.5)) == "Input(value_range=(0, 1), p=0.5)"
+
+
+def test_node_geometry_nodes(cube):
+    obj, _ = geonode_cube(cube)
+    transform = next(node for node in bpy.data.node_groups["GN"].nodes if node.bl_idname == "GeometryNodeTransform")
+    node = A.Node(f'bpy.data.node_groups["GN"].nodes["{transform.name}"]', {
+        "Scale": A.Input(((1, 2, 3), (1, 2, 3))),
+        "Rotation": A.Input((0, 1), p=0, otherwise=0),
+    })
+    initial = state.State([], fields=[node])
+    node()
+    assert tuple(transform.inputs["Scale"].default_value) == pytest.approx((1, 2, 3))
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
+    assert top == pytest.approx(1.5), "the input did not reach the evaluated mesh"  # 0.5 * 3
+    initial.restore()
+    assert tuple(transform.inputs["Scale"].default_value) == (1, 1, 1)
 
 
 @pytest.mark.parametrize("make", [
@@ -322,10 +339,10 @@ def test_input_errors(make):
     ({"Nope": (0, 1)}, KeyError),
     ({1.5: (0, 1)}, ValueError),
 ])
-def test_smart_material_errors(cube, inputs, error):
-    smart_group_node(cube("Cube"))
+def test_node_errors(cube, inputs, error):
+    node_group_node(cube("Cube"))
     with pytest.raises(error):
-        A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)()
+        A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)()
 
 
 def test_number_step(cube):

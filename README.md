@@ -18,7 +18,7 @@ Blendmentation automates and augments ordinary Blender scenes, built with the wo
 you already use. Instead of a custom function for every use case, the variation in your
 synthetic data generation (SDG) pipeline lives in Blender itself, in shader nodes and
 geometry nodes. Blendmentation randomizes it by changing their values (`Number`,
-`Vector`, `Boolean`, `Menu`, `Seed`), so whatever you can build with nodes, you can
+`Vector`, `Boolean`, `Menu`, `Node`, `Seed`), so whatever you can build with nodes, you can
 augment.
 
 A few augmentations are shortcuts for common setups, so a basic pipeline is quick and

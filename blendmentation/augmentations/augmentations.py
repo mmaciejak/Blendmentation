@@ -7,8 +7,8 @@ it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
 `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
-`SmartMaterial` sets the inputs of a node (e.g. a smart material's group node), each
-with its own range, `p` and `otherwise`, given as an `Input`.
+`Node` sets the inputs of a node (e.g. the group node of a smart material or of a
+geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
@@ -830,7 +830,7 @@ class SimpleMaterial(Augmentation):
     Tip:
         Use `SimpleMaterial` for negative data, secondary objects, or to make a model
         generalize over shape while ignoring the material. For finer control over the
-        materials of hero objects, use [`SmartMaterial`][blendmentation.augmentations.augmentations.SmartMaterial]
+        materials of hero objects, use [`Node`][blendmentation.augmentations.augmentations.Node]
         to set the inputs of a node group, or [`Number`][blendmentation.augmentations.augmentations.Number]
         to set individual shader node inputs.
 
@@ -1071,7 +1071,7 @@ UNSET = Unset()
 
 
 class Input:
-    """How a `SmartMaterial` sets one input: its range or options, `p` and `otherwise`.
+    """How a `Node` sets one input: its range or options, `p` and `otherwise`.
 
     The arguments are those of the augmentation the input becomes, picked by its
     socket type: `value_range`, `p` and `otherwise` for numbers, vectors and colors
@@ -1134,7 +1134,7 @@ class Input:
         return f"Input({', '.join(f'{name}={value!r}' for name, value in self.arguments().items())})"
 
 
-#: the arguments an input of a `SmartMaterial` can set, in a dict
+#: the arguments an input of a `Node` can set, in a dict
 INPUT_ARGUMENTS = ("value_range", "options", "weights", "p", "otherwise")
 
 
@@ -1148,12 +1148,13 @@ def color_bound(bound: Any) -> Any:
 
 
 def input_augmentation(kind: str, key: Union[str, int], data_path: str, spec: Any) -> Augmentation:
-    """The `Number`, `Vector`, `Boolean` or `Menu` for an input of a `SmartMaterial`, by socket type."""
+    """The `Number`, `Vector`, `Boolean` or `Menu` for an input of a `Node`, by socket type."""
     augmentations = {"VALUE": (Number, "value_range"), "INT": (Number, "value_range"),
-                     "VECTOR": (Vector, "value_range"), "RGBA": (Vector, "value_range"),
+                     "VECTOR": (Vector, "value_range"), "ROTATION": (Vector, "value_range"),
+                     "RGBA": (Vector, "value_range"),
                      "BOOLEAN": (Boolean, "p"), "MENU": (Menu, "options")}
     if kind not in augmentations:
-        raise TypeError(f"Input {key!r} is a {kind} socket, only number, vector, color, boolean and menu inputs can be augmented")
+        raise TypeError(f"Input {key!r} is a {kind} socket, only number, vector, rotation, color, boolean and menu inputs can be augmented")
     augmentation, main = augmentations[kind]
     if isinstance(spec, Input):
         arguments = spec.arguments()
@@ -1173,7 +1174,7 @@ def input_augmentation(kind: str, key: Union[str, int], data_path: str, spec: An
 
 
 class NodeInput:
-    """One input of a `SmartMaterial`. On every call it runs a `Number`, `Vector`,
+    """One input of a `Node`. On every call it runs a `Number`, `Vector`,
     `Boolean` or `Menu`, picked by the type of the socket, with the input's arguments."""
 
     def __init__(self, key: Union[str, int], data_path: str, spec: Any):
@@ -1199,9 +1200,13 @@ class NodeInput:
         self.results[None if obj is None else obj.name] = self.actual
 
 
-class SmartMaterial(Augmentation):
-    """Sets the inputs of a node, e.g. the group node of a smart material, to random
-    values, each with its own range, probability and `otherwise`.
+class Node(Augmentation):
+    """Sets the inputs of a node to random values, each with its own range, probability
+    and `otherwise`.
+
+    For the group node of a smart material, of a geometry nodes setup, or any other
+    node in a shader, world or geometry nodes tree. The inputs of a geometry nodes
+    *modifier* are not a node: set them with `Number`, `Vector`, `Boolean` or `Menu`.
 
     `inputs` maps each input to augment, by name (or index, for inputs that share a
     name), to how it is set: an [`Input`][blendmentation.augmentations.augmentations.Input],
@@ -1217,20 +1222,21 @@ class SmartMaterial(Augmentation):
     | --- | --- | --- |
     | Float, Int | `value_range`: `(min, max)` or `(min, max, step)` | `value_range`, `p`, `otherwise` |
     | Vector | `value_range`: `(min, max)`, as in `Vector` | `value_range`, `p`, `otherwise` |
+    | Rotation | `value_range`: `(min, max)` of the X, Y, Z angles in radians, as in `Vector` | `value_range`, `p`, `otherwise` |
     | Color | `value_range`: `(min, max)`, as in `Vector` | `value_range`, `p`, `otherwise` |
     | Boolean | `p`, the probability of True | `p`, `otherwise` |
     | Menu | `options`, None = all of them | `options`, `weights`, `p`, `otherwise` |
 
     For a color, a number or 3 values set red, green and blue and keep alpha, so
     `(0, 1)` is any color; give 4 values to set alpha too. Each input draws its own
-    `p`, and `SmartMaterial`'s own `p` applies the whole node: when it doesn't run, no
+    `p`, and `Node`'s own `p` applies the whole node: when it doesn't run, no
     input changes, also not to its `otherwise`.
 
     The node is given by its data path, absolute (starting with `bpy.`) or relative to
     the object, e.g. `active_material.node_tree.nodes["Ferrous metal"]` to augment the
     material of each object in a `Compose`. The inputs must not be connected to other
-    nodes. With an absolute path, it changes the **material**, so every object using
-    it is affected.
+    nodes. It changes the **node tree** (the material, the node group…), so everything
+    using it is affected.
 
     Args:
         node: data path of the node.
@@ -1249,8 +1255,8 @@ class SmartMaterial(Augmentation):
         ValueError: `inputs` is empty, an input's key is not a name or index, or its
             dict has other keys. At the first call: an input's arguments don't fit
             its socket type, e.g. a Float without a range.
-        TypeError: at a call, an input is not a number, vector, color, boolean or
-            menu socket.
+        TypeError: at a call, an input is not a number, vector, rotation, color,
+            boolean or menu socket.
 
     !!! info "Use it inside a Compose"
         With an absolute path it doesn't use the object passed by `Compose`, but it
@@ -1259,8 +1265,17 @@ class SmartMaterial(Augmentation):
         the `Compose` is called with, and the last values set are kept.
 
     Example:
+        An input takes one of three forms, and they can be mixed:
+
+        - an `Input`, which takes every argument, checked when it is built:
+          `Input((0.5, 1), p=0.2, otherwise=0)`;
+        - the main argument alone, short for an `Input` with only that: `(0, 1)` is
+          `Input((0, 1))`, and `None` is `Input()` (a menu: any option);
+        - a dict with the `Input` arguments as keys,
+          `{"value_range": (0.5, 1), "p": 0.2}`, checked only at the first call.
+
         ```python
-        ferrous_metal = augmentations.SmartMaterial(
+        ferrous_metal = augmentations.Node(
             'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
             {
                 "Texture ofset": (-100, 100),             # Vector: every axis
@@ -1277,6 +1292,15 @@ class SmartMaterial(Augmentation):
         ferrous_metal()   # absolute path: no object needed
         ferrous_metal.actual   # e.g. {"Texture ofset": (12.0, -40.3, 77.1), "Grinded": "Rough", ...}
         initial.restore()
+        ```
+
+        A group node in a geometry nodes tree:
+
+        ```python
+        rocks = augmentations.Node(
+            'bpy.data.node_groups["Scatter"].nodes["Rock generator"]',
+            {"Count": (10, 50), "Size": augmentations.Input((0.5, 2), p=0.5, otherwise=1)},
+        )
         ```
     """
 
