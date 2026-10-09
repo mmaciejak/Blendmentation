@@ -8,38 +8,39 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `with state.restoring():` sets back every value the augmentations changed inside the
+  block when it ends, also when something in it raises. Nothing has to be listed or saved
+  first: every augmentation records what it changes (transforms, render visibility, node
+  and modifier inputs, material slots, camera settings, any data path), also inside a
+  `OneOf`, `Chain`, `Node` or `Modifier`. `state.set(owner, name, value)` makes a change of
+  your own code that is set back too. Blocks can be nested.
 - `augmentations.OneOf(augmentations, weights=None, p=1.0)` applies one augmentation from a
   list, picked at random by weight, again for every object in a `Compose`. Its `actual` is
   the picked index and `results` the index per object. A `OneOf` can contain another `OneOf`.
-  `Compose` clears the `results` of the augmentations inside it, and
-  `state.State(fields=compose.augmentations)` saves the data paths of the `Number`, `Vector`,
-  `Boolean` and `Menu` inside it.
+  `Compose` clears the `results` of the augmentations inside it.
 - `augmentations.Node(node, inputs, p=1.0)` sets many inputs of one node, e.g. the
   group node of a smart material or of a geometry nodes setup, in one augmentation. `inputs` maps each input name (or
   index) to a range, or to an `augmentations.Input(value_range, options, weights, p,
   otherwise)` (a dict with these keys works too); each input is set like a `Number`,
   `Vector` (vectors, colors and rotations, in radians), `Boolean` or `Menu`, picked by the
   socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
-  value set to each input. Pass it to `state.State(fields=...)` to restore its inputs.
+  value set to each input.
 - `augmentations.Modifier(modifier, inputs, p=1.0)` sets the inputs of a geometry nodes
   modifier like `Node` does for a node, e.g. `Modifier('modifiers["Scatter"]',
   {"Density": Input((5, 20))})`. It finds the inputs by their name in the node group, in
   every Blender version, so you don't need the `Socket_2` data paths that changed in
   Blender 5.
-- `state.State` also saves the inputs of the geometry nodes modifiers of the objects it is
-  given (numbers, booleans, vectors, colors, rotations and menus).
 - `augmentations.Menu` works on the menu inputs of a geometry nodes modifier in Blender 4.x,
   which Blender stores as numbers: it sets and reports the option names.
 - `augmentations.MaterialSlot(slots=None, weights=None, p=1.0, otherwise=None)` gives an
   object one of the materials in its own material slots, picked at random: every face
   gets the picked slot, and it becomes the active slot, so `active_material` paths in the
   same `Compose` reach it. `actual` is the material's name. Materials aren't copied, so
-  objects that share a material or a mesh keep sharing it. `state.State` saves the
-  faces' slots and the active slot of meshes with more than one slot.
+  objects that share a material or a mesh keep sharing it.
 - `augmentations.Chain(augmentations, p=1.0)` applies a list of augmentations to one
   object as one augmentation, so a `OneOf` can pick between whole sequences, e.g. a
   `MaterialSlot` together with a `Node` that augments only that material. `Compose` clears
-  the `results` inside it, and `state.State(fields=...)` saves its data paths.
+  the `results` inside it.
 - Every augmentation call takes `p`, which overrides the augmentation's `p` for that call,
   like a `Compose` call does: `rust(p=0.2)`, `rotation(car, p=0.5)`.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,
@@ -49,9 +50,18 @@ All notable changes to Blendmentation. The format follows
 
 ### Changed
 
+- The loop restores the scene with `with state.restoring():` instead of
+  `initial = state.State(objects, fields=...)` and `initial.restore()`. Put the
+  augmentations and the generating `Compose` inside the block.
 - `augmentations.Material` is renamed to `augmentations.SimpleMaterial`.
 - `augmentations.Number` raises a `ValueError` for a `value_range` that is not
   `(min, max)` or `(min, max, step)`, or whose min is above its max.
+
+### Removed
+
+- `state.State`, with its `objects` and `fields`: use `state.restoring()`. It only set back
+  what was saved when it was built; `restoring()` sets back exactly what the augmentations
+  changed.
 
 ## [0.7.3] - 2026-10-08
 

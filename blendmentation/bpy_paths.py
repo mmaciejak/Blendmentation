@@ -2,6 +2,8 @@ import re
 
 import bpy
 
+from . import bpy_undo
+
 TOKEN = re.compile(
     r"""\.?(?P<attr>[A-Za-z_]\w*)"""
     r"""|\[\s*"(?P<dkey>(?:[^"\\]|\\.)*)"\s*\]"""
@@ -72,12 +74,10 @@ def set_value(data_path, value, obj=None):
     owner, token = resolve(data_path, obj)
     kind, key = token
     if kind == "attr":
-        setattr(owner, key, value)
+        bpy_undo.set_attr(owner, key, value)
     else:
-        owner[key] = value
-    id_data = getattr(owner, "id_data", None)
-    if id_data is not None:
-        id_data.update_tag()
+        bpy_undo.set_item(owner, key, value)
+    bpy_undo.tag(owner)
 
 
 # the kind of value an input socket holds, by the start of its interface socket_type,

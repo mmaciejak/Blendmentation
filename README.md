@@ -65,13 +65,11 @@ generator = gen.Compose([
     gen.Segmentation(classes),
 ], path="//dataset", resolution=(640, 480))
 
-# 3. the scene state to go back to
-initial = state.State(cars)
-
 for _ in range(1000):
-    objects_aug(cars)
-    generator()
-    initial.restore()
+    # 3. everything changed inside is set back afterwards
+    with state.restoring():
+        objects_aug(cars)
+        generator()
 
 # 4. training-ready annotations
 export.coco("//dataset")
@@ -107,7 +105,7 @@ from there (this needs `git`). The `main` branch always holds the
 - [Quick start](https://blendmentation.docs.csmx.eu/quick-start/): examples built up step by step, and a full example with every feature.
 - [Installation](https://blendmentation.docs.csmx.eu/installation/): inside Blender, or as a Python module.
 - [Augmentations](https://blendmentation.docs.csmx.eu/augmentations/): transforms, camera, materials and any value by data path.
-- [State](https://blendmentation.docs.csmx.eu/state/): saving and restoring the scene.
+- [State](https://blendmentation.docs.csmx.eu/state/): setting the scene back after every datapoint.
 - [Generating](https://blendmentation.docs.csmx.eu/generating/): renders, passes, AOVs, masks, labels and preview images.
 - [Export](https://blendmentation.docs.csmx.eu/export/): COCO, YOLO, Pascal VOC and BOP.
 - [Compatibility with Blender MCP](https://blendmentation.docs.csmx.eu/blender-mcp/): an agent skill ([`skills/blendmentation`](skills/blendmentation/SKILL.md)) for AI agents that control Blender through [Blender MCP](https://github.com/ahujasid/blender-mcp).

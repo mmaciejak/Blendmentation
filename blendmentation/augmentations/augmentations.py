@@ -6,8 +6,8 @@ override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
 `FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
-last object; `results` holds the values for every object, by name. Save the scene
-with `State` first, and restore it after every datapoint.
+last object; `results` holds the values for every object, by name. Augment inside
+`with state.restoring():`, which sets everything back when the datapoint is done.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
 geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
 `Modifier` does the same for the inputs of a geometry nodes modifier, by name.
@@ -105,8 +105,8 @@ class Compose:
     Each augmentation runs once per object, in list order: all of them on the first
     object, then all of them on the next one. Every augmentation draws its own `p` for
     each object, so with `Visibility(p=0.5)` each object is shown or hidden
-    independently. Save the scene with `State` before augmenting, so it can be
-    restored.
+    independently. Call it inside `with state.restoring():`, so the scene is set back
+    afterwards.
 
     Every call first clears the `results` of its augmentations, also of the ones
     nested in a `OneOf`, so afterwards they hold the values for the objects of this
@@ -272,9 +272,8 @@ class OneOf(Augmentation):
     `Compose` it picks again for every object. The picked augmentation then draws its
     own `p`; the others don't run, so they don't set their `otherwise` either. A
     `OneOf` can contain another `OneOf`, and a
-    [`Chain`][blendmentation.augmentations.augmentations.Chain] to pick a whole sequence. `Compose` clears the `results` of the
-    augmentations inside it too, and `State(fields=compose.augmentations)` saves the
-    data paths of the ones inside it.
+    [`Chain`][blendmentation.augmentations.augmentations.Chain] to pick a whole sequence.
+    `Compose` clears the `results` of the augmentations inside it too.
 
     Args:
         augmentations: augmentations to pick from, each a callable taking one object.
@@ -331,8 +330,7 @@ class Chain(Augmentation):
     `OneOf`, to pick between whole sequences, or in a `Compose`. Each augmentation in it
     draws its own `p`; when the `Chain` itself doesn't run, none of them do, so they
     don't set their `otherwise` either. `Compose` clears the `results` of the
-    augmentations inside it, and `State(fields=compose.augmentations)` saves their
-    data paths.
+    augmentations inside it.
 
     Args:
         augmentations: augmentations to apply, each a callable taking one object.
@@ -697,7 +695,7 @@ class Seed(Augmentation):
 
     It works on the node group, not on the object passed by `Compose`, so it can be
     called as `seed()`. In a `Compose` it runs once per object, and the last seeds are
-    kept. Pass the node group to `State` to restore the seeds.
+    kept.
 
     Args:
         node_group: the node group, e.g. `bpy.data.node_groups["Geometry Nodes"]`, or
@@ -718,11 +716,10 @@ class Seed(Augmentation):
         ```python
         scatter = bpy.data.node_groups["Geometry Nodes"]
         seed = augmentations.Seed(scatter)
-        initial = state.State([rock, scatter])   # the seeds are restored too
         for _ in range(100):
-            seed()                                  # a new scatter every time
-            generator()
-            initial.restore()
+            with state.restoring():                 # the seeds are set back too
+                seed()                              # a new scatter every time
+                generator()
         ```
     """
 
@@ -764,9 +761,6 @@ class LookAt(Augmentation):
     Attributes:
         actual (dict | None): the distance, elevation, azimuth, roll and focal length
             set by the last call.
-
-    Note:
-        Pass the camera to `State`, it restores the transform and the lens.
 
     Example:
         ```python
@@ -905,8 +899,8 @@ class MaterialSlot(Augmentation):
     Properties, `+`). On every call it assigns every face of the mesh to the picked
     slot, and makes it the active slot, so later augmentations in the same `Compose`
     reach the picked material through a relative path,
-    `active_material.node_tree.nodes[...]`. `State` saves the faces' slots and the
-    active slot of meshes with more than one slot, and `restore()` puts them back.
+    `active_material.node_tree.nodes[...]`. `state.restoring()` sets the faces' slots
+    and the active slot back.
 
     It doesn't copy materials: an object shows a material that other objects may use
     too, and augmenting that material changes it for all of them. Which objects share
@@ -1062,11 +1056,10 @@ class Number(Augmentation):
         ValueError: `value_range` is not `(min, max)` or `(min, max, step)`, min is
             above max, or step is not above 0.
 
-    !!! info "Use it inside a Compose"
-        With an absolute path (starting with `bpy.`) it doesn't use the object passed
-        by `Compose`, but it still belongs in one: it runs with the rest of the list,
-        and `State(fields=compose.augmentations)` restores it. It runs once per object
-        the `Compose` is called with, and the last value set is kept.
+    !!! info "With an absolute path"
+        A path starting with `bpy.` doesn't use the object, so it can be called alone,
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
+        and the last value set is kept.
 
     Example:
         ```python
@@ -1110,11 +1103,10 @@ class Vector(Augmentation):
         otherwise: vector to set when it doesn't run, a number for all components or
             one value per component (None keeps that component). None keeps the vector.
 
-    !!! info "Use it inside a Compose"
-        With an absolute path (starting with `bpy.`) it doesn't use the object passed
-        by `Compose`, but it still belongs in one: it runs with the rest of the list,
-        and `State(fields=compose.augmentations)` restores it. It runs once per object
-        the `Compose` is called with, and the last value set is kept.
+    !!! info "With an absolute path"
+        A path starting with `bpy.` doesn't use the object, so it can be called alone,
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
+        and the last value set is kept.
 
     Example:
         ```python
@@ -1160,10 +1152,9 @@ class Boolean(Augmentation):
         p: probability of True.
         otherwise: value to set the rest of the time, None keeps the value.
 
-    !!! info "Use it inside a Compose"
-        With an absolute path (starting with `bpy.`) it doesn't use the object passed
-        by `Compose`, but it still belongs in one: it runs with the rest of the list,
-        and `State(fields=compose.augmentations)` restores it.
+    !!! info "With an absolute path"
+        A path starting with `bpy.` doesn't use the object, so it can be called alone,
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with.
 
     Example:
         ```python
@@ -1206,10 +1197,9 @@ class Menu(Augmentation):
     Raises:
         ValueError: the number of weights and options differ.
 
-    !!! info "Use it inside a Compose"
-        With an absolute path (starting with `bpy.`) it doesn't use the object passed
-        by `Compose`, but it still belongs in one: it runs with the rest of the list,
-        and `State(fields=compose.augmentations)` restores it.
+    !!! info "With an absolute path"
+        A path starting with `bpy.` doesn't use the object, so it can be called alone,
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with.
 
     Example:
         ```python
@@ -1382,7 +1372,7 @@ class InputAugmentation:
 
 
 class NodeInput(InputAugmentation):
-    """One input of a `Node`, at a fixed data path, so `State(fields=...)` saves it."""
+    """One input of a `Node`, at a fixed data path."""
 
     def __init__(self, key: Union[str, int], data_path: str, spec: Any):
         super().__init__(key, spec)
@@ -1394,8 +1384,7 @@ class NodeInput(InputAugmentation):
 
 class ModifierInput(InputAugmentation):
     """One input of a `Modifier`. Its data path depends on the Blender version and the
-    node group's socket identifier, so it is found on every call; `State` saves the
-    modifier inputs of the objects it is given."""
+    node group's socket identifier, so it is found on every call."""
 
     def __init__(self, key: Union[str, int], modifier: str, spec: Any):
         input_key(key)
@@ -1456,9 +1445,8 @@ class Node(Augmentation):
         actual (dict | None): the value set to each input by the last call, by its
             key in `inputs` (None for an input skipped by its `p` without
             `otherwise`), None when it was skipped.
-        augmentations (list): one entry per input, with the `data_path` of its value,
-            so `State(fields=compose.augmentations)` saves them and `Compose` clears
-            their `results`.
+        augmentations (list): one entry per input, with the `data_path` of its value;
+            `Compose` clears their `results`.
 
     Raises:
         ValueError: `inputs` is empty, an input's key is not a name or index, or its
@@ -1467,11 +1455,10 @@ class Node(Augmentation):
         TypeError: at a call, an input is not a number, vector, rotation, color,
             boolean or menu socket.
 
-    !!! info "Use it inside a Compose"
-        With an absolute path it doesn't use the object passed by `Compose`, but it
-        still belongs in one: it runs with the rest of the list, and
-        `State(fields=compose.augmentations)` restores it. It runs once per object
-        the `Compose` is called with, and the last values set are kept.
+    !!! info "With an absolute path"
+        A path starting with `bpy.` doesn't use the object, so it can be called alone,
+        `node()`. In a `Compose` it runs once per object the `Compose` is called with,
+        and the last values set are kept.
 
     Tip:
         Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
@@ -1504,10 +1491,10 @@ class Node(Augmentation):
                 "Paint Color": (0, 1),                    # Color: any color
             },
         )
-        initial = state.State([], fields=[ferrous_metal])
-        ferrous_metal()   # absolute path: no object needed
-        ferrous_metal.actual   # e.g. {"Texture ofset": (12.0, -40.3, 77.1), "Base metal type": "Cast metal", ...}
-        initial.restore()
+        with state.restoring():
+            ferrous_metal()   # absolute path: no object needed
+            ferrous_metal.actual   # e.g. {"Texture ofset": (12.0, -40.3, 77.1), "Base metal type": "Cast metal", ...}
+            generator()
         ```
 
         A group node in a geometry nodes tree:
@@ -1565,9 +1552,6 @@ class Modifier(Augmentation):
     modifier only, not its node group, so objects with the same group keep their
     own values.
 
-    To restore the inputs, pass the objects to `State`: it saves the inputs of their
-    geometry nodes modifiers. Unlike `Node`, `State(fields=...)` doesn't save them.
-
     Args:
         modifier: data path of the modifier.
         inputs: what to set each input to, by input name or index.
@@ -1603,10 +1587,10 @@ class Modifier(Augmentation):
             "Mossy": augmentations.Input(p=0.3),          # Boolean: True 30 %
             "Ground": augmentations.Input(options=["Sand", "Gravel"]),
         })
-        initial = state.State([floor])   # saves the modifier's inputs
-        augmentations.Compose([scatter])([floor])
-        scatter.actual   # e.g. {"Density": 12.7, "Rock size": 1, "Mossy": False, "Ground": "Sand"}
-        initial.restore()
+        with state.restoring():
+            augmentations.Compose([scatter])([floor])
+            scatter.actual   # e.g. {"Density": 12.7, "Rock size": 1, "Mossy": False, "Ground": "Sand"}
+            generator()
         ```
     """
 

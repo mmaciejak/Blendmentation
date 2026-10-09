@@ -18,7 +18,7 @@ Full API reference: https://blendmentation.docs.csmx.eu/
 These rules shape every call you make:
 
 - **Fresh namespace per call.** Only `bpy` is predefined. Variables, imported names,
-  augmentations and `State` objects do not survive to the next call, so every call
+  and augmentations do not survive to the next call, so every call
   re-imports and looks up its objects again. `sys.path` and `sys.modules` do persist,
   because they live in Blender's Python.
 - **Only `print` output comes back.** Print what you need to see (counts, label JSON,
@@ -27,7 +27,8 @@ These rules shape every call you make:
   a time limit (180 s in `blender-mcp`). Renders are slow, so generate in batches that
   finish well within it (see "Generate in batches").
 - **The scene is the user's live scene.** Augmentations mutate it in place. Always
-  restore it in a `finally`, so an error never leaves it changed.
+  augment inside `with state.restoring():`, which sets it back when the block ends, also
+  on an error.
 
 ## 1. Make the library importable
 
@@ -107,8 +108,9 @@ Then agree with the user on, before generating anything:
 
 ## 3. The pipeline
 
-The intended loop: build `State` once → per datapoint: apply augmentations → call the
-generating `Compose` → `State.restore()`.
+The intended loop: per datapoint, inside `with state.restoring():`, apply the
+augmentations and call the generating `Compose`; the block's end sets every value they
+changed back. Nothing has to be listed or saved first.
 
 ```python
 import bpy
@@ -153,7 +155,7 @@ world_aug = augmentations.Compose([                        # call it with [world
     augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
 ])
 floor_aug = augmentations.Compose([                        # the inputs shown on a geometry nodes modifier,
-    augmentations.Modifier('modifiers["Scatter"]', {      # by name, in every version; State([floor]) saves them
+    augmentations.Modifier('modifiers["Scatter"]', {      # by name, in every Blender version
         "Density": augmentations.Input((5, 20)),
     }),
 ])
@@ -182,8 +184,6 @@ generator = generating.Compose(
     path="/absolute/output/folder",
     resolution=(640, 480),
 )
-# objects (+ their modifier inputs), lamp, camera and the world's node values are saved; data-path augmentations only if listed in fields
-initial = state.State([car_1, car_2, plant, lamp, camera, floor, world], fields=objects_aug.augmentations + lamp_aug.augmentations)
 ```
 
 ## 4. Check with one preview first
@@ -192,11 +192,9 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 
 ```python
 import json, os, glob
-try:
+with state.restoring():                                   # the scene is set back afterwards, also on an error
     objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world]); floor_aug([floor])
     print("generated:", generator.preview(4, {"lift": keep_above.results}))   # resolution / 4; False = skipped
-finally:
-    initial.restore()
 labels = sorted(glob.glob(os.path.join(generator.path, "[0-9]*.json")))
 print(open(labels[-1]).read() if labels else "no label yet")
 print(sorted(os.listdir(generator.path))[-10:])
@@ -220,16 +218,13 @@ import time
 BATCH = 10
 done = skipped = 0
 start = time.perf_counter()
-try:
-    for _ in range(BATCH):
+for _ in range(BATCH):
+    with state.restoring():                               # every datapoint starts from the user's scene
         objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world]); floor_aug([floor])
         if generator({"lift": keep_above.results}):
             done += 1
         else:
             skipped += 1
-        initial.restore()
-finally:
-    initial.restore()
 print(f"done {done}, skipped {skipped}, {(time.perf_counter() - start) / BATCH:.1f} s per datapoint")
 ```
 
@@ -238,8 +233,8 @@ print(f"done {done}, skipped {skipped}, {(time.perf_counter() - start) / BATCH:.
 - `generator()` returns `False` when a `BBox` setting skips the datapoint (before the
   beauty render). If most are skipped, loosen the settings or the augmentations, and tell
   the user.
-- Building `State` at the start of every call is correct, as long as every call restored
-  the scene at its end.
+- Every call builds the pipeline again; that's fine, since each datapoint's
+  `restoring()` block leaves the scene as it found it.
 
 For large datasets (hundreds of renders or more), a headless run is faster and doesn't
 freeze the user's Blender. If you have a shell: save a copy of the scene, without
@@ -303,7 +298,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
   the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
-  for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them),
+  for the inputs of a geometry nodes modifier, by name, in every version),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
@@ -330,11 +325,10 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   down, so it rests on the surface (e.g. an object tipped over around a centered origin).
 - **`Seed(node_group)`** gives every seed input in a node group (Distribute Points, Random
   Value...) its own random value per call: `seed = augmentations.Seed(bpy.data.node_groups["Geometry Nodes"]); seed()`.
-  Pass the group to `State([..., node_group])` to restore the seeds.
 - **`OneOf(augmentations, weights=None, p=1)`** applies one augmentation from the list,
   picked by weight, again for every object in a `Compose`; its `results` hold the picked
   index. The others don't run, so they don't set their `otherwise`. It can be nested, and
-  `State(fields=compose.augmentations)` and `Compose`'s clearing of `results` reach inside it.
+  `Compose`'s clearing of `results` reaches inside it.
   To pick a whole sequence, put a `Chain([...])` in it; e.g. a material and its own `Node`:
   `OneOf([Chain([MaterialSlot(["Metal"]), Node('active_material.node_tree.nodes["Metal"]', {...})]), ...])`.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
@@ -343,11 +337,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 
 ## Pitfalls
 
-- **Restore what you change.** `State` saves object transforms, render visibility, the whole node
-  tree of their materials (every node's settings and values, color ramps, node groups) and camera lens / depth of field,
-  and the node tree of a world or material in its list. Any other data-path augmentation (light energy, shape keys) is
-  restored only if it is in `State(fields=...)`. If you change anything else in the
-  scene, change it back yourself.
+- **Restore what you change.** `state.restoring()` sets back every value the
+  augmentations changed inside it, whatever it is. Changes your own code makes are not
+  recorded: make them with `state.set(owner, "name", value)` (e.g.
+  `state.set(lamp.data, "energy", 2000)`), or change them back yourself. Augmentations
+  called outside a `restoring()` block change the user's scene for good.
 - **Output paths**: `"//dataset"` is relative to the `.blend` file. When
   `bpy.data.filepath` is empty (unsaved scene), use an absolute path.
 - **Don't save over the user's `.blend`** unless they ask. Use `copy=True`.

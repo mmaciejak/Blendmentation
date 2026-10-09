@@ -6,7 +6,7 @@ import bpy
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 
-from .. import bpy_paths
+from .. import bpy_paths, bpy_undo
 
 
 def sample(value_range):
@@ -63,6 +63,7 @@ def translation(obj, x, y, z):
         tuple: applied offsets for x, y and z
     """
     offsets = (sample(x), sample(y), sample(z))
+    bpy_undo.record_transforms(obj)
     for axis, offset in enumerate(offsets):
         obj.location[axis] += offset
     return offsets
@@ -76,6 +77,7 @@ def rotation(obj, x, y, z):
     """
     angles = (sample(x), sample(y), sample(z))
     radians = [math.radians(angle) for angle in angles]
+    bpy_undo.record_transforms(obj)
 
     if obj.rotation_mode == "QUATERNION":
         obj.rotation_quaternion = obj.rotation_quaternion @ Euler(radians).to_quaternion()
@@ -97,6 +99,7 @@ def scale(obj, x, y, z):
         tuple: applied scale factors for x, y and z
     """
     factors = (percent_factor(x), percent_factor(y), percent_factor(z))
+    bpy_undo.record_transforms(obj)
     for axis, factor in enumerate(factors):
         obj.scale[axis] *= factor
     return factors
@@ -131,12 +134,12 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
             if new is not None:
                 current[name] = new
                 applied[name] = new
-        base_color.default_value = (*colorsys.hsv_to_rgb(*current.values()), alpha)
+        bpy_undo.set_attr(base_color, "default_value", (*colorsys.hsv_to_rgb(*current.values()), alpha))
 
     for name, socket_name, value_range in (("roughness", "Roughness", roughness), ("metallic", "Metallic", metallic)):
         new = sample_absolute(value_range)
         if new is not None:
-            get_unlinked_input(principled, socket_name, mat.name).default_value = new
+            bpy_undo.set_attr(get_unlinked_input(principled, socket_name, mat.name), "default_value", new)
             applied[name] = new
 
     return applied
@@ -176,9 +179,10 @@ def material_slot(obj, slots, weights):
         raise ValueError(f"Object '{obj.name}' has {len(indices)} slots to pick from, got {len(weights)} weights")
     index = random.choices(indices, weights=weights)[0]
     mesh = obj.data
+    bpy_undo.record_material_indices(mesh)
     mesh.polygons.foreach_set("material_index", [index] * len(mesh.polygons))
     mesh.update()
-    obj.active_material_index = index
+    bpy_undo.set_attr(obj, "active_material_index", index)
     material = obj.material_slots[index].material
     return None if material is None else material.name
 
@@ -246,10 +250,11 @@ def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
         math.sin(elevation_rad),
     ))
     rotation = (center - location).to_track_quat("-Z", "Y") @ Quaternion((0.0, 0.0, 1.0), math.radians(applied["roll"]))
+    bpy_undo.record_transforms(obj)
     obj.matrix_world = Matrix.LocRotScale(location, rotation, obj.matrix_world.to_scale())
 
     if focal_length is not None:
-        obj.data.lens = range_or_value(focal_length, obj.data.lens)
+        bpy_undo.set_attr(obj.data, "lens", range_or_value(focal_length, obj.data.lens))
         # blender stores it as 32 bit float, report what was stored
         applied["focal_length"] = obj.data.lens
     return applied
@@ -275,13 +280,14 @@ def focal_length(obj, focal_length_range, target, keep_size):
     """
     check_camera(obj, perspective=True)
     old_lens = obj.data.lens
-    obj.data.lens = range_or_value(focal_length_range, old_lens)
+    bpy_undo.set_attr(obj.data, "lens", range_or_value(focal_length_range, old_lens))
     # blender stores it as 32 bit float, report and use what was stored
     applied = {"focal_length": obj.data.lens}
     if keep_size:
         center = target_center(target)
         matrix = obj.matrix_world.copy()
         matrix.translation = center + (matrix.translation - center) * (obj.data.lens / old_lens)
+        bpy_undo.record_transforms(obj)
         obj.matrix_world = matrix
         applied["distance"] = (matrix.translation - center).length
     return applied
@@ -299,13 +305,14 @@ def depth_of_field(obj, target, f_stop):
     """
     check_camera(obj)
     dof = obj.data.dof
-    dof.use_dof = True
+    bpy_undo.set_attr(dof, "use_dof", True)
     if target is not None:
         # focus distance along the view axis to the target center, from where the camera is now
         forward = obj.matrix_world.to_3x3().normalized() @ Vector((0.0, 0.0, -1.0))
-        dof.focus_object = None
-        dof.focus_distance = max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0)
-    dof.aperture_fstop = range_or_value(f_stop, dof.aperture_fstop)
+        bpy_undo.set_attr(dof, "focus_object", None)
+        bpy_undo.set_attr(dof, "focus_distance",
+                          max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0))
+    bpy_undo.set_attr(dof, "aperture_fstop", range_or_value(f_stop, dof.aperture_fstop))
     return {"f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
 
 
@@ -316,7 +323,7 @@ def disable_depth_of_field(obj):
         bool: False, depth of field is off
     """
     check_camera(obj)
-    obj.data.dof.use_dof = False
+    bpy_undo.set_attr(obj.data.dof, "use_dof", False)
     return False
 
 
@@ -352,7 +359,7 @@ def visibility(obj, visible):
     Returns:
         bool: whether the object is visible in renders
     """
-    obj.hide_render = not visible
+    bpy_undo.set_attr(obj, "hide_render", not visible)
     return visible
 
 
@@ -423,6 +430,7 @@ def move_z(obj, offset):
     """Moves the object along world Z, parented objects included."""
     matrix = obj.matrix_world.copy()
     matrix.translation.z += offset
+    bpy_undo.record_transforms(obj)
     obj.matrix_world = matrix
 
 
@@ -496,7 +504,7 @@ def seeds(node_tree, value=None):
     """
     applied = {}
     for key, socket in seed_inputs(node_tree):
-        socket.default_value = random.randint(0, MAX_SEED) if value is None else value
+        bpy_undo.set_attr(socket, "default_value", random.randint(0, MAX_SEED) if value is None else value)
         applied[key] = socket.default_value
     return applied
 

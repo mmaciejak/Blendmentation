@@ -60,7 +60,7 @@ preview datapoint to check, then generates the rest and exports it.
 ## Things to know
 
 - Blender is busy while a batch renders, and its window doesn't respond until the batch ends.
-- The scene is your live scene. Every batch restores it with `State`, but save your work
+- The scene is your live scene. Every datapoint is set back with `state.restoring()`, but save your work
   before you start.
 - For large datasets the agent can save a copy of the scene and render it headless with
   `blender --background`, which is faster and leaves your Blender free. It needs shell

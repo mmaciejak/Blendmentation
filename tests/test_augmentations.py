@@ -235,22 +235,21 @@ def test_node(cube):
         inputs["Finish"] = {"options": None, "weights": [0, 1]}
     path = 'bpy.data.materials["Mat"].node_tree.nodes["Smart"]'
     smart = A.Node(path, inputs)
-    initial = state.State([], fields=[smart])
-    smart()
+    with state.restoring():
+        smart()
 
-    assert node.inputs["Rust"].default_value in (0, 0.25, 0.5, 0.75, 1)
-    assert 2 <= node.inputs["Count"].default_value <= 5
-    offset = node.inputs["Offset"].default_value
-    assert -1 <= offset[0] <= 1 and offset[1] == 0 and offset[2] == 0
-    paint = node.inputs["Paint"].default_value
-    assert all(0.2 <= c <= 0.8 for c in paint[:3]) and paint[3] == 0.25, "a color range keeps alpha"
-    assert node.inputs["Flag"].default_value is True
-    assert set(smart.actual) == set(inputs)
-    assert smart.actual["Rust"] == node.inputs["Rust"].default_value
-    if has_menu:
-        assert node.inputs["Finish"].default_value == smart.actual["Finish"] == "Polished"
+        assert node.inputs["Rust"].default_value in (0, 0.25, 0.5, 0.75, 1)
+        assert 2 <= node.inputs["Count"].default_value <= 5
+        offset = node.inputs["Offset"].default_value
+        assert -1 <= offset[0] <= 1 and offset[1] == 0 and offset[2] == 0
+        paint = node.inputs["Paint"].default_value
+        assert all(0.2 <= c <= 0.8 for c in paint[:3]) and paint[3] == 0.25, "a color range keeps alpha"
+        assert node.inputs["Flag"].default_value is True
+        assert set(smart.actual) == set(inputs)
+        assert smart.actual["Rust"] == node.inputs["Rust"].default_value
+        if has_menu:
+            assert node.inputs["Finish"].default_value == smart.actual["Finish"] == "Polished"
 
-    initial.restore()
     assert node.inputs["Rust"].default_value == 0 and node.inputs["Flag"].default_value is False
     assert tuple(node.inputs["Paint"].default_value) == (0.5, 0.5, 0.5, 0.25)
 
@@ -306,13 +305,12 @@ def test_node_geometry_nodes(cube):
         "Scale": A.Input(((1, 2, 3), (1, 2, 3))),
         "Rotation": A.Input((0, 1), p=0, otherwise=0),
     })
-    initial = state.State([], fields=[node])
-    node()
-    assert tuple(transform.inputs["Scale"].default_value) == pytest.approx((1, 2, 3))
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
-    assert top == pytest.approx(1.5), "the input did not reach the evaluated mesh"  # 0.5 * 3
-    initial.restore()
+    with state.restoring():
+        node()
+        assert tuple(transform.inputs["Scale"].default_value) == pytest.approx((1, 2, 3))
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
+        assert top == pytest.approx(1.5), "the input did not reach the evaluated mesh"  # 0.5 * 3
     assert tuple(transform.inputs["Scale"].default_value) == (1, 1, 1)
 
 
@@ -382,22 +380,21 @@ def test_modifier(cube):
         "Rotation": A.Input((1, 1)),
         "Menu": A.Input(options=["Sand", "Gravel"], weights=[0, 1]),
     })
-    initial = state.State([obj])
-    A.Compose([modifier])([obj])
+    with state.restoring():
+        A.Compose([modifier])([obj])
 
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
-    assert top == pytest.approx(3.5), "the input did not reach the evaluated mesh"  # 0.5 + 3
-    assert modifier_value(obj, "Count") in (2, 4, 6)
-    assert modifier_value(obj, "Flag") is True
-    assert tuple(modifier_value(obj, "Offset")) == pytest.approx((0.5, 0.5, 0.5))
-    color = modifier_value(obj, "Color")
-    assert all(0.2 <= c <= 0.8 for c in color[:3]) and color[3] == before["Color"][3], "a color range keeps alpha"
-    assert tuple(modifier_value(obj, "Rotation")) == pytest.approx((1, 1, 1))
-    assert modifier.actual["Menu"] == "Gravel"
-    assert modifier.results["Cube"][4] == pytest.approx((0.5, 0.5, 0.5))
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
+        assert top == pytest.approx(3.5), "the input did not reach the evaluated mesh"  # 0.5 + 3
+        assert modifier_value(obj, "Count") in (2, 4, 6)
+        assert modifier_value(obj, "Flag") is True
+        assert tuple(modifier_value(obj, "Offset")) == pytest.approx((0.5, 0.5, 0.5))
+        color = modifier_value(obj, "Color")
+        assert all(0.2 <= c <= 0.8 for c in color[:3]) and color[3] == before["Color"][3], "a color range keeps alpha"
+        assert tuple(modifier_value(obj, "Rotation")) == pytest.approx((1, 1, 1))
+        assert modifier.actual["Menu"] == "Gravel"
+        assert modifier.results["Cube"][4] == pytest.approx((0.5, 0.5, 0.5))
 
-    initial.restore()
     for name, value in before.items():
         current = modifier_value(obj, name)
         assert (tuple(current) if hasattr(current, "__len__") and not isinstance(current, str) else current) == value, name
@@ -486,27 +483,26 @@ def face_slots(obj):
 
 def test_material_slot(cube):
     obj = slotted_cube(cube)
-    initial = state.State([obj])
-    slot = A.MaterialSlot(["B", 2], weights=[1, 0])
-    roughness = A.Number('active_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value',
-                         value_range=(0.9, 0.9))
-    A.Compose([slot, roughness])([obj])
-    assert slot.actual == "B" and face_slots(obj) == {1} and obj.active_material_index == 1
-    assert bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value == pytest.approx(0.9)
-    assert bpy.data.materials["A"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value != pytest.approx(0.9)
+    with state.restoring():
+        slot = A.MaterialSlot(["B", 2], weights=[1, 0])
+        roughness = A.Number('active_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value',
+                             value_range=(0.9, 0.9))
+        A.Compose([slot, roughness])([obj])
+        assert slot.actual == "B" and face_slots(obj) == {1} and obj.active_material_index == 1
+        assert bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value == pytest.approx(0.9)
+        assert bpy.data.materials["A"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value != pytest.approx(0.9)
 
-    seen = set()
-    for _ in range(30):
-        A.MaterialSlot()(obj)
-        seen.add(obj.active_material.name)
-    assert seen == {"A", "B", "C"}
+        seen = set()
+        for _ in range(30):
+            A.MaterialSlot()(obj)
+            seen.add(obj.active_material.name)
+        assert seen == {"A", "B", "C"}
 
-    A.MaterialSlot(p=0, otherwise="C")(obj)
-    assert face_slots(obj) == {2}
-    A.MaterialSlot(p=0)(obj)
-    assert face_slots(obj) == {2}, "without otherwise a skip keeps the faces"
+        A.MaterialSlot(p=0, otherwise="C")(obj)
+        assert face_slots(obj) == {2}
+        A.MaterialSlot(p=0)(obj)
+        assert face_slots(obj) == {2}, "without otherwise a skip keeps the faces"
 
-    initial.restore()
     assert face_slots(obj) == {0} and obj.active_material_index == 0
 
 
@@ -535,23 +531,22 @@ def test_chain(cube):
     move = A.Translation(x=(1, 1))
     lift = A.Number("location[2]", value_range=(2, 2))
     chain = A.Chain([move, lift])
-    initial = state.State([obj], fields=[chain])
-    chain(obj)
-    assert tuple(obj.location) == pytest.approx((1, 0, 2))
-    assert chain.actual == [None, pytest.approx(2)], "Translation has actual_x/y/z, no actual"
+    with state.restoring():
+        chain(obj)
+        assert tuple(obj.location) == pytest.approx((1, 0, 2))
+        assert chain.actual == [None, pytest.approx(2)], "Translation has actual_x/y/z, no actual"
 
-    chain(obj, p=0)
-    assert chain.applied is False and chain.actual is None and obj.location.x == pytest.approx(1)
+        chain(obj, p=0)
+        assert chain.applied is False and chain.actual is None and obj.location.x == pytest.approx(1)
 
-    # in a OneOf: the whole sequence or nothing of it; Compose clears the results inside
-    other = A.Number("location[1]", value_range=(5, 5))
-    one_of = A.OneOf([A.Chain([move, lift]), other], weights=[1, 0])
-    compose = A.Compose([one_of])
-    lift.results["stale"] = 1
-    compose([obj])
-    assert one_of.actual == 0 and obj.location.x == pytest.approx(2) and other.results == {}
-    assert "stale" not in lift.results and lift.results == {"Cube": pytest.approx(2)}
-    initial.restore()
+        # in a OneOf: the whole sequence or nothing of it; Compose clears the results inside
+        other = A.Number("location[1]", value_range=(5, 5))
+        one_of = A.OneOf([A.Chain([move, lift]), other], weights=[1, 0])
+        compose = A.Compose([one_of])
+        lift.results["stale"] = 1
+        compose([obj])
+        assert one_of.actual == 0 and obj.location.x == pytest.approx(2) and other.results == {}
+        assert "stale" not in lift.results and lift.results == {"Cube": pytest.approx(2)}
 
     with pytest.raises(ValueError):
         A.Chain([])
@@ -564,14 +559,13 @@ def test_chain_material(cube):
         A.Chain([A.MaterialSlot(["B"]), A.Number(path, value_range=(0.9, 0.9))]),
         A.Chain([A.MaterialSlot(["C"]), A.Number(path, value_range=(0.1, 0.1))]),
     ], weights=[0, 1])])
-    initial = state.State([obj, bpy.data.materials["B"], bpy.data.materials["C"]])
-    before = bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
-    material_aug([obj])
-    roughness = {name: bpy.data.materials[name].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
-                 for name in "BC"}
-    assert obj.active_material.name == "C" and roughness["C"] == pytest.approx(0.1)
-    assert roughness["B"] == before, "only the picked material is augmented"
-    initial.restore()
+    with state.restoring():
+        before = bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
+        material_aug([obj])
+        roughness = {name: bpy.data.materials[name].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value
+                     for name in "BC"}
+        assert obj.active_material.name == "C" and roughness["C"] == pytest.approx(0.1)
+        assert roughness["B"] == before, "only the picked material is augmented"
     assert obj.active_material.name == "A"
 
 
@@ -1027,9 +1021,8 @@ def test_seed(scene):
     zero()
     assert set(zero.actual.values()) == {0}
 
-    initial = state.State([group])
-    seed()
-    initial.restore()
+    with state.restoring():
+        seed()
     assert group.nodes["First"].inputs["Seed"].default_value == 0
 
     with pytest.raises(TypeError):

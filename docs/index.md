@@ -63,13 +63,11 @@ generator = gen.Compose([
     gen.Segmentation(classes),
 ], path="//dataset", resolution=(640, 480))
 
-# 3. the scene state to go back to
-initial = state.State(cars)
-
 for _ in range(1000):
-    objects_aug(cars)
-    generator()
-    initial.restore()
+    # 3. everything changed inside is set back afterwards
+    with state.restoring():
+        objects_aug(cars)
+        generator()
 
 # 4. training-ready annotations
 export.coco("//dataset")

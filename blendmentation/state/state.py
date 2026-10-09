@@ -1,85 +1,70 @@
-"""Saves the scene state, so it can be restored after augmenting."""
+"""Puts the scene back after every datapoint.
+
+Augmentations change the scene in place. Run them, and the generating step, inside
+`with state.restoring():`, and every value they changed is set back when the block
+ends, also when something in it raises. Nothing has to be listed or saved first: each
+augmentation records the values it changes, including those of augmentations inside a
+`OneOf`, `Chain`, `Node` or `Modifier`.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Union
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
-from ..augmentations.augmentations import flatten
-from . import bpy_states as bpy_s
-
-if TYPE_CHECKING:
-    from bpy.types import ID  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+from .. import bpy_undo
 
 
-class State:
-    """Saves the scene when created, so it can be restored after every datapoint.
+@contextmanager
+def restoring() -> Iterator[None]:
+    """Sets every value changed inside the block back when it ends.
 
-    It saves, for each object:
+    The augmentations record each value the first time they change it, and the block's
+    end sets them back, the last change first. That covers transforms, render
+    visibility, node and modifier inputs, material slots, camera settings and any
+    value changed by a data path. Changes made by your own code are not recorded:
+    make them with [`set`][blendmentation.state.state.set] to have them set back too.
+    Blocks can be nested; an inner block sets its changes back when it ends.
 
-    - the transforms;
-    - the render visibility (`hide_render`);
-    - the whole node tree of its materials: every node's settings (e.g. a Math
-      node's operation, muting), its input and output values (Value and RGB nodes
-      keep theirs on the output), color ramp stops, curve points, images, and the
-      nodes inside node groups;
-    - for meshes with more than one material slot, the slot of every face and the
-      active slot, which `MaterialSlot` changes;
-    - the inputs of its geometry nodes modifiers (numbers, booleans, vectors, colors,
-      rotations and menus), e.g. those `Modifier` sets;
-    - for cameras, the lens and depth of field (`use_dof`, `focus_object`,
-      `focus_distance`, `aperture_fstop`).
-
-    `objects` can also hold a World, a node group (e.g. a geometry nodes group whose
-    seeds `Seed` changes), or another datablock with a node tree, such as a material or
-    light data. For those it saves the whole node tree, and relative
-    paths in `fields` resolve on them too.
-
-    It also saves the value at every data path in `fields`. A data path augmentation
-    that changes something outside of these (a light's energy, a shape key) is only
-    restored when it is passed in `fields`.
-
-    Args:
-        objects: objects to save, and worlds, node groups or other datablocks with a
-            node tree.
-        fields: `Number`, `Vector`, `Boolean` and `Menu` augmentations, or data path
-            strings. Absolute paths are saved once, relative paths for every object they
-            exist on. Augmentations inside a `OneOf` are saved too, and other entries are
-            ignored, so a whole `Compose.augmentations` list can be passed.
+    Augmentations called outside a `restoring()` block change the scene for good.
 
     Example:
         ```python
-        initial = state.State([car_1, car_2, lamp, camera],
-                              fields=objects_aug.augmentations + lamp_aug.augmentations)
-        for _ in range(1000):
-            objects_aug([car_1, car_2])
-            generator()
-            initial.restore()
-
-        world = bpy.context.scene.world
-        initial = state.State([car_1, world])   # also the world's node values
+        for _ in range(100):
+            with state.restoring():
+                objects_aug([car_1, car_2])
+                lamp_aug([lamp])
+                generator()
         ```
     """
+    journal = bpy_undo.open_journal()
+    try:
+        yield
+    finally:
+        bpy_undo.close_journal(journal)
 
-    def __init__(self, objects: Sequence[ID], fields: Sequence[Union[Any, str]] = ()):
-        self.state_dict = {}
-        self.objects = objects
-        for object in objects:
-            self.state_dict[bpy_s.state_key(object)] = bpy_s.create_state_list(object)
-        # other augmentations are covered by the object state, so a whole Compose list can be passed
-        data_paths = [field if isinstance(field, str) else field.data_path for field in flatten(fields)
-                      if isinstance(field, str) or hasattr(field, "data_path")]
-        self.field_state = bpy_s.create_field_state(data_paths, objects)
 
-    def restore(self) -> None:
-        """Puts the saved transforms and values back."""
+def set(owner: Any, name: str, value: Any) -> None:
+    """Sets `owner.name` to `value`, and inside a `restoring()` block sets it back when
+    the block ends.
 
-        for object in self.objects:
-            bpy_s.load_from_state_dict(object, self.state_dict)
-        bpy_s.load_field_state(self.field_state)
+    For changes your own code makes between augmentations, e.g. a value that depends on
+    what an augmentation did.
 
-    def clear(self) -> None:
-        """Forgets the saved state."""
+    Args:
+        owner: the Blender struct, e.g. `lamp.data`.
+        name: the attribute to set.
+        value: the new value.
 
-        self.state_dict = {}
-        self.field_state = []
+    Example:
+        ```python
+        with state.restoring():
+            objects_aug([car])
+            if car.location.z > 1:
+                state.set(lamp.data, "energy", 2000)
+            generator()
+        ```
+    """
+    bpy_undo.set_attr(owner, name, value)
+    bpy_undo.tag(owner)

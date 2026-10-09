@@ -121,11 +121,12 @@ generator = gen.Compose(
 )
 ```
 
-And finally, save the initial state and create the pipeline. It uses the lying-down
-augmentation only when the standing one didn't happen: `applied` tells whether the last
-call of a `Compose` ran.
+And finally, create the pipeline. Everything the augmentations change inside
+`with state.restoring():` is set back when the block ends, so every datapoint starts from
+the scene as you built it. It uses the lying-down augmentation only when the standing one
+didn't happen: `applied` tells whether the last call of a `Compose` ran.
 
-```python hl_lines="31 33-39"
+```python hl_lines="31-38"
 milk_box = bpy.data.objects["Milk Box"]
 floor = bpy.data.objects["Floor"]
 
@@ -156,15 +157,14 @@ generator = gen.Compose(
     resolution=(640, 480),
 )
 
-initial = state.State([milk_box])
-
 for _ in range(100):
-    standing_aug([milk_box])
-    # the 20% where it isn't standing
-    if not standing_aug.applied:
-        lying_aug([milk_box])
-    generator()
-    initial.restore()
+    # everything changed inside is set back afterwards
+    with state.restoring():
+        standing_aug([milk_box])
+        # the 20% where it isn't standing
+        if not standing_aug.applied:
+            lying_aug([milk_box])
+        generator()
 ```
 
 ![Three BBoxImage previews of the milk carton, standing and lying, with its box drawn](images/carton-bboxes.jpg){ .full-width }
@@ -192,9 +192,9 @@ for _ in range(100):
     ])
 
     for _ in range(100):
-        carton_aug([milk_box])
-        generator()
-        initial.restore()
+        with state.restoring():
+            carton_aug([milk_box])
+            generator()
     ```
 
 ## Augmenting a material with shader nodes
@@ -313,10 +313,11 @@ generator = gen.Compose(
 )
 ```
 
-Before we start generating, it is a good idea to save the state of the material, so it
-can be restored after every augmentation.
+And now we can generate the images with the rust masks. Each datapoint runs inside
+`with state.restoring():`, which sets the material back afterwards. The label lists each
+mask under `"aovs"`, and `None` for the images without rust.
 
-```python hl_lines="32-33"
+```python hl_lines="32-36"
 material = bpy.data.materials["Cube Material"]
 
 # the paths are relative to the material
@@ -348,52 +349,11 @@ generator = gen.Compose(
     path="//dataset",
     resolution=(640, 480),
 )
-# saves the whole material: node values and settings
-initial = state.State([material])
-```
-
-And now we can generate the images with the rust masks. The label lists each mask under
-`"aovs"`, and `None` for the images without rust.
-
-```python hl_lines="35-38"
-material = bpy.data.materials["Cube Material"]
-
-# the paths are relative to the material
-material_aug = aug.Compose([
-    # moves all textures: a random offset on each axis
-    aug.Vector(
-        'node_tree.nodes["Texture randomization"].vector',
-        value_range=(-100, 100),
-    ),
-    # bump strength
-    aug.Number(
-        'node_tree.nodes["Surface Damage"].outputs[0].default_value',
-        value_range=(0, 1),
-    ),
-    # rust in 20% of the images, clearly visible; none in the others
-    aug.Number(
-        'node_tree.nodes["Rust Amount"].outputs[0].default_value',
-        value_range=(0.5, 1),
-        p=0.2,
-        otherwise=0,
-    ),
-])
-generator = gen.Compose(
-    [
-        gen.Render(),
-        # the rust mask; no file when there is no rust
-        gen.AOVToImage(["rust"], skip_empty=True),
-    ],
-    path="//dataset",
-    resolution=(640, 480),
-)
-# saves the whole material: node values and settings
-initial = state.State([material])
-
 for _ in range(100):
-    material_aug([material])
-    generator()
-    initial.restore()
+    # the material is set back afterwards
+    with state.restoring():
+        material_aug([material])
+        generator()
 ```
 
 ## A smart material
@@ -451,19 +411,17 @@ generator = gen.Compose(
     path="//dataset",
     resolution=(640, 640),
 )
-# saves the inputs they set
-initial = state.State([], fields=[base_metal, rust, chipped_paint, dust])
-
 for _ in range(100):
-    # an absolute path: no object needed
-    base_metal()
-    # p for this call: rust in 20% of the images, chipped paint in 80%, dust in 20%;
-    # a skipped layer keeps the values saved in the scene
-    rust(p=0.2)
-    chipped_paint(p=0.8)
-    dust(p=0.2)
-    generator()
-    initial.restore()
+    # the material is set back afterwards
+    with state.restoring():
+        # an absolute path: no object needed
+        base_metal()
+        # p for this call: rust in 20% of the images, chipped paint in 80%, dust in 20%;
+        # a skipped layer keeps the values saved in the scene
+        rust(p=0.2)
+        chipped_paint(p=0.8)
+        dust(p=0.2)
+        generator()
 ```
 
 ![Three renders of a sphere, a cylinder and a cube with the material: blue paint chipped off dark metal, fully painted blue, and dark metal with a few pink paint spots](images/material-smart-1.jpg){ .full-width }
@@ -517,21 +475,17 @@ generator = gen.Compose(
     path="//dataset",
     resolution=(640, 480),
 )
-# saves the world's node values
-initial = state.State([world])
-
 for _ in range(100):
-    # a world goes where the objects usually go
-    world_aug([world])
-    generator()
-    initial.restore()
+    with state.restoring():
+        # a world goes where the objects usually go
+        world_aug([world])
+        generator()
 ```
 
 `Menu` takes the options from the Menu Switch; pass `options=["A", "B", "C"]` and
 `weights=[2, 1, 1]` to pick some more often. With absolute paths, as Blender's Copy Full
 Data Path gives them (`'bpy.data.worlds["World"].node_tree.nodes["Background"].inputs[1].default_value'`),
-the same works, and the world doesn't have to be passed to `State`:
-`state.State([], fields=world_aug.augmentations)`.
+the same works.
 
 ## Cluttered scene with geometry nodes
 
@@ -570,19 +524,17 @@ generator = gen.Compose(
     path="//dataset",
     resolution=(640, 640),
 )
-# the node group holds the seeds
-initial = state.State([floor, geo_node_tree])
-
 for _ in range(100):
-    # Seed ignores the object, so it runs once
-    nodes_aug([floor])
-    generator()
-    initial.restore()
+    # the seeds are set back afterwards
+    with state.restoring():
+        # Seed ignores the object, so it runs once
+        nodes_aug([floor])
+        generator()
 ```
 
 To also change the inputs shown on the modifier, add
 `aug.Modifier('modifiers["GeometryNodes"]', {"Density": aug.Input((5, 20))})`. It finds
-them by name, and `State([floor])` saves them.
+them by name, in every Blender version.
 
 ![Three renders of milk cartons and boxes scattered on a displaced floor](images/scatter-renders.jpg){ .full-width }
 
@@ -592,7 +544,7 @@ them by name, and `State([floor])` saves them.
 
 The export functions turn the generated `<index>.json` labels into a standard format.
 Each example here has only the generating steps that format needs; generate with the loop
-from the sections above (augment, `generator()`, `initial.restore()`), then call the
+from the sections above (augment and `generator()` inside `with state.restoring():`), then call the
 export once on the same path. The examples use the milk carton from the first section.
 
 ### COCO
@@ -868,25 +820,19 @@ steps = [
 ]
 generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
 
-# 3. the scene state to go back to after every datapoint
-initial = state.State(
-    # the floor: its modifier inputs
-    [car_1, car_2, plant, lamp, camera, floor, scatter],
-    fields=objects_aug.augmentations + lamp_aug.augmentations,
-)
-
 for _ in range(1000):
-    objects_aug([car_1, car_2])
-    # the whole Compose 70% of the time
-    lamp_aug([lamp], p=0.7)
-    plant_aug([plant])
-    camera_aug([camera])
-    floor_aug([floor])
-    # a call can take p: new pebbles 90% of the time
-    scatter_seed(p=0.9)
-    # extra label key: how far each car was lifted
-    generator({"lift": keep_above.results})
-    initial.restore()
+    # 3. everything changed inside is set back afterwards
+    with state.restoring():
+        objects_aug([car_1, car_2])
+        # the whole Compose 70% of the time
+        lamp_aug([lamp], p=0.7)
+        plant_aug([plant])
+        camera_aug([camera])
+        floor_aug([floor])
+        # a call can take p: new pebbles 90% of the time
+        scatter_seed(p=0.9)
+        # extra label key: how far each car was lifted
+        generator({"lift": keep_above.results})
 
 # 4. training-ready annotations
 export.coco("//dataset")

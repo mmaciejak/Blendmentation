@@ -90,7 +90,7 @@ from blendmentation.generating import generating
 from blendmentation.state import state
 
 bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relative to this file
-# ... same augmentations, State and generating Compose as below ...
+# ... same augmentations, generating Compose and state.restoring() loop as below ...
 ```
 
 ```sh

@@ -161,24 +161,21 @@ image_generator = generating.Compose(
     resolution=(460, 460),
 )
 
-initial_state = state.State(
-    # floor: its modifier inputs; world, node group: their node values
-    [obj1, obj2, clutter, lamp, camera, floor, world, scatter],
-    fields=mesh_transform.augmentations + lamp_transforms.augmentations,
-)
 
 
 def pipeline():
-    mesh_transform([obj1, obj2])
-    lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
-    clutter_transforms([clutter])
-    camera_transforms([camera])
-    world_transforms([world])
-    floor_transforms([floor])
-    scatter_seed(p=0.9)  # an augmentation call can take p too: new pebbles 90% of the time
-    # results holds the value for every object, by name (actual only the last one)
-    image_generator({"lift": keep_above.results})
-    initial_state.restore()
+    # everything the augmentations change inside is set back when the block ends,
+    # also when a step fails
+    with state.restoring():
+        mesh_transform([obj1, obj2])
+        lamp_transforms([lamp], p=0.7)  # a Compose call can take p: the whole list runs 70% of the time
+        clutter_transforms([clutter])
+        camera_transforms([camera])
+        world_transforms([world])
+        floor_transforms([floor])
+        scatter_seed(p=0.9)  # an augmentation call can take p too: new pebbles 90% of the time
+        # results holds the value for every object, by name (actual only the last one)
+        image_generator({"lift": keep_above.results})
 
 
 for i in range(n_datapoints):

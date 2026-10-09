@@ -10,165 +10,186 @@ from blendmentation.state import state  # noqa: E402
 from conftest import add_aov, new_material  # noqa: E402
 
 
-def snapshot(obj, material, light, paths):
-    principled = material.node_tree.nodes["Principled BSDF"]
-    values = {
-        "location": tuple(obj.location),
-        "rotation": tuple(obj.rotation_euler),
-        "scale": tuple(obj.scale),
-        "color": tuple(principled.inputs["Base Color"].default_value),
-        "roughness": principled.inputs["Roughness"].default_value,
-        "hide_render": obj.hide_render,
-        "lens": bpy.context.scene.camera.data.lens,
-        "dof": (bpy.context.scene.camera.data.dof.use_dof, bpy.context.scene.camera.data.dof.aperture_fstop,
-                bpy.context.scene.camera.data.dof.focus_distance),
-    }
-    for path, owner in paths:
-        value = bpy_paths.get_value(path, owner)
-        values[path] = tuple(value) if hasattr(value, "__len__") else value
-    return values
+def plain(value):
+    return tuple(value) if hasattr(value, "__len__") and not isinstance(value, str) else value
 
 
-def test_restore(scene, cube):
+def scatter_modifier(obj):
+    """A geometry nodes modifier "GN" on obj with a float input "Density", and its path."""
+    group = bpy.data.node_groups.new("GN", "GeometryNodeTree")
+    group.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    group.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    socket = group.interface.new_socket("Density", in_out="INPUT", socket_type="NodeSocketFloat")
+    group.links.new(group.nodes.new("NodeGroupInput").outputs[0], group.nodes.new("NodeGroupOutput").inputs[0])
+    modifier = obj.modifiers.new("GN", "NODES")
+    modifier.node_group = group
+    bpy.context.view_layer.update()
+    return bpy_paths.modifier_input_path(modifier, socket.identifier)
+
+
+def test_restoring(scene, cube):
+    """Every augmentation's changes are set back, also inside a OneOf and a Chain."""
     random.seed(2)
     obj = cube("Cube")
     material = new_material(obj, "Mat")
+    new_material(obj, "Other")
     obj.shape_key_add(name="Basis")
     obj.shape_key_add(name="Key 1")
+    floor = cube("Floor", location=(0, 0, -3))
+    density = scatter_modifier(obj)
     light = bpy.data.objects.new("Light", bpy.data.lights.new("Light", "POINT"))
     scene.collection.objects.link(light)
+    camera = scene.camera
+    group = bpy.data.node_groups.new("Seeds", "GeometryNodeTree")
+    distribute = group.nodes.new("GeometryNodeDistributePointsOnFaces")
 
-    object_augs = A.Compose([
-        A.Translation(x=1, y=1, z=1), A.Rotation(x=30, z=30), A.Scale(x=20),
-        A.SimpleMaterial("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
-        A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
-        A.Visibility(p=0),
-    ])
-    light_augs = A.Compose([A.Number("data.energy", value_range=(600, 1400)), A.Vector("data.color", value_range=(0, 0.5))])
-    camera_augs = A.Compose([
-        A.LookAt(obj, distance=(5, 6)),
-        A.FocalLength((20, 30), target=obj, keep_size=True),
-        A.DepthOfField(obj, f_stop=(1, 2)),
-    ])
-    paths = [('data.shape_keys.key_blocks["Key 1"].value', obj), ("data.energy", light), ("data.color", light)]
+    principled = material.node_tree.nodes["Principled BSDF"]
+    values = {
+        "location": lambda: plain(obj.location),
+        "rotation": lambda: plain(obj.rotation_euler),
+        "scale": lambda: plain(obj.scale),
+        "hide_render": lambda: obj.hide_render,
+        "base color": lambda: plain(principled.inputs["Base Color"].default_value),
+        "roughness": lambda: principled.inputs["Roughness"].default_value,
+        "shape key": lambda: obj.data.shape_keys.key_blocks["Key 1"].value,
+        "faces": lambda: tuple(polygon.material_index for polygon in obj.data.polygons),
+        "active slot": lambda: obj.active_material_index,
+        "modifier": lambda: bpy_paths.get_value(density, obj.modifiers["GN"]),
+        "energy": lambda: light.data.energy,
+        "color": lambda: plain(light.data.color),
+        "type": lambda: light.data.type,
+        "shadow": lambda: light.data.use_shadow,
+        "seed": lambda: distribute.inputs["Seed"].default_value,
+        "camera location": lambda: plain(camera.location),
+        "camera rotation": lambda: plain(camera.rotation_euler),
+        "lens": lambda: camera.data.lens,
+        "dof": lambda: (camera.data.dof.use_dof, camera.data.dof.aperture_fstop, camera.data.dof.focus_distance),
+    }
+    before = {name: value() for name, value in values.items()}
 
-    initial = state.State([obj, light, scene.camera], fields=object_augs.augmentations + light_augs.augmentations)
-    before = snapshot(obj, material, light, paths)
-    object_augs([obj])
-    light_augs([light])
-    camera_augs([scene.camera])
-    changed = snapshot(obj, material, light, paths)
-    assert all(before[key] != changed[key] for key in before), [k for k in before if before[k] == changed[k]]
+    with state.restoring():
+        A.Compose([
+            A.Translation(x=1, y=1, z=1), A.Rotation(x=30, z=30), A.Scale(x=20),
+            A.SimpleMaterial("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
+            A.Chain([
+                A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
+                A.MaterialSlot(["Other"]),
+            ]),
+            A.Modifier('modifiers["GN"]', {"Density": A.Input((5, 10))}),
+            A.Visibility(p=0),
+            A.KeepAbove(floor, margin=1),
+        ])([obj])
+        A.Compose([
+            A.OneOf([A.Number("data.energy", value_range=(600, 1400))]),
+            A.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {"Roughness": A.Input((0, 1))}),
+            A.Vector("data.color", value_range=(0, 0.5)),
+            A.Menu("data.type", options=["SPOT"]),
+            A.Boolean("data.use_shadow", p=0, otherwise=False),
+        ])([light])
+        A.Seed(group)()
+        A.Compose([
+            A.LookAt(obj, distance=(5, 6)),
+            A.FocalLength((20, 30), target=obj, keep_size=True),
+            A.DepthOfField(obj, f_stop=(1, 2)),
+        ])([camera])
+        changed = {name: value() for name, value in values.items()}
+        assert [name for name in before if before[name] == changed[name]] == []
 
-    initial.restore()
-    after = snapshot(obj, material, light, paths)
-    for key in before:
-        assert before[key] == pytest.approx(after[key], abs=1e-5), key
-    assert tuple(scene.camera.location) == pytest.approx((0, -10, 0))
+    after = {name: value() for name, value in values.items()}
+    for name in before:
+        assert after[name] == pytest.approx(before[name], abs=1e-5), name
 
 
-def test_restore_inside_one_of(scene):
-    """A data path augmentation inside a OneOf is saved through State(fields=compose.augmentations)."""
-    light = bpy.data.objects.new("Light", bpy.data.lights.new("Light", "POINT"))
-    scene.collection.objects.link(light)
-    light.data.energy = 100
-    compose = A.Compose([A.OneOf([A.Number("data.energy", value_range=(600, 1400))])])
-    initial = state.State([light], fields=compose.augmentations)
-    compose([light])
-    assert light.data.energy >= 600
-    initial.restore()
-    assert light.data.energy == 100
-
-
-def test_relative_field_must_resolve(cube):
+def test_restoring_on_error(cube):
     obj = cube("Cube")
-    with pytest.raises(ValueError, match="does not resolve"):
-        state.State([obj], fields=["data.energy"])
+    with pytest.raises(RuntimeError):
+        with state.restoring():
+            A.Translation(x=(1, 1))(obj)
+            raise RuntimeError("a step failed")
+    assert obj.location.x == 0
 
 
-def test_restore_aov_node(cube):
+def test_restoring_updates_matrix_world(cube):
+    """After the block, matrix_world is up to date without a view layer update, so the next
+    augmentation (LookAt targets, KeepAbove) sees the object where it is."""
+    obj = cube("Cube")
+    bpy.context.view_layer.update()
+    with state.restoring():
+        A.Translation(x=(2, 2))(obj)
+        bpy.context.view_layer.update()
+        assert obj.matrix_world.translation.x == pytest.approx(2)
+    assert obj.matrix_world.translation.x == pytest.approx(0)
+
+
+def test_restoring_first_value(cube):
+    """A value changed twice gets its value from before the first change."""
+    obj = cube("Cube")
+    with state.restoring():
+        A.Number("location[0]", value_range=(1, 1))(obj)
+        A.Number("location[0]", value_range=(2, 2))(obj)
+        A.Translation(x=(1, 1))(obj)
+        assert obj.location.x == pytest.approx(3)
+    assert obj.location.x == 0
+
+
+def test_restoring_nested(cube):
+    obj = cube("Cube")
+    with state.restoring():
+        A.Number("location[0]", value_range=(1, 1))(obj)
+        with state.restoring():
+            A.Number("location[0]", value_range=(2, 2))(obj)
+            A.Number("location[1]", value_range=(2, 2))(obj)
+        assert tuple(obj.location) == pytest.approx((1, 0, 0))
+    assert tuple(obj.location) == (0, 0, 0)
+
+
+def test_outside_restoring(cube):
+    """Outside a block the changes stay, and nothing is recorded for a later block."""
+    obj = cube("Cube")
+    A.Number("location[0]", value_range=(1, 1))(obj)
+    with state.restoring():
+        A.Number("location[1]", value_range=(1, 1))(obj)
+    assert tuple(obj.location) == pytest.approx((1, 0, 0))
+
+
+def test_set(scene):
+    light = bpy.data.objects.new("Light", bpy.data.lights.new("Light", "POINT"))
+    light.data.energy = 100
+    with state.restoring():
+        state.set(light.data, "energy", 2000)
+        assert light.data.energy == 2000
+    assert light.data.energy == 100
+    state.set(light.data, "energy", 5)
+    assert light.data.energy == 5
+
+
+def test_restoring_aov_node(cube):
     """In blender 4.0 an AOV Output node's name is its AOV name, not its key in the node tree."""
     obj = cube("Cube")
     material = new_material(obj, "Mat")
     add_aov(material, "Albedo", "VALUE", 0.25)
-    node = next(node for node in material.node_tree.nodes if node.bl_idname == "ShaderNodeOutputAOV")
-    initial = state.State([obj])
-    node.inputs["Value"].default_value = 0.75
-    initial.restore()
+    key, node = next((key, node) for key, node in material.node_tree.nodes.items()
+                     if node.bl_idname == "ShaderNodeOutputAOV")
+    with state.restoring():
+        A.Number(f'active_material.node_tree.nodes["{key}"].inputs["Value"].default_value', value_range=(0.75, 0.75))(obj)
+        assert node.inputs["Value"].default_value == pytest.approx(0.75)
     assert node.inputs["Value"].default_value == pytest.approx(0.25)
 
 
-def test_restore_world(cube):
-    """A world in objects saves its node values, relative fields resolve on it, and an object
-    with the same name keeps its own state."""
-    obj = cube("World")
+def test_restoring_world(cube):
+    """A world is augmented in place of an object, and set back like one."""
     world = bpy.data.worlds.new("World")
     world.use_nodes = True
     nodes = world.node_tree.nodes
-    mapping = nodes.new("ShaderNodeMapping")
+    nodes.new("ShaderNodeMapping")
     background = next(node for node in nodes if node.type == "BACKGROUND")
     strength = background.inputs["Strength"].default_value
     rotation = 'node_tree.nodes["Mapping"].inputs[2].default_value[2]'
-    world_aug = A.Compose([
-        A.Number(f'node_tree.nodes["{background.name}"].inputs[1].default_value', value_range=(5, 10)),
-        A.Number(rotation, value_range=(1, 6)),
-    ])
-    initial = state.State([obj, world], fields=world_aug.augmentations)
-    world_aug([world])
-    obj.location.x = 3
-    assert mapping.inputs[2].default_value[2] != 0
-    initial.restore()
+    with state.restoring():
+        A.Compose([
+            A.Number(f'node_tree.nodes["{background.name}"].inputs[1].default_value', value_range=(5, 10)),
+            A.Number(rotation, value_range=(1, 6)),
+        ])([world])
+        assert bpy_paths.get_value(rotation, world) != 0
     assert background.inputs["Strength"].default_value == pytest.approx(strength)
     assert bpy_paths.get_value(rotation, world) == pytest.approx(0)
-    assert obj.location.x == pytest.approx(0)
-
-
-def test_restore_whole_material(cube):
-    """Node settings, output values (Value nodes), color ramp stops, curve points, images,
-    muting and node groups are restored, not only the input values."""
-    obj = cube("Cube")
-    material = new_material(obj, "Mat")
-    nodes = material.node_tree.nodes
-    value = nodes.new("ShaderNodeValue")
-    value.outputs[0].default_value = 0.5
-    math = nodes.new("ShaderNodeMath")
-    ramp = nodes.new("ShaderNodeValToRGB")
-    curves = nodes.new("ShaderNodeRGBCurve")
-    texture = nodes.new("ShaderNodeTexImage")
-    image = bpy.data.images.new("Image", 4, 4)
-    texture.image = image
-    group = bpy.data.node_groups.new("Group", "ShaderNodeTree")
-    group_math = group.nodes.new("ShaderNodeMath")
-    group_node = nodes.new("ShaderNodeGroup")
-    group_node.node_tree = group
-    vector = None
-    try:
-        vector = nodes.new("FunctionNodeInputVector")  # shader nodes only from blender 5
-    except RuntimeError:
-        pass
-
-    initial = state.State([obj])
-    value.outputs[0].default_value = 0.9
-    math.operation = "POWER"
-    math.mute = True
-    ramp.color_ramp.elements[1].position = 0.3
-    ramp.color_ramp.elements[0].color = (1, 0, 0, 1)
-    curves.mapping.curves[3].points[1].location = (1, 0.2)
-    texture.image = bpy.data.images.new("Other", 4, 4)
-    group_math.operation = "SINE"
-    group_math.inputs[1].default_value = 7
-    if vector is not None:
-        vector.vector = (1, 2, 3)
-    initial.restore()
-
-    assert value.outputs[0].default_value == pytest.approx(0.5)
-    assert math.operation == "ADD"
-    assert not math.mute
-    assert ramp.color_ramp.elements[1].position == pytest.approx(1)
-    assert tuple(ramp.color_ramp.elements[0].color) == pytest.approx((0, 0, 0, 1))
-    assert tuple(curves.mapping.curves[3].points[1].location) == pytest.approx((1, 1))
-    assert texture.image == image
-    assert group_math.operation == "ADD"
-    assert group_math.inputs[1].default_value == pytest.approx(0.5)
-    if vector is not None:
-        assert tuple(vector.vector) == pytest.approx((0, 0, 0))
