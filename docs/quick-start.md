@@ -374,7 +374,9 @@ A smart material puts its settings on one group node, here a node of the group "
 metal" in the material "Master material". `Node` sets many of its inputs in one
 augmentation: each input gets an `Input` with its range (or menu options), `p` and
 `otherwise`. Inputs are set like `Number`, `Vector`, `Boolean` or `Menu`, by their socket
-type, and a color range keeps alpha. The menus here need Blender 5.
+type, and a color range keeps alpha. Here the bare metal and each layer on top of it
+(rust, chipped paint, dust) are `Node`s of their own, so a `p` per call decides how often
+each layer appears. The menus here need Blender 5.
 
 The path takes the node's **name**, which is not the title on the node: a group node
 shows its group's name, while the node itself is named e.g. "Group.004". Find the name
@@ -385,48 +387,70 @@ its name, so look the names up in the group's interface.
 ![The group node "Ferrous metal" with its inputs: Texture Coordinate (linked), Texture ofset, Base metal color, the menus "Base metal type" (showing "Shiny metal") and "Surface effect" (showing "Grinded"), Thin oxidation amount, Texture scale, Surface effect strenght, Rust strength, Rust spread, Paint spread, Paint Color, Paint disccoloration, Paint surface spots and Dust strength](images/smart-material-nodes.jpg)
 
 ```python
-ferrous_metal = aug.Node(
-    'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
-    {
-        # moves the textures: every axis
-        "Texture ofset": aug.Input((-100, 100)),
-        # any option of the menu, read from the group
-        "Base metal type": aug.Input(),
-        # some options, the first two more often
-        "Surface effect": aug.Input(
-            options=["Weathered", "Dotted", "Hammered"],
-            weights=[3, 3, 1],
-        ),
-        # 0, 0.25, ... 1: (low, high, step)
-        "Rust strength": aug.Input((0, 1, 0.25)),
-        # rust in 20% of the images, clearly visible; none in the others
-        "Rust spread": aug.Input((0.5, 1), p=0.2, otherwise=0),
-        # painted in half of the images
-        "Paint spread": aug.Input((0.2, 0.9), p=0.5, otherwise=0),
-        # any color: red, green and blue from 0 to 1
-        "Paint Color": aug.Input((0, 1)),
-    },
-)
+# the node's name, not its title
+ferrous_metal = 'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]'
+
+# the bare metal: in every image
+base_metal = aug.Node(ferrous_metal, {
+    # moves the textures: a random offset on each axis
+    "Texture ofset": aug.Input((-100, 100)),
+    "Thin oxidation amount": aug.Input((0, 1)),
+    # a menu: some of its options, the first two more often
+    "Surface effect": aug.Input(
+        options=["Weathered", "Dotted", "Hammered"],
+        weights=[3, 3, 1],
+    ),
+    "Surface effect strenght": aug.Input((0.4, 1)),
+})
+# each layer on top of it is a Node of its own, so it can be left out
+rust = aug.Node(ferrous_metal, {
+    "Rust strength": aug.Input((0.3, 1)),
+    "Rust spread": aug.Input((0.3, 1)),
+})
+chipped_paint = aug.Node(ferrous_metal, {
+    "Paint spread": aug.Input((0.375, 0.777)),
+    # any color: red, green and blue from 0 to 1, alpha kept
+    "Paint Color": aug.Input((0, 1)),
+    "Paint disccoloration": aug.Input((0, 1)),
+    "Paint surface spots": aug.Input((0, 1)),
+})
+dust = aug.Node(ferrous_metal, {
+    "Dust strength": aug.Input((0, 0.7)),
+})
+
 generator = gen.Compose(
     [gen.Render()],
     path="//dataset",
-    resolution=(640, 480),
+    resolution=(640, 640),
 )
-# saves the inputs it sets
-initial = state.State([], fields=[ferrous_metal])
+# saves the inputs they set
+initial = state.State([], fields=[base_metal, rust, chipped_paint, dust])
 
 for _ in range(100):
     # an absolute path: no object needed
-    ferrous_metal()
+    base_metal()
+    # p for this call: rust in 20% of the images, chipped paint in 80%, dust in 20%;
+    # a skipped layer keeps the values saved in the scene
+    rust(p=0.2)
+    chipped_paint(p=0.8)
+    dust(p=0.2)
     generator()
     initial.restore()
 ```
 
+![Three renders of a sphere, a cylinder and a cube with the material: blue paint chipped off dark metal, fully painted blue, and dark metal with a few pink paint spots](images/material-smart-1.jpg){ .full-width }
+
+![Three more renders: orange paint with light chips, pink paint with dark chips, and rusty orange paint with blue chips](images/material-smart-2.jpg){ .full-width }
+
 The inputs are named as in the group's interface (the node shows them shortened), and
-`ferrous_metal.actual` holds the value set to each. To give every object its own copy
-of the material a different look, use a path relative to the object,
-`'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose` called with the
-objects. `Node` works the same on a group node in geometry nodes,
+`rust.actual` holds the value set to each, `None` when the layer was skipped. Here a
+skipped layer keeps what the scene has (no rust or dust; full paint, as in the second
+image); to set something else, give the inputs an `otherwise`, e.g.
+`aug.Input((0.3, 1), otherwise=0)`.
+
+To give every object its own copy of the material a different look, use a path relative
+to the object, `'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose`
+called with the objects. `Node` works the same on a group node in geometry nodes,
 `'bpy.data.node_groups["Scatter"].nodes["Rock generator"]'`, and `Modifier` on the inputs
 of a geometry nodes modifier, `'modifiers["Scatter"]'`. Each input can also be set on its
 own with `Number`, `Vector`, `Boolean` or `Menu` and its data path.
