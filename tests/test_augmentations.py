@@ -271,12 +271,53 @@ def test_smart_material(cube):
     assert node.inputs["Rust"].default_value == pytest.approx(0.3)
 
 
+def test_smart_material_input(cube):
+    obj = cube("Cube")
+    material, node, has_menu = smart_group_node(obj)
+    node.inputs["Flag"].default_value = True
+    inputs = {
+        "Rust": A.Input((0.5, 1), p=0, otherwise=0.1),
+        "Count": A.Input((2, 6, 2)),
+        "Paint": A.Input((0, 1), p=0, otherwise=1),
+        "Flag": A.Input(p=0, otherwise=None),  # a boolean that keeps its value when skipped
+    }
+    if has_menu:
+        inputs["Finish"] = A.Input(options=["Rough", "Polished"], weights=[0, 1])
+    smart = A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)
+    smart()
+    assert node.inputs["Rust"].default_value == pytest.approx(0.1)
+    assert node.inputs["Count"].default_value in (2, 4, 6)
+    assert tuple(node.inputs["Paint"].default_value) == (1, 1, 1, 0.25)
+    assert node.inputs["Flag"].default_value is True
+    if has_menu:
+        assert node.inputs["Finish"].default_value == "Polished"
+
+    # left out, otherwise is the augmentation's default: False for a boolean
+    A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Flag": A.Input(p=0)})()
+    assert node.inputs["Flag"].default_value is False
+    assert repr(A.Input((0, 1), p=0.5)) == "Input(value_range=(0, 1), p=0.5)"
+
+
+@pytest.mark.parametrize("make", [
+    lambda: A.Input((0, 1), options=["A"]),
+    lambda: A.Input(5),
+    lambda: A.Input((0, 1, 2, 3)),
+    lambda: A.Input(p=2),
+    lambda: A.Input(options=["A", "B"], weights=[1]),
+])
+def test_input_errors(make):
+    with pytest.raises(ValueError):
+        make()
+
+
 @pytest.mark.parametrize("inputs, error", [
     ({}, ValueError),
     ({"Rust": {"range": (0, 1)}}, ValueError),
     ({"Rust": None}, ValueError),  # a float needs a range
     ({"Rust": (1, 0)}, ValueError),
     ({"Flag": {"value_range": (0, 1)}}, ValueError),
+    ({"Flag": A.Input((0, 1))}, ValueError),
+    ({"Rust": A.Input(options=["A"])}, ValueError),
     ({"Linked": (0, 1)}, TypeError),
     ({"Nope": (0, 1)}, KeyError),
     ({1.5: (0, 1)}, ValueError),

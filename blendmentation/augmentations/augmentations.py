@@ -8,7 +8,7 @@ it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
 `SmartMaterial` sets the inputs of a node (e.g. a smart material's group node), each
-with its own range, `p` and `otherwise`.
+with its own range, `p` and `otherwise`, given as an `Input`.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
@@ -1060,6 +1060,80 @@ class Menu(Augmentation):
         return bpy_a.menu(obj, self.data_path, [self.otherwise], None)
 
 
+class Unset:
+    """The default of `Input(otherwise=...)`: the default of the augmentation it becomes."""
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+UNSET = Unset()
+
+
+class Input:
+    """How a `SmartMaterial` sets one input: its range or options, `p` and `otherwise`.
+
+    The arguments are those of the augmentation the input becomes, picked by its
+    socket type: `value_range`, `p` and `otherwise` for numbers, vectors and colors
+    (as in [`Number`][blendmentation.augmentations.augmentations.Number] and
+    [`Vector`][blendmentation.augmentations.augmentations.Vector]), `p` and `otherwise`
+    for booleans ([`Boolean`][blendmentation.augmentations.augmentations.Boolean]), and
+    `options`, `weights`, `p` and `otherwise` for menus
+    ([`Menu`][blendmentation.augmentations.augmentations.Menu]). Arguments that don't
+    fit the socket raise a `ValueError` at the first call.
+
+    Args:
+        value_range: `(min, max)`, or `(min, max, step)` for numbers. For a color, a
+            number or 3 values per bound set red, green and blue and keep alpha.
+        options: menu options to choose from. None = all of them.
+        weights: relative probability of each menu option. None = equal.
+        p: probability of setting the input. None = the augmentation's default: 1,
+            or 0.5 for a boolean, which is then the probability of True.
+        otherwise: value to set when it doesn't run because of `p`. None keeps the
+            value; left out, it is the augmentation's default: None, or False for a
+            boolean.
+
+    Raises:
+        ValueError: both `value_range` and `options` are given, `value_range` is not
+            a pair or a triple, `p` is not between 0 and 1, or the number of weights
+            and options differ.
+
+    Example:
+        ```python
+        augmentations.Input((0.5, 1), p=0.2, otherwise=0)    # a number or a color
+        augmentations.Input((0, 1, 0.25))                     # 0, 0.25, ... 1
+        augmentations.Input(options=["Shiny metal", "Dull metal"], weights=[3, 1])
+        augmentations.Input(p=0.3, otherwise=None)            # a boolean: True 30 %, else kept
+        ```
+    """
+
+    def __init__(self, value_range: Optional[Sequence[Any]] = None, options: Optional[Sequence[Any]] = None,
+                 weights: Optional[Sequence[float]] = None, p: Optional[float] = None, otherwise: Any = UNSET):
+        if value_range is not None and options is not None:
+            raise ValueError("Give value_range or options, not both")
+        if value_range is not None and (isinstance(value_range, str) or not isinstance(value_range, Sequence)
+                                        or len(value_range) not in (2, 3)):
+            raise ValueError(f"value_range must be (min, max) or (min, max, step), got {value_range!r}")
+        if options is not None and weights is not None and len(options) != len(weights):
+            raise ValueError("Give one weight per option")
+        self.value_range = value_range
+        self.options = options
+        self.weights = weights
+        self.p = None if p is None else check_p(p)
+        self.otherwise = otherwise
+
+    def arguments(self) -> dict[str, Any]:
+        """The arguments that were given, for the augmentation the input becomes."""
+        arguments = {name: getattr(self, name) for name in ("value_range", "options", "weights", "p")
+                     if getattr(self, name) is not None}
+        if self.otherwise is not UNSET:
+            arguments["otherwise"] = self.otherwise
+        return arguments
+
+    def __repr__(self) -> str:
+        return f"Input({', '.join(f'{name}={value!r}' for name, value in self.arguments().items())})"
+
+
 #: the arguments an input of a `SmartMaterial` can set, in a dict
 INPUT_ARGUMENTS = ("value_range", "options", "weights", "p", "otherwise")
 
@@ -1081,7 +1155,10 @@ def input_augmentation(kind: str, key: Union[str, int], data_path: str, spec: An
     if kind not in augmentations:
         raise TypeError(f"Input {key!r} is a {kind} socket, only number, vector, color, boolean and menu inputs can be augmented")
     augmentation, main = augmentations[kind]
-    arguments = dict(spec) if isinstance(spec, dict) else {} if spec is None else {main: spec}
+    if isinstance(spec, Input):
+        arguments = spec.arguments()
+    else:
+        arguments = dict(spec) if isinstance(spec, dict) else {} if spec is None else {main: spec}
     if kind == "RGBA":
         if "value_range" in arguments:
             arguments["value_range"] = tuple(color_bound(bound) for bound in arguments["value_range"])
@@ -1127,14 +1204,16 @@ class SmartMaterial(Augmentation):
     values, each with its own range, probability and `otherwise`.
 
     `inputs` maps each input to augment, by name (or index, for inputs that share a
-    name), to what it is set to. Inputs that are left out keep their values. Each input
-    is set by a [`Number`][blendmentation.augmentations.augmentations.Number],
+    name), to how it is set: an [`Input`][blendmentation.augmentations.augmentations.Input],
+    or for short its main argument alone. Inputs that are left out keep their values.
+    Each input is set by a [`Number`][blendmentation.augmentations.augmentations.Number],
     [`Vector`][blendmentation.augmentations.augmentations.Vector],
     [`Boolean`][blendmentation.augmentations.augmentations.Boolean] or
     [`Menu`][blendmentation.augmentations.augmentations.Menu], picked by the type of
-    the socket, and takes the arguments of that augmentation:
+    the socket, and takes the arguments of that augmentation. A dict with the same
+    keys as the `Input` arguments works too.
 
-    | Socket | Plain value | Dict keys |
+    | Socket | Main argument alone | `Input` arguments |
     | --- | --- | --- |
     | Float, Int | `value_range`: `(min, max)` or `(min, max, step)` | `value_range`, `p`, `otherwise` |
     | Vector | `value_range`: `(min, max)`, as in `Vector` | `value_range`, `p`, `otherwise` |
@@ -1167,8 +1246,9 @@ class SmartMaterial(Augmentation):
             their `results`.
 
     Raises:
-        ValueError: an input's dict has other keys. At the first call: an input's
-            arguments don't fit its socket type, e.g. a Float without a range.
+        ValueError: `inputs` is empty, an input's key is not a name or index, or its
+            dict has other keys. At the first call: an input's arguments don't fit
+            its socket type, e.g. a Float without a range.
         TypeError: at a call, an input is not a number, vector, color, boolean or
             menu socket.
 
@@ -1185,11 +1265,11 @@ class SmartMaterial(Augmentation):
             {
                 "Texture ofset": (-100, 100),             # Vector: every axis
                 "Grinded": None,                          # Menu: any option
-                "Shiny metal": {"options": ["Shiny metal", "Dull metal"], "weights": [3, 1]},
+                "Shiny metal": augmentations.Input(options=["Shiny metal", "Dull metal"], weights=[3, 1]),
                 "Base metal color": ((0.3, 0.3, 0.3), (0.6, 0.6, 0.6)),  # Color, alpha kept
                 "Rust strength": (0, 1, 0.25),            # Float: 0, 0.25, ... 1
                 # rust in 20 % of the images, none in the others
-                "Rust spread": {"value_range": (0.5, 1), "p": 0.2, "otherwise": 0},
+                "Rust spread": augmentations.Input((0.5, 1), p=0.2, otherwise=0),
                 "Paint Color": (0, 1),                    # Color: any color
             },
         )

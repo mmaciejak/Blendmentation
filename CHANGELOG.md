@@ -16,9 +16,9 @@ All notable changes to Blendmentation. The format follows
   `Boolean` and `Menu` inside it.
 - `augmentations.SmartMaterial(node, inputs, p=1.0)` sets many inputs of one node, e.g. the
   group node of a smart material, in one augmentation. `inputs` maps each input name (or
-  index) to a range, or to a dict with `value_range`, `options`, `weights`, `p` and
-  `otherwise`; each input is set like a `Number`, `Vector`, `Boolean` or `Menu`, picked by the
-  socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
+  index) to a range, or to an `augmentations.Input(value_range, options, weights, p,
+  otherwise)` (a dict with these keys works too); each input is set like a `Number`,
+  `Vector`, `Boolean` or `Menu`, picked by the socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
   value set to each input. Pass it to `state.State(fields=...)` to restore its inputs.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,
   min + step, ... max.

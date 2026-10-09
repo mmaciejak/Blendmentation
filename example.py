@@ -86,7 +86,7 @@ world_transforms = augmentations.Compose([
     augmentations.SmartMaterial('node_tree.nodes["Background"]', {
         "Strength": (0.5, 1.5, 0.25),  # (low, high, step): 0.5, 0.75, ... 1.5
         # tinted in 30% of the datapoints, white in the others; alpha is kept
-        "Color": {"value_range": (0.6, 1.0), "p": 0.3, "otherwise": 1.0},
+        "Color": augmentations.Input((0.6, 1.0), p=0.3, otherwise=1.0),
     }),
 ])
 

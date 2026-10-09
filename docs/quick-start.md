@@ -372,7 +372,7 @@ for _ in range(100):
 
 A smart material puts its settings on one group node, here "Ferrous metal" in the
 material "Master material". `SmartMaterial` sets many of its inputs in one augmentation:
-each input gets a range, or a dict with its own `p` and `otherwise`. Inputs are set like
+each input gets a range, or an `Input` with its own `p` and `otherwise`. Inputs are set like
 `Number`, `Vector`, `Boolean` or `Menu`, by their socket type, and a color range keeps
 alpha. The menus here need Blender 5.
 
@@ -389,9 +389,9 @@ ferrous_metal = aug.SmartMaterial(
         # 0, 0.25, ... 1: (low, high, step)
         "Rust strength": (0, 1, 0.25),
         # rust in 20% of the images, clearly visible; none in the others
-        "Rust spread": {"value_range": (0.5, 1), "p": 0.2, "otherwise": 0},
+        "Rust spread": aug.Input((0.5, 1), p=0.2, otherwise=0),
         # painted in half of the images
-        "Paint spread": {"value_range": (0.2, 0.9), "p": 0.5, "otherwise": 0},
+        "Paint spread": aug.Input((0.2, 0.9), p=0.5, otherwise=0),
         # any color: red, green and blue from 0 to 1
         "Paint Color": (0, 1),
     },
@@ -691,7 +691,7 @@ objects_aug = aug.Compose([
             # (low, high, step): 0, 0.1, ... 0.5
             "Coat Roughness": (0, 0.5, 0.1),
             # a clear coat on 30% of the cars, none on the others
-            "Coat Weight": {"value_range": (0.5, 1), "p": 0.3, "otherwise": 0},
+            "Coat Weight": aug.Input((0.5, 1), p=0.3, otherwise=0),
         },
     ),
     # after the transforms: lifts the cars out of the floor

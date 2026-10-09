@@ -130,7 +130,7 @@ objects_aug = augmentations.Compose([
     augmentations.SimpleMaterial("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),  # changes the material
     augmentations.SmartMaterial('active_material.node_tree.nodes["Principled BSDF"]', {  # inputs of one node,
         "Coat Roughness": (0, 0.5, 0.1),                  # by socket type: Number (+ step), Vector, color,
-        "Coat Weight": {"value_range": (0.5, 1), "p": 0.3, "otherwise": 0},  # Boolean, Menu
+        "Coat Weight": augmentations.Input((0.5, 1), p=0.3, otherwise=0),  # Boolean, Menu
     }),
     keep_above,                                           # after the transforms: lifts out of the floor
 ])
@@ -293,7 +293,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `SmartMaterial` (many inputs of one node, e.g. a smart material's
-  group node, `{input name: range or {"value_range"/"options"/"weights"/"p"/"otherwise": ...}}`,
+  group node, `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
   the augmentation picked by socket type; a color range keeps alpha), and `OneOf` to pick
   one of several. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
