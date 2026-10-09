@@ -11,6 +11,7 @@ from mathutils import Vector  # noqa: E402
 
 from blendmentation import bpy_paths  # noqa: E402
 from blendmentation.augmentations import augmentations as A  # noqa: E402
+from blendmentation.augmentations import bpy_augmentations  # noqa: E402
 from blendmentation.state import state  # noqa: E402
 from conftest import new_material  # noqa: E402
 
@@ -313,6 +314,100 @@ def test_node_geometry_nodes(cube):
     assert top == pytest.approx(1.5), "the input did not reach the evaluated mesh"  # 0.5 * 3
     initial.restore()
     assert tuple(transform.inputs["Scale"].default_value) == (1, 1, 1)
+
+
+def modifier_cube(cube):
+    """geonode_cube, plus inputs Color, Rotation and Menu (options Sand, Gravel; a Menu
+    Switch feeding the output, so the modifier lists them)."""
+    obj, path = geonode_cube(cube)
+    group = bpy.data.node_groups["GN"]
+    group.interface.new_socket("Color", in_out="INPUT", socket_type="NodeSocketColor")
+    group.interface.new_socket("Rotation", in_out="INPUT", socket_type="NodeSocketRotation")
+    group.interface.new_socket("Menu", in_out="INPUT", socket_type="NodeSocketMenu")
+    switch = group.nodes.new("GeometryNodeMenuSwitch")
+    switch.data_type = "GEOMETRY"
+    switch.enum_items.clear()
+    switch.enum_items.new("Sand")
+    switch.enum_items.new("Gravel")
+    group_input = next(node for node in group.nodes if node.bl_idname == "NodeGroupInput")
+    group_output = next(node for node in group.nodes if node.bl_idname == "NodeGroupOutput")
+    transform = next(node for node in group.nodes if node.bl_idname == "GeometryNodeTransform")
+    group.links.new(group_input.outputs["Menu"], switch.inputs[0])
+    for item in switch.inputs[1:3]:
+        group.links.new(transform.outputs["Geometry"], item)
+    group.links.new(switch.outputs[0], group_output.inputs["Geometry"])
+    obj.modifiers["GN"].node_group = group  # refreshes the modifier's inputs (4.x id properties)
+    bpy.context.view_layer.update()
+    A.Modifier('modifiers["GN"]', {"Menu": A.Input(options=["Sand"])})(obj)  # a new menu has no value in 5.x
+    return obj, path
+
+
+def modifier_identifier(obj, name):
+    return next(i for n, i, _ in bpy_paths.modifier_inputs(obj.modifiers["GN"]) if n == name)
+
+
+def modifier_value(obj, name):
+    modifier = obj.modifiers["GN"]
+    return bpy_paths.get_value(bpy_paths.modifier_input_path(modifier, modifier_identifier(obj, name)), modifier)
+
+
+def test_modifier(cube):
+    obj, _ = modifier_cube(cube)
+    before = {name: tuple(v) if hasattr(v, "__len__") and not isinstance(v, str) else v
+              for name in ("Height", "Count", "Flag", "Offset", "Color", "Rotation", "Menu")
+              for v in [modifier_value(obj, name)]}
+    modifier = A.Modifier('modifiers["GN"]', {
+        "Height": A.Input((3, 3)),
+        "Count": A.Input((2, 6, 2)),
+        "Flag": A.Input(p=1),
+        4: A.Input((0.5, 0.5)),  # Offset, by index: Geometry is 0
+        "Color": A.Input((0.2, 0.8)),
+        "Rotation": A.Input((1, 1)),
+        "Menu": A.Input(options=["Sand", "Gravel"], weights=[0, 1]),
+    })
+    initial = state.State([obj])
+    A.Compose([modifier])([obj])
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    top = max(v.co.z for v in obj.evaluated_get(depsgraph).to_mesh().vertices)
+    assert top == pytest.approx(3.5), "the input did not reach the evaluated mesh"  # 0.5 + 3
+    assert modifier_value(obj, "Count") in (2, 4, 6)
+    assert modifier_value(obj, "Flag") is True
+    assert tuple(modifier_value(obj, "Offset")) == pytest.approx((0.5, 0.5, 0.5))
+    color = modifier_value(obj, "Color")
+    assert all(0.2 <= c <= 0.8 for c in color[:3]) and color[3] == before["Color"][3], "a color range keeps alpha"
+    assert tuple(modifier_value(obj, "Rotation")) == pytest.approx((1, 1, 1))
+    assert modifier.actual["Menu"] == "Gravel"
+    assert modifier.results["Cube"][4] == pytest.approx((0.5, 0.5, 0.5))
+
+    initial.restore()
+    for name, value in before.items():
+        current = modifier_value(obj, name)
+        assert (tuple(current) if hasattr(current, "__len__") and not isinstance(current, str) else current) == value, name
+
+    # an absolute path, no object
+    A.Modifier('bpy.data.objects["Cube"].modifiers["GN"]', {"Menu": A.Input(options=["Gravel"])})()
+    value = modifier_value(obj, "Menu")
+    if isinstance(value, int):  # 4.x stores a modifier menu as the option's int
+        menu = bpy_augmentations.id_property_menu(obj.modifiers["GN"], ("item", modifier_identifier(obj, "Menu")))
+        assert value == menu["Gravel"]
+    else:
+        assert value == "Gravel"
+
+
+@pytest.mark.parametrize("modifier, inputs, error", [
+    ('modifiers["GN"]', {"Nope": (0, 1)}, KeyError),
+    ('modifiers["GN"]', {99: (0, 1)}, KeyError),
+    ('modifiers["GN"]', {0: (0, 1)}, TypeError),  # Geometry
+    ('modifiers["GN"]', {"Height": A.Input(options=["A"])}, ValueError),
+    ('modifiers["Bevel"]', {"Width": (0, 1)}, TypeError),
+    ('modifiers["GN"]', {1.5: (0, 1)}, ValueError),
+])
+def test_modifier_errors(cube, modifier, inputs, error):
+    obj, _ = geonode_cube(cube)
+    obj.modifiers.new("Bevel", "BEVEL")
+    with pytest.raises(error):
+        A.Modifier(modifier, inputs)(obj)
 
 
 @pytest.mark.parametrize("make", [

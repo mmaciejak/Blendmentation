@@ -6,10 +6,11 @@ The scene needs:
 - a mesh object "Clutter" that is in no class and can hide the parts, it is in the
   render in 60% of the datapoints and is set down on the floor
 - a mesh object "Floor" under the parts, they are kept above it
-- a geometry nodes group "Scatter" in a modifier on "Floor", with a Distribute Points on
-  Faces node, scattering pebbles on the floor: instances of the objects of a collection
-  "Pebbles" (Collection Info with Separate Children, Instance on Points with Pick
-  Instance), without random scale (BOP has one size per class)
+- a geometry nodes group "Scatter" in a modifier "Scatter" on "Floor", with a Distribute
+  Points on Faces node, scattering pebbles on the floor: instances of the objects of a
+  collection "Pebbles" (Collection Info with Separate Children, Instance on Points with
+  Pick Instance), without random scale (BOP has one size per class). The group has a
+  float input "Density", the density of the points
 - a point light "Light" and the scene camera
 - a world with a "Background" node (the default world has one)
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
@@ -94,6 +95,13 @@ world_transforms = augmentations.Compose([
 # a new random seed for every seed in the node group, so the pebbles move every time
 scatter_seed = augmentations.Seed(scatter)
 
+# the inputs shown on the geometry nodes modifier, by name, in every Blender version
+floor_transforms = augmentations.Compose([
+    augmentations.Modifier('modifiers["Scatter"]', {
+        "Density": augmentations.Input((5, 20)),  # more or fewer pebbles
+    }),
+])
+
 # the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.
 # Only the clutter is scaled: BOP (export.bop) has one 3D model, with one size, per class
 clutter_transforms = augmentations.Compose([
@@ -148,7 +156,8 @@ image_generator = generating.Compose(
 )
 
 initial_state = state.State(
-    [obj1, obj2, clutter, lamp, camera, world, scatter],  # world, node group: their node values
+    # floor: its modifier inputs; world, node group: their node values
+    [obj1, obj2, clutter, lamp, camera, floor, world, scatter],
     fields=mesh_transform.augmentations + lamp_transforms.augmentations,
 )
 
@@ -159,6 +168,7 @@ def pipeline():
     clutter_transforms([clutter])
     camera_transforms([camera])
     world_transforms([world])
+    floor_transforms([floor])
     scatter_seed()
     # results holds the value for every object, by name (actual only the last one)
     image_generator({"lift": keep_above.results})

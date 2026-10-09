@@ -558,6 +558,19 @@ def socket_menu_options(socket):
     return None
 
 
+def id_property_menu(owner, token):
+    """For a menu stored as an int id property (geometry nodes modifier menu inputs in
+    4.x), the int of each option by name, from its UI data; otherwise None."""
+    kind, key = token
+    if kind != "item" or not isinstance(key, str) or not hasattr(owner, "id_properties_ui"):
+        return None
+    current = owner.get(key)
+    if not isinstance(current, int) or isinstance(current, bool):
+        return None
+    items = owner.id_properties_ui(key).as_dict().get("items")
+    return {item[0]: item[4] for item in items} if items else None
+
+
 def menu(obj, data_path, options, weights):
     """Sets the menu (enum) value at the data path to a random option.
 
@@ -568,11 +581,17 @@ def menu(obj, data_path, options, weights):
     Returns:
         str: option that was set
     """
+    owner, token = bpy_paths.resolve(data_path, obj)
+    values = id_property_menu(owner, token)
     if options is None:
-        owner, token = bpy_paths.resolve(data_path, obj)
-        options = menu_options(owner, token, data_path)
+        options = list(values) if values else menu_options(owner, token, data_path)
     new = random.choices(options, weights=weights)[0]
-    bpy_paths.set_value(data_path, new, obj)
+    if values:
+        if new not in values:
+            raise ValueError(f"'{new}' is not an option of '{data_path}', the options are {list(values)}")
+        bpy_paths.set_value(data_path, values[new], obj)
+    else:
+        bpy_paths.set_value(data_path, new, obj)
     return new
 
 
@@ -581,3 +600,26 @@ def socket_type(obj, data_path):
     VALUE, INT, BOOLEAN, VECTOR, RGBA, MENU."""
     owner, _ = bpy_paths.resolve(data_path, obj)
     return owner.type
+
+
+def modifier_input(obj, modifier_path, key):
+    """The data path of a geometry nodes modifier input's value, and its kind (VALUE,
+    INT, VECTOR, ... as bpy_paths.interface_kind).
+
+    Args:
+        modifier_path (str): data path of the modifier, absolute or relative to obj
+        key (str | int): input name, or index among the inputs (Geometry included)
+    """
+    modifier = bpy_paths.get_value(modifier_path, obj)
+    inputs = bpy_paths.modifier_inputs(modifier)
+    if isinstance(key, int):
+        if not -len(inputs) <= key < len(inputs):
+            raise KeyError(f"Modifier '{modifier.name}' has {len(inputs)} inputs, no input {key}")
+        _, identifier, kind = inputs[key]
+    else:
+        matches = [(identifier, kind) for name, identifier, kind in inputs if name == key]
+        if not matches:
+            raise KeyError(f"Modifier '{modifier.name}' has no input '{key}', "
+                           f"its inputs are {[name for name, _, _ in inputs]}")
+        identifier, kind = matches[0]
+    return modifier_path + bpy_paths.modifier_input_path(modifier, identifier), kind

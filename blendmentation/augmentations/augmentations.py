@@ -8,7 +8,8 @@ it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
-geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`.
+geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
+`Modifier` does the same for the inputs of a geometry nodes modifier, by name.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
@@ -20,7 +21,8 @@ starting with `bpy.` is absolute: right click a value in Blender > Copy Full Dat
 Path. Any other path is relative to the augmented object, e.g. `data.energy`.
 Geometry nodes inputs moved in Blender 5, so their path depends on the version:
 `modifiers["GeometryNodes"]["Socket_2"]` in 4.x,
-`modifiers["GeometryNodes"].properties.inputs.Socket_2.value` in 5.x.
+`modifiers["GeometryNodes"].properties.inputs.Socket_2.value` in 5.x. `Modifier`
+finds them by name in every version.
 """
 
 from __future__ import annotations
@@ -1173,31 +1175,59 @@ def input_augmentation(kind: str, key: Union[str, int], data_path: str, spec: An
         raise ValueError(f"Input {key!r} is a {kind} socket: {error}") from None
 
 
-class NodeInput:
-    """One input of a `Node`. On every call it runs a `Number`, `Vector`,
+class InputAugmentation:
+    """One input of a `Node` or `Modifier`. On every call it runs a `Number`, `Vector`,
     `Boolean` or `Menu`, picked by the type of the socket, with the input's arguments."""
 
-    def __init__(self, key: Union[str, int], data_path: str, spec: Any):
+    def __init__(self, key: Union[str, int], spec: Any):
         if isinstance(spec, dict):
             unknown = set(spec) - set(INPUT_ARGUMENTS)
             if unknown:
                 raise ValueError(f"Input {key!r}: unknown arguments {sorted(unknown)}, use {', '.join(INPUT_ARGUMENTS)}")
         self.key = key
-        self.data_path = data_path
         self.spec = spec
-        self.by_type: dict[str, Augmentation] = {}
+        self.by_path: dict[tuple[str, str], Augmentation] = {}
         self.applied: Optional[bool] = None
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
 
+    def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
+        """The data path of the input's value for this object, and its socket type."""
+        raise NotImplementedError
+
     def __call__(self, obj: Optional[Object] = None) -> None:
-        kind = bpy_a.socket_type(obj, self.data_path)
-        if kind not in self.by_type:
-            self.by_type[kind] = input_augmentation(kind, self.key, self.data_path, self.spec)
-        augmentation = self.by_type[kind]
+        data_path, kind = self.resolve(obj)
+        if (data_path, kind) not in self.by_path:
+            self.by_path[data_path, kind] = input_augmentation(kind, self.key, data_path, self.spec)
+        augmentation = self.by_path[data_path, kind]
         augmentation(obj)
         self.applied, self.actual = augmentation.applied, augmentation.actual
         self.results[None if obj is None else obj.name] = self.actual
+
+
+class NodeInput(InputAugmentation):
+    """One input of a `Node`, at a fixed data path, so `State(fields=...)` saves it."""
+
+    def __init__(self, key: Union[str, int], data_path: str, spec: Any):
+        super().__init__(key, spec)
+        self.data_path = data_path
+
+    def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
+        return self.data_path, bpy_a.socket_type(obj, self.data_path)
+
+
+class ModifierInput(InputAugmentation):
+    """One input of a `Modifier`. Its data path depends on the Blender version and the
+    node group's socket identifier, so it is found on every call; `State` saves the
+    modifier inputs of the objects it is given."""
+
+    def __init__(self, key: Union[str, int], modifier: str, spec: Any):
+        input_key(key)
+        super().__init__(key, spec)
+        self.modifier = modifier
+
+    def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
+        return bpy_a.modifier_input(obj, self.modifier, self.key)
 
 
 class Node(Augmentation):
@@ -1206,7 +1236,8 @@ class Node(Augmentation):
 
     For the group node of a smart material, of a geometry nodes setup, or any other
     node in a shader, world or geometry nodes tree. The inputs of a geometry nodes
-    *modifier* are not a node: set them with `Number`, `Vector`, `Boolean` or `Menu`.
+    *modifier* are not a node: set them with
+    [`Modifier`][blendmentation.augmentations.augmentations.Modifier].
 
     `inputs` maps each input to augment, by name (or index, for inputs that share a
     name), to how it is set: an [`Input`][blendmentation.augmentations.augmentations.Input],
@@ -1263,6 +1294,13 @@ class Node(Augmentation):
         still belongs in one: it runs with the rest of the list, and
         `State(fields=compose.augmentations)` restores it. It runs once per object
         the `Compose` is called with, and the last values set are kept.
+
+    Tip:
+        Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
+        `Menu` and the data path of its value,
+        `'node_tree.nodes["Ferrous metal"].inputs["Rust strength"].default_value'`.
+        `Node` is shorter for several inputs of one node, and picks the augmentation
+        for each input by itself.
 
     Example:
         An input takes one of three forms, and they can be mixed:
@@ -1330,3 +1368,83 @@ def input_key(key: Union[str, int]) -> str:
     if not isinstance(key, str):
         raise ValueError(f"Inputs are given by name or index, got {key!r}")
     return '"' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class Modifier(Augmentation):
+    """Sets the inputs of a geometry nodes modifier to random values, each with its own
+    range, probability and `otherwise`.
+
+    It works like [`Node`][blendmentation.augmentations.augmentations.Node], for the
+    inputs shown on the modifier: `inputs` maps each input, by its name in the node
+    group (or its index among the group's inputs, Geometry included), to an
+    [`Input`][blendmentation.augmentations.augmentations.Input], or its main argument
+    alone (see the table in `Node`). A rotation is X, Y, Z angles in radians. An
+    input set to be read from an attribute keeps reading it.
+
+    The modifier is given by its data path, relative to the object (e.g.
+    `modifiers["Scatter"]`, to augment that modifier on every object in a `Compose`),
+    or absolute (`bpy.data.objects["Floor"].modifiers["Scatter"]`). It changes the
+    modifier only, not its node group, so objects with the same group keep their
+    own values.
+
+    To restore the inputs, pass the objects to `State`: it saves the inputs of their
+    geometry nodes modifiers. Unlike `Node`, `State(fields=...)` doesn't save them.
+
+    Args:
+        modifier: data path of the modifier.
+        inputs: what to set each input to, by input name or index.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual (dict | None): the value set to each input by the last call, by its
+            key in `inputs` (None for an input skipped by its `p` without
+            `otherwise`), None when it was skipped.
+
+    Raises:
+        ValueError: `inputs` is empty, an input's key is not a name or index, or its
+            dict has other keys. At the first call: an input's arguments don't fit
+            its socket type, e.g. a Float without a range.
+        KeyError: at a call, the modifier has no such input.
+        TypeError: at a call, the path is not a geometry nodes modifier, or an input
+            is not a number, vector, rotation, color, boolean or menu socket.
+
+    Tip:
+        Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
+        `Menu` and the data path of its value. That path uses the socket's identifier,
+        not its name, and changed in Blender 5:
+        `modifiers["Scatter"]["Socket_2"]` in 4.x,
+        `modifiers["Scatter"].properties.inputs.Socket_2.value` in 5.x. `Modifier`
+        finds the inputs by name and builds the path for the running version.
+
+    Example:
+        ```python
+        floor = bpy.data.objects["Floor"]
+        scatter = augmentations.Modifier('modifiers["Scatter"]', {
+            "Density": augmentations.Input((5, 20)),
+            "Rock size": augmentations.Input((0.5, 2), p=0.5, otherwise=1),
+            "Mossy": augmentations.Input(p=0.3),          # Boolean: True 30 %
+            "Ground": augmentations.Input(options=["Sand", "Gravel"]),
+        })
+        initial = state.State([floor])   # saves the modifier's inputs
+        augmentations.Compose([scatter])([floor])
+        scatter.actual   # e.g. {"Density": 12.7, "Rock size": 1, "Mossy": False, "Ground": "Sand"}
+        initial.restore()
+        ```
+    """
+
+    def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
+        super().__init__(p)
+        if not inputs:
+            raise ValueError("Give at least one input")
+        self.modifier = modifier
+        self.inputs = inputs
+        self.augmentations = [ModifierInput(key, modifier, spec) for key, spec in inputs.items()]
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = {}
+        for augmentation in self.augmentations:
+            augmentation(obj)
+            self.actual[augmentation.key] = augmentation.actual

@@ -148,8 +148,12 @@ plant_aug = augmentations.Compose([
 world_aug = augmentations.Compose([                        # call it with [world], paths relative to it
     augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
 ])
-camera_aug = augmentations.Compose([
-    augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
+floor_aug = augmentations.Compose([                        # the inputs shown on a geometry nodes modifier,
+    augmentations.Modifier('modifiers["Scatter"]', {      # by name, in every version; State([floor]) saves them
+        "Density": augmentations.Input((5, 20)),
+    }),
+])
+camera_aug = augmentations.Compose([, distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
     augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),  # after LookAt/FocalLength; sharp otherwise
 ])
@@ -174,8 +178,8 @@ generator = generating.Compose(
     path="/absolute/output/folder",
     resolution=(640, 480),
 )
-# objects, lamp, camera and the world's node values are saved; data-path augmentations only if listed in fields
-initial = state.State([car_1, car_2, plant, lamp, camera, world], fields=objects_aug.augmentations + lamp_aug.augmentations)
+# objects (+ their modifier inputs), lamp, camera and the world's node values are saved; data-path augmentations only if listed in fields
+initial = state.State([car_1, car_2, plant, lamp, camera, floor, world], fields=objects_aug.augmentations + lamp_aug.augmentations)
 ```
 
 ## 4. Check with one preview first
@@ -185,7 +189,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 ```python
 import json, os, glob
 try:
-    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world])
+    objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world]); floor_aug([floor])
     print("generated:", generator.preview(4, {"lift": keep_above.results}))   # resolution / 4; False = skipped
 finally:
     initial.restore()
@@ -214,7 +218,7 @@ done = skipped = 0
 start = time.perf_counter()
 try:
     for _ in range(BATCH):
-        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world])
+        objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world]); floor_aug([floor])
         if generator({"lift": keep_above.results}):
             done += 1
         else:
@@ -294,7 +298,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
-  the augmentation picked by socket type; a color range keeps alpha), and `OneOf` to pick
+  the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
+  for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them), and `OneOf` to pick
   one of several. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
@@ -344,7 +349,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   respects alpha; use Cycles when masks of cutout materials matter.
 - **Geometry nodes inputs differ by version**: on Blender 4.x the data path is
   `modifiers["GeoNodes"]["Socket_2"]`, on 5.x
-  `modifiers["GeoNodes"].properties.inputs.Socket_2.value`. Check `bpy.app.version`.
+  `modifiers["GeoNodes"].properties.inputs.Socket_2.value`. `Modifier` finds them by
+  name in every version; for `Number` & co. check `bpy.app.version`.
 - **Blender 5.2 EEVEE**: a VALUE AOV listed before a COLOR AOV in the view layer renders
   as 0. List color AOVs first.
 - **Edited the library?** The module purge in step 1 picks up the changes; without it,

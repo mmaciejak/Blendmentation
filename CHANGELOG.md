@@ -21,6 +21,15 @@ All notable changes to Blendmentation. The format follows
   `Vector` (vectors, colors and rotations, in radians), `Boolean` or `Menu`, picked by the
   socket type. A color range sets red, green and blue and keeps alpha. `actual` holds the
   value set to each input. Pass it to `state.State(fields=...)` to restore its inputs.
+- `augmentations.Modifier(modifier, inputs, p=1.0)` sets the inputs of a geometry nodes
+  modifier like `Node` does for a node, e.g. `Modifier('modifiers["Scatter"]',
+  {"Density": Input((5, 20))})`. It finds the inputs by their name in the node group, in
+  every Blender version, so you don't need the `Socket_2` data paths that changed in
+  Blender 5.
+- `state.State` also saves the inputs of the geometry nodes modifiers of the objects it is
+  given (numbers, booleans, vectors, colors, rotations and menus).
+- `augmentations.Menu` works on the menu inputs of a geometry nodes modifier in Blender 4.x,
+  which Blender stores as numbers: it sets and reports the option names.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,
   min + step, ... max.
 - `augmentations.Menu` without `options` reads them on a group node's menu input too, from

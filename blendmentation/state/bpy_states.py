@@ -143,9 +143,49 @@ def own_node_tree(datablock):
     return datablock if isinstance(datablock, bpy.types.NodeTree) else getattr(datablock, "node_tree", None)
 
 
+def save_modifier_inputs(object):
+    """Values of the geometry nodes modifier inputs that augmentations can set (numbers,
+    booleans, vectors, colors, rotations, menus), by modifier name and then by path
+    relative to the modifier."""
+    kinds = {kind for _, kind in bpy_paths.SOCKET_KINDS}
+    saved = {}
+    for modifier in object.modifiers:
+        if modifier.type != "NODES" or modifier.node_group is None:
+            continue
+        values = {}
+        for _, identifier, kind in bpy_paths.modifier_inputs(modifier):
+            if kind not in kinds:
+                continue
+            path = bpy_paths.modifier_input_path(modifier, identifier)
+            try:
+                value = to_plain(bpy_paths.get_value(path, modifier))
+            except (KeyError, AttributeError):  # 4.x: the id property is made on the first evaluation
+                continue
+            if value != "":  # a menu that was never set, it can't be set back
+                values[path] = value
+        saved[modifier.name] = values
+    return saved
+
+
+def load_modifier_inputs(object, saved):
+    """Sets the modifier inputs saved by save_modifier_inputs back, only those that changed."""
+    for modifier in object.modifiers:
+        values = saved.get(modifier.name)
+        if values is None or modifier.type != "NODES":
+            continue
+        for path, value in values.items():
+            try:
+                changed = to_plain(bpy_paths.get_value(path, modifier)) != value
+            except (KeyError, AttributeError):  # the node group was changed
+                continue
+            if changed:
+                bpy_paths.set_value(path, value, modifier)
+
+
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms, render visibility, material node values, and the lens and depth of field of cameras.
+    transforms, render visibility, material node values, geometry nodes modifier inputs,
+    and the lens and depth of field of cameras.
     Other datablocks (a world, a material, light data) get only their node tree's values.
 
     Args:
@@ -158,6 +198,7 @@ def create_state_list(object):
         "transforms": {name: to_plain(getattr(object, name)) for name in TRANSFORM_PROPERTIES},
         "hide_render": object.hide_render,
         "materials": {},
+        "modifiers": save_modifier_inputs(object),
     }
     for slot in object.material_slots:
         material = slot.material
@@ -195,6 +236,8 @@ def load_from_state_dict(object, state_dict: dict):
         material = slot.material
         if material is not None and material.name in state["materials"]:
             load_node_tree(material.node_tree, state["materials"][material.name])
+
+    load_modifier_inputs(object, state["modifiers"])
 
     if "camera" in state:
         object.data.lens = state["camera"]["lens"]

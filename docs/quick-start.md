@@ -416,8 +416,9 @@ The inputs are named as in the group's interface (the node shows them shortened)
 of the material a different look, use a path relative to the object,
 `'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose` called with the
 objects. `Node` works the same on a group node in geometry nodes,
-`'bpy.data.node_groups["Scatter"].nodes["Rock generator"]'`; the inputs of a geometry
-nodes modifier are set with `Number`, `Vector`, `Boolean` and `Menu` instead.
+`'bpy.data.node_groups["Scatter"].nodes["Rock generator"]'`, and `Modifier` on the inputs
+of a geometry nodes modifier, `'modifiers["Scatter"]'`. Each input can also be set on its
+own with `Number`, `Vector`, `Boolean` or `Menu` and its data path.
 
 ## HDRI world
 
@@ -515,6 +516,10 @@ for _ in range(100):
     generator()
     initial.restore()
 ```
+
+To also change the inputs shown on the modifier, add
+`aug.Modifier('modifiers["GeometryNodes"]', {"Density": aug.Input((5, 20))})`. It finds
+them by name, and `State([floor])` saves them.
 
 ![Three renders of milk cartons and boxes scattered on a displaced floor](images/scatter-renders.jpg){ .full-width }
 
@@ -658,8 +663,8 @@ For the masks and visible fractions, add
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
 class and may hide them, a floor "Floor" with pebbles scattered on it by a geometry nodes group
-"Scatter" in a modifier on the floor (instances of the objects of a collection "Pebbles", from a
-Collection Info node, without random scale), a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+"Scatter" in a modifier "Scatter" on the floor (instances of the objects of a collection "Pebbles", from a
+Collection Info node, without random scale; a float input "Density" sets how many), a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
 (Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
 is next to the .blend file.
@@ -718,6 +723,13 @@ plant_aug = aug.Compose([
     aug.Scale(x=10, y=10, z=10, p=0.5),
     # one of 8 headings, 45 degrees apart: (low, high, step)
     aug.Rotation(z=(0, 315, 45)),
+])
+# the inputs shown on the floor's geometry nodes modifier, by name
+floor_aug = aug.Compose([
+    aug.Modifier(
+        'modifiers["Scatter"]',
+        {"Density": aug.Input((5, 20))},
+    ),
 ])
 # a new random value for every seed in the node group
 scatter_seed = aug.Seed(scatter)
@@ -786,7 +798,8 @@ generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
 
 # 3. the scene state to go back to after every datapoint
 initial = state.State(
-    [car_1, car_2, plant, lamp, camera, scatter],
+    # the floor: its modifier inputs
+    [car_1, car_2, plant, lamp, camera, floor, scatter],
     fields=objects_aug.augmentations + lamp_aug.augmentations,
 )
 
@@ -796,6 +809,7 @@ for _ in range(1000):
     lamp_aug([lamp], p=0.7)
     plant_aug([plant])
     camera_aug([camera])
+    floor_aug([floor])
     scatter_seed()
     # extra label key: how far each car was lifted
     generator({"lift": keep_above.results})

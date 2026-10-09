@@ -78,3 +78,46 @@ def set_value(data_path, value, obj=None):
     id_data = getattr(owner, "id_data", None)
     if id_data is not None:
         id_data.update_tag()
+
+
+# the kind of value an input socket holds, by the start of its interface socket_type,
+# named like node socket types
+SOCKET_KINDS = (
+    ("NodeSocketFloat", "VALUE"),
+    ("NodeSocketInt", "INT"),
+    ("NodeSocketBool", "BOOLEAN"),
+    ("NodeSocketVector", "VECTOR"),
+    ("NodeSocketColor", "RGBA"),
+    ("NodeSocketRotation", "ROTATION"),
+    ("NodeSocketMenu", "MENU"),
+)
+
+
+def interface_kind(socket_type):
+    """Kind of a node group interface socket (socket_type e.g. NodeSocketFloatFactor),
+    like a node socket's type: VALUE, INT, BOOLEAN, VECTOR, RGBA, ROTATION, MENU, or the
+    socket_type itself for the others."""
+    for prefix, kind in SOCKET_KINDS:
+        if socket_type.startswith(prefix):
+            return kind
+    return socket_type
+
+
+def modifier_inputs(modifier):
+    """The inputs of a geometry nodes modifier, in the order of its node group's
+    interface: (name, identifier, kind) for every input socket, Geometry included."""
+    if getattr(modifier, "type", None) != "NODES":
+        raise TypeError(f"{modifier!r} is not a geometry nodes modifier")
+    if modifier.node_group is None:
+        raise ValueError(f"Modifier '{modifier.name}' has no node group")
+    return [(item.name, item.identifier, interface_kind(item.socket_type))
+            for item in modifier.node_group.interface.items_tree
+            if item.item_type == "SOCKET" and item.in_out == "INPUT"]
+
+
+def modifier_input_path(modifier, identifier):
+    """Path of a geometry nodes modifier input's value, relative to the modifier. Blender
+    5 moved them from id properties to modifier.properties.inputs."""
+    if hasattr(modifier, "properties"):
+        return f".properties.inputs.{identifier}.value"
+    return f'["{identifier}"]'
