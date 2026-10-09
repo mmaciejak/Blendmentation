@@ -142,6 +142,7 @@ lamp_aug = augmentations.Compose([
 ])
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
+    augmentations.MaterialSlot(),         # one of the materials in its own slots (no copies: shared stays shared)
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
     augmentations.Rotation(z=(0, 315, 45)),               # (low, high, step): one of 8 headings
 ])                                        # (not on posed objects: BOP has one model size per class)
@@ -299,7 +300,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
   the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
-  for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them), and `OneOf` to pick
+  for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them),
+  `MaterialSlot` (one of the materials in the object's own slots, every face; then
+  `active_material...` paths reach it), and `OneOf` to pick
   one of several. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).

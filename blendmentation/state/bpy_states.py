@@ -1,3 +1,5 @@
+from array import array
+
 import bpy
 
 from .. import bpy_paths
@@ -182,10 +184,35 @@ def load_modifier_inputs(object, saved):
                 bpy_paths.set_value(path, value, modifier)
 
 
+def save_material_slots(object):
+    """The material slot of every face and the active slot, for meshes with more than one
+    slot (MaterialSlot changes them), otherwise None."""
+    if object.type != "MESH" or len(object.material_slots) < 2:
+        return None
+    polygons = object.data.polygons
+    indices = array("i", bytes(4 * len(polygons)))
+    polygons.foreach_get("material_index", indices)
+    return {"faces": indices, "active": object.active_material_index}
+
+
+def load_material_slots(object, saved):
+    """Sets the slots saved by save_material_slots back, the faces only when they changed."""
+    if saved is None or object.type != "MESH":
+        return
+    polygons = object.data.polygons
+    if len(polygons) == len(saved["faces"]):
+        current = array("i", bytes(4 * len(polygons)))
+        polygons.foreach_get("material_index", current)
+        if current != saved["faces"]:
+            polygons.foreach_set("material_index", saved["faces"])
+            object.data.update()
+    object.active_material_index = saved["active"]
+
+
 def create_state_list(object):
     """Returns a dict of the parameters changed by the object augmentations:
-    transforms, render visibility, material node values, geometry nodes modifier inputs,
-    and the lens and depth of field of cameras.
+    transforms, render visibility, material node values, the material slot of each face,
+    geometry nodes modifier inputs, and the lens and depth of field of cameras.
     Other datablocks (a world, a material, light data) get only their node tree's values.
 
     Args:
@@ -199,6 +226,7 @@ def create_state_list(object):
         "hide_render": object.hide_render,
         "materials": {},
         "modifiers": save_modifier_inputs(object),
+        "material_slots": save_material_slots(object),
     }
     for slot in object.material_slots:
         material = slot.material
@@ -238,6 +266,7 @@ def load_from_state_dict(object, state_dict: dict):
             load_node_tree(material.node_tree, state["materials"][material.name])
 
     load_modifier_inputs(object, state["modifiers"])
+    load_material_slots(object, state["material_slots"])
 
     if "camera" in state:
         object.data.lens = state["camera"]["lens"]

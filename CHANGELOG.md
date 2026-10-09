@@ -30,6 +30,12 @@ All notable changes to Blendmentation. The format follows
   given (numbers, booleans, vectors, colors, rotations and menus).
 - `augmentations.Menu` works on the menu inputs of a geometry nodes modifier in Blender 4.x,
   which Blender stores as numbers: it sets and reports the option names.
+- `augmentations.MaterialSlot(slots=None, weights=None, p=1.0, otherwise=None)` gives an
+  object one of the materials in its own material slots, picked at random: every face
+  gets the picked slot, and it becomes the active slot, so `active_material` paths in the
+  same `Compose` reach it. `actual` is the material's name. Materials aren't copied, so
+  objects that share a material or a mesh keep sharing it. `state.State` saves the
+  faces' slots and the active slot of meshes with more than one slot.
 - Every augmentation call takes `p`, which overrides the augmentation's `p` for that call,
   like a `Compose` call does: `rust(p=0.2)`, `rotation(car, p=0.5)`.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,

@@ -23,6 +23,8 @@ class State:
       node's operation, muting), its input and output values (Value and RGB nodes
       keep theirs on the output), color ramp stops, curve points, images, and the
       nodes inside node groups;
+    - for meshes with more than one material slot, the slot of every face and the
+      active slot, which `MaterialSlot` changes;
     - the inputs of its geometry nodes modifiers (numbers, booleans, vectors, colors,
       rotations and menus), e.g. those `Modifier` sets;
     - for cameras, the lens and depth of field (`use_dof`, `focus_object`,

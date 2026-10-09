@@ -142,6 +142,47 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
     return applied
 
 
+def slot_index(obj, slot):
+    """Index of a material slot given by index or by its material's name."""
+    slots = obj.material_slots
+    if isinstance(slot, int):
+        if not -len(slots) <= slot < len(slots):
+            raise KeyError(f"Object '{obj.name}' has {len(slots)} material slots, no slot {slot}")
+        return slot % len(slots)
+    for index, material_slot in enumerate(slots):
+        if material_slot.material is not None and material_slot.material.name == slot:
+            return index
+    raise KeyError(f"Object '{obj.name}' has no material '{slot}' in its slots, "
+                   f"they hold {[s.material.name if s.material else None for s in slots]}")
+
+
+def material_slot(obj, slots, weights):
+    """Assigns every face of the mesh to one of the object's material slots, picked at
+    random, and makes it the active slot, so active_material is the picked material.
+
+    Args:
+        slots (list | None): slots to pick from, by index or material name, None = all
+        weights (list | None): relative probability of each slot, None = equal
+
+    Returns:
+        str | None: name of the picked slot's material, None for an empty slot
+    """
+    if obj is None or obj.type != "MESH":
+        raise TypeError(f"{obj!r} is not a mesh object")
+    if not obj.material_slots:
+        raise ValueError(f"Object '{obj.name}' has no material slots")
+    indices = list(range(len(obj.material_slots))) if slots is None else [slot_index(obj, slot) for slot in slots]
+    if weights is not None and len(weights) != len(indices):
+        raise ValueError(f"Object '{obj.name}' has {len(indices)} slots to pick from, got {len(weights)} weights")
+    index = random.choices(indices, weights=weights)[0]
+    mesh = obj.data
+    mesh.polygons.foreach_set("material_index", [index] * len(mesh.polygons))
+    mesh.update()
+    obj.active_material_index = index
+    material = obj.material_slots[index].material
+    return None if material is None else material.name
+
+
 def target_center(target):
     """World location of a look-at target: an object or a list of objects (the center
     of their bounding boxes), or a point (x, y, z)."""

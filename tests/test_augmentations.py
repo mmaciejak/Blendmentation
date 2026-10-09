@@ -472,6 +472,64 @@ def test_number_step(cube):
     assert obj.pass_index in (0, 5, 10)
 
 
+def slotted_cube(cube):
+    """Cube with the materials A, B and C in its slots, every face on A."""
+    obj = cube("Cube")
+    for name in ("A", "B", "C"):
+        new_material(obj, name)
+    return obj
+
+
+def face_slots(obj):
+    return {polygon.material_index for polygon in obj.data.polygons}
+
+
+def test_material_slot(cube):
+    obj = slotted_cube(cube)
+    initial = state.State([obj])
+    slot = A.MaterialSlot(["B", 2], weights=[1, 0])
+    roughness = A.Number('active_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value',
+                         value_range=(0.9, 0.9))
+    A.Compose([slot, roughness])([obj])
+    assert slot.actual == "B" and face_slots(obj) == {1} and obj.active_material_index == 1
+    assert bpy.data.materials["B"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value == pytest.approx(0.9)
+    assert bpy.data.materials["A"].node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value != pytest.approx(0.9)
+
+    seen = set()
+    for _ in range(30):
+        A.MaterialSlot()(obj)
+        seen.add(obj.active_material.name)
+    assert seen == {"A", "B", "C"}
+
+    A.MaterialSlot(p=0, otherwise="C")(obj)
+    assert face_slots(obj) == {2}
+    A.MaterialSlot(p=0)(obj)
+    assert face_slots(obj) == {2}, "without otherwise a skip keeps the faces"
+
+    initial.restore()
+    assert face_slots(obj) == {0} and obj.active_material_index == 0
+
+
+def no_slots(obj):
+    obj.data.materials.clear()
+    A.MaterialSlot()(obj)
+
+
+@pytest.mark.parametrize("make, error", [
+    (lambda obj: A.MaterialSlot(["A"], weights=[1, 2]), ValueError),
+    (lambda obj: A.MaterialSlot(otherwise=1.5), ValueError),
+    (lambda obj: A.MaterialSlot(["Nope"])(obj), KeyError),
+    (lambda obj: A.MaterialSlot([3])(obj), KeyError),
+    (lambda obj: A.MaterialSlot(weights=[1, 2])(obj), ValueError),
+    (lambda obj: A.MaterialSlot()(bpy.data.objects.new("Empty", None)), TypeError),
+    (lambda obj: no_slots(obj), ValueError),
+])
+def test_material_slot_errors(cube, make, error):
+    obj = slotted_cube(cube)
+    with pytest.raises(error):
+        make(obj)
+
+
 def test_number_vector_boolean(cube):
     obj, path = geonode_cube(cube)
     obj.shape_key_add(name="Basis")

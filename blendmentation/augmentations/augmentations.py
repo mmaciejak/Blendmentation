@@ -4,13 +4,14 @@
 augmentation takes `p`, the probability that it runs, drawn per object; a call can
 override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
-it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
-`DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
+it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
+`FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
 last object; `results` holds the values for every object, by name. Save the scene
 with `State` first, and restore it after every datapoint.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
 geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
 `Modifier` does the same for the inputs of a geometry nodes modifier, by name.
+`MaterialSlot` gives an object one of the materials in its own slots.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
@@ -175,7 +176,7 @@ class Augmentation:
     It runs with probability `p`, drawn on every call, so once per object in a
     `Compose`. A skipped augmentation leaves the object unchanged, unless it has an
     `otherwise` value: then it sets that. `Number`, `Vector`, `Boolean`, `Menu`,
-    `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
+    `MaterialSlot`, `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
     the value) by default, except for `Boolean` (False) and `Visibility` (hidden).
     A `Compose` skipped by its own `p` runs none of its augmentations, so their
     `otherwise` isn't set either.
@@ -820,6 +821,93 @@ class DepthOfField(Augmentation):
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
         return bpy_a.disable_depth_of_field(obj)
+
+
+class MaterialSlot(Augmentation):
+    """Gives the object one of the materials in its own material slots, picked at random.
+
+    Add the materials to pick from to the object's slots in Blender (Material
+    Properties, `+`). On every call it assigns every face of the mesh to the picked
+    slot, and makes it the active slot, so later augmentations in the same `Compose`
+    reach the picked material through a relative path,
+    `active_material.node_tree.nodes[...]`. `State` saves the faces' slots and the
+    active slot of meshes with more than one slot, and `restore()` puts them back.
+
+    It doesn't copy materials: an object shows a material that other objects may use
+    too, and augmenting that material changes it for all of them. Which objects share
+    a material, and a mesh (with its slots, by default), is up to how the scene is set
+    up: give objects their own copies to augment them separately.
+
+    Args:
+        slots: slots to pick from, by index or material name. None = all of them.
+        weights: relative probability of each slot. None = equal.
+        p: probability of applying the augmentation.
+        otherwise: slot to use when it doesn't run, by index or material name. None
+            keeps the faces' slots.
+
+    Attributes:
+        actual (str | None): name of the picked slot's material (None for an empty
+            slot, or when skipped without `otherwise`).
+
+    Raises:
+        ValueError: the number of weights and slots differ, or `otherwise` is not an
+            index or a name. At a call: the object has no material slots.
+        TypeError: at a call, the object is not a mesh.
+        KeyError: at a call, a slot in `slots` doesn't exist.
+
+    Note:
+        A geometry nodes modifier that sets the material (Set Material) wins over the
+        faces' slots.
+
+    Example:
+        ```python
+        # the cube's slots: "Ferrous metal", "Plastic", "Rubber"
+        cube_aug = augmentations.Compose([
+            augmentations.MaterialSlot(weights=[3, 1, 1]),
+            # the picked material, whichever it is
+            augmentations.Number(
+                'active_material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value',
+                value_range=(0.1, 0.6),
+            ),
+        ])
+        cube_aug([cube])
+        ```
+
+        Each material augmented its own way: a `Node` with an absolute path per
+        material. The ones that weren't picked don't show.
+
+        ```python
+        cube_aug = augmentations.Compose([
+            augmentations.MaterialSlot(["Ferrous metal", "Plastic"]),
+            augmentations.Node(
+                'bpy.data.materials["Ferrous metal"].node_tree.nodes["Ferrous metal"]',
+                {"Rust strength": augmentations.Input((0.3, 1))},
+            ),
+            augmentations.Node(
+                'bpy.data.materials["Plastic"].node_tree.nodes["Principled BSDF"]',
+                {"Base Color": augmentations.Input((0, 1))},
+            ),
+        ])
+        ```
+    """
+
+    def __init__(self, slots: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
+                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None):
+        valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
+        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"))
+        if slots is not None and weights is not None and len(slots) != len(weights):
+            raise ValueError("Give one weight per slot")
+        self.slots = slots
+        self.weights = weights
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : mesh object whose slots to pick from
+        """
+        self.actual = bpy_a.material_slot(obj, self.slots, self.weights)
+
+    def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
+        return bpy_a.material_slot(obj, [self.otherwise], None)
 
 
 class SimpleMaterial(Augmentation):

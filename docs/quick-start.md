@@ -725,7 +725,7 @@ For the masks and visible fractions, add
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
-class and may hide them, a floor "Floor" with pebbles scattered on it by a geometry nodes group
+class and may hide them (with a few materials in its slots), a floor "Floor" with pebbles scattered on it by a geometry nodes group
 "Scatter" in a modifier "Scatter" on the floor (instances of the objects of a collection "Pebbles", from a
 Collection Info node, without random scale; a float input "Density" sets how many), a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
@@ -782,6 +782,8 @@ lamp_aug = aug.Compose([
 plant_aug = aug.Compose([
     # in the render 70% of the time, labels follow
     aug.Visibility(p=0.7),
+    # one of the materials in its slots
+    aug.MaterialSlot(),
     # only half of the time; BOP needs fixed-size cars
     aug.Scale(x=10, y=10, z=10, p=0.5),
     # one of 8 headings, 45 degrees apart: (low, high, step)
