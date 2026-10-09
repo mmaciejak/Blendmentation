@@ -13,6 +13,7 @@ The scene needs:
   Pick Instance), without random scale (BOP has one size per class). The group has a
   float input "Density", the density of the points
 - a point light "Light" and the scene camera
+- a curve "CameraPath" around the parts (e.g. a Bezier circle), a path for the camera
 - a world with a "Background" node (the default world has one)
 - a shader AOV "Albedo" in View Layer > Passes > Shader AOV, written by an AOV
   Output node in the material
@@ -43,6 +44,7 @@ clutter = bpy.data.objects["Clutter"]
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+camera_path = bpy.data.objects["CameraPath"]
 world = bpy.context.scene.world
 scatter = bpy.data.node_groups["Scatter"]
 pebbles = bpy.data.collections["Pebbles"]
@@ -117,11 +119,24 @@ clutter_transforms = augmentations.Compose([
     augmentations.PlaceOn(floor),  # after the transforms: up or down until it rests on the floor
 ])
 
-# orbit the camera around both parts, always aimed at their center, zoom without changing
-# how big the parts are in the image, and sometimes blur what is not in focus
+# orbit the camera around both parts, or, a third of the time, put it on the camera path;
+# always aimed at their center. Then zoom without changing how big the parts are in the
+# image, and sometimes blur what is not in focus
 camera_transforms = augmentations.Compose(
     [
-        augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360), roll=(-5, 5)),
+        augmentations.OneOf(
+            [
+                augmentations.LookAt([obj1, obj2], distance=(6, 10), elevation=(10, 50), azimuth=(0, 360),
+                                     roll=(-5, 5)),
+                augmentations.Chain([
+                    # a random point along the curve; align=True would also face along it
+                    augmentations.PlaceOnCurve(camera_path),
+                    augmentations.Translation(z=(-0.3, 0.3)),  # off the path, a little up or down
+                    augmentations.LookAt([obj1, obj2], roll=(-5, 5)),  # no distance: keeps the point, only aims
+                ]),
+            ],
+            weights=[2, 1],
+        ),
         augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True),
         # blurred in half of the datapoints; otherwise=False turns it off in the others
         augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),

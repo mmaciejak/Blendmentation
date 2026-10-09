@@ -260,6 +260,86 @@ def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
     return applied
 
 
+def check_curve(curve):
+    if not isinstance(curve, bpy.types.Object) or curve.type != "CURVE":
+        kind = curve.type if isinstance(curve, bpy.types.Object) else type(curve).__name__
+        raise TypeError(f"PlaceOnCurve needs a curve object, got {kind}")
+
+
+def curve_segments(curve):
+    """World-space segments of the evaluated curve (modifiers included), each a
+    (start, end) pair, in the order and direction of its splines. Bevel, extrusion and
+    the fill of 2D curves are turned off while it is read, so only the center line counts.
+
+    Returns:
+        list: the segments, without zero length ones
+    """
+    data = curve.data
+    flat = {"extrude": 0.0, "bevel_depth": 0.0, "bevel_object": None}
+    if data.dimensions == "2D":
+        flat["fill_mode"] = "NONE"
+    changed = {name: getattr(data, name) for name, value in flat.items() if getattr(data, name) != value}
+    try:
+        for name in changed:
+            setattr(data, name, flat[name])
+        curve_eval = curve.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        mesh = curve_eval.to_mesh()
+        try:
+            if mesh.polygons:
+                raise ValueError(f"Curve '{curve.name}' evaluates to faces (e.g. a geometry nodes modifier), not a line")
+            matrix = curve_eval.matrix_world
+            vertices = [matrix @ vertex.co for vertex in mesh.vertices]
+            # blender converts each spline to a chain of edges in its direction
+            segments = [(vertices[a], vertices[b]) for a, b in (edge.vertices for edge in mesh.edges)]
+        finally:
+            curve_eval.to_mesh_clear()
+    finally:
+        for name, value in changed.items():
+            setattr(data, name, value)
+    segments = [(start, end) for start, end in segments if (end - start).length > 0]
+    if not segments:
+        raise ValueError(f"Curve '{curve.name}' has no length")
+    return segments
+
+
+def place_on_curve(obj, curve, align, position):
+    """Moves the object to a point on the curve, a fraction `position` of its length from
+    its start (splines one after another, in their order). With align, its -Z axis (the
+    view direction of cameras and lights) points along the curve direction there, with Y
+    up; otherwise its rotation and scale are kept.
+
+    Args:
+        position (tuple | float): (min, max) fraction of the curve length, or an exact one
+
+    Returns:
+        dict: the position and the world location that were set
+    """
+    if obj == curve:
+        raise ValueError(f"'{obj.name}' cannot be placed on itself")
+    # earlier augmentations changed location / rotation / scale, matrix_world is stale until then
+    bpy.context.view_layer.update()
+    segments = curve_segments(curve)
+    lengths = [(end - start).length for start, end in segments]
+    fraction = range_or_value(position, 0.0)
+    distance = fraction * sum(lengths)
+    index = 0
+    while index < len(segments) - 1 and distance > lengths[index]:
+        distance -= lengths[index]
+        index += 1
+    start, end = segments[index]
+    direction = (end - start) / lengths[index]
+    location = start + direction * min(distance, lengths[index])
+
+    matrix = obj.matrix_world.copy()
+    if align:
+        matrix = Matrix.LocRotScale(location, direction.to_track_quat("-Z", "Y"), matrix.to_scale())
+    else:
+        matrix.translation = location
+    bpy_undo.record_transforms(obj)
+    obj.matrix_world = matrix
+    return {"position": fraction, "location": tuple(location)}
+
+
 def check_camera(obj, perspective=False):
     if obj.type != "CAMERA":
         raise TypeError(f"'{obj.name}' is {obj.type}, not a camera")

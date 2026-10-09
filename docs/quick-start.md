@@ -679,7 +679,8 @@ For the masks and visible fractions, add
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
 class and may hide them (with a few materials in its slots), a floor "Floor" with pebbles scattered on it by a geometry nodes group
 "Scatter" in a modifier "Scatter" on the floor (instances of the objects of a collection "Pebbles", from a
-Collection Info node, without random scale; a float input "Density" sets how many), a point light and a camera. The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
+Collection Info node, without random scale; a float input "Density" sets how many), a point light, a camera and a curve
+"CameraPath" around the cars for the camera to ride on (e.g. a Bezier circle). The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
 shader AOV "Albedo" in View Layer Properties → Passes → Shader AOV. The render is transparent
 (Render Properties → Film → Transparent, RGBA output), and a folder "backgrounds" with photos
 is next to the .blend file.
@@ -692,6 +693,7 @@ plant = bpy.data.objects["Plant"]
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+camera_path = bpy.data.objects["CameraPath"]
 scatter = bpy.data.node_groups["Scatter"]
 pebbles = bpy.data.collections["Pebbles"]
 
@@ -758,11 +760,25 @@ floor_aug = aug.Compose([
 # a new random value for every seed in the node group
 scatter_seed = aug.Seed(scatter)
 camera_aug = aug.Compose([
-    aug.LookAt(
-        [car_1, car_2],
-        distance=(6, 12),
-        elevation=(10, 45),
-        azimuth=(0, 360),
+    # around the cars, or a third of the time on the path
+    aug.OneOf(
+        [
+            aug.LookAt(
+                [car_1, car_2],
+                distance=(6, 12),
+                elevation=(10, 45),
+                azimuth=(0, 360),
+            ),
+            aug.Chain([
+                # a random point along the curve
+                aug.PlaceOnCurve(camera_path),
+                # off the path, a little up or down
+                aug.Translation(z=(-0.3, 0.3)),
+                # no distance: keeps the point, only aims
+                aug.LookAt([car_1, car_2]),
+            ]),
+        ],
+        weights=[2, 1],
     ),
     aug.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
     # blurred in half of the images, sharp in the others

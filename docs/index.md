@@ -20,7 +20,7 @@ geometry nodes. Blendmentation randomizes it by changing their values (`Number`,
 augment.
 
 A few augmentations are shortcuts for common setups, so a basic pipeline is quick and
-easy to get going: `KeepAbove`, `PlaceOn`, `LookAt`, `SimpleMaterial`, `FocalLength` and
+easy to get going: `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`, `SimpleMaterial`, `FocalLength` and
 `DepthOfField`. The transforms (`Translation`, `Rotation`, `Scale`) are there for simple
 scenes, and for small changes outside of a geometry nodes setup. For cluttered scenes,
 we recommend placing the objects with geometry nodes instead.

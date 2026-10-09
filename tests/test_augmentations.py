@@ -691,6 +691,111 @@ def test_look_at(scene, cube):
         A.LookAt(target, distance=0)(camera)
 
 
+def poly_curve(name, points, location=(0, 0, 0)):
+    """Curve object with one poly spline through the points, so its segments are exact."""
+    data = bpy.data.curves.new(name, "CURVE")
+    data.dimensions = "3D"
+    spline = data.splines.new("POLY")
+    spline.points.add(len(points) - 1)
+    for point, co in zip(spline.points, points):
+        point.co = (*co, 1)
+    obj = bpy.data.objects.new(name, data)
+    obj.location = location
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def view_axis(obj, axis=(0, 0, -1)):
+    bpy.context.view_layer.update()
+    return (obj.matrix_world.to_3x3() @ Vector(axis)).normalized()
+
+
+def test_place_on_curve(scene, cube):
+    path = poly_curve("Path", [(0, 0, 0), (4, 0, 0), (4, 3, 0)], location=(1, 2, 3))  # length 7
+    camera = scene.camera
+    rotation = camera.matrix_world.to_3x3().copy()
+
+    # exact positions, in world space; without align the rotation is kept
+    for position, location in [(0, (1, 2, 3)), (0.5, (4.5, 2, 3)), (4 / 7, (5, 2, 3)), (1, (5, 5, 3))]:
+        place = A.PlaceOnCurve(path, position=position)
+        place(camera)
+        bpy.context.view_layer.update()
+        assert tuple(camera.matrix_world.translation) == pytest.approx(location, abs=1e-5)
+        assert place.actual["location"] == pytest.approx(location, abs=1e-5) and place.actual["position"] == position
+        assert all((camera.matrix_world.col[i].xyz - rotation.col[i]).length < 1e-5 for i in range(3))
+
+    # random: within the range, on the curve
+    place = A.PlaceOnCurve(path, position=(0.2, 0.4))
+    for _ in range(10):
+        place(camera)
+        bpy.context.view_layer.update()
+        assert 0.2 <= place.actual["position"] <= 0.4
+        x = 1 + 7 * place.actual["position"]
+        assert tuple(camera.matrix_world.translation) == pytest.approx((x, 2, 3), abs=1e-5)
+
+    # align: the view axis follows the curve direction, upright
+    align = A.PlaceOnCurve(path, align=True, position=0.25)
+    align(camera)
+    assert tuple(view_axis(camera)) == pytest.approx((1, 0, 0), abs=1e-5)
+    assert tuple(view_axis(camera, (0, 1, 0))) == pytest.approx((0, 0, 1), abs=1e-5)
+    A.PlaceOnCurve(path, align=True, position=0.9)(camera)
+    assert tuple(view_axis(camera)) == pytest.approx((0, 1, 0), abs=1e-5)
+
+    # Rotation after it turns the camera from the path direction: z = 90 looks left
+    A.Compose([align, A.Rotation(z=(90, 90))])([camera])
+    assert tuple(view_axis(camera)) == pytest.approx((0, 1, 0), abs=1e-5)
+    # LookAt without distance / elevation / azimuth keeps the point and aims
+    target = cube("Target", (3, 8, 3))
+    A.Compose([align, A.LookAt(target)])([camera])
+    bpy.context.view_layer.update()
+    assert tuple(camera.matrix_world.translation) == pytest.approx((2.75, 2, 3), abs=1e-5)
+    assert_centered(scene, target.location)
+
+    # a parented, scaled camera; the scale is kept with align
+    parent = bpy.data.objects.new("rig", None)
+    scene.collection.objects.link(parent)
+    parent.location, parent.rotation_euler, parent.scale = (3, -2, 1), (0.3, 0.2, 1.0), (2, 2, 2)
+    camera.parent = parent
+    align(camera)
+    bpy.context.view_layer.update()
+    assert tuple(camera.matrix_world.translation) == pytest.approx((2.75, 2, 3), abs=1e-5)
+    assert tuple(view_axis(camera)) == pytest.approx((1, 0, 0), abs=1e-5)
+    assert tuple(camera.matrix_world.to_scale()) == pytest.approx((2, 2, 2), abs=1e-5)
+    camera.parent = None
+
+    # a bevel doesn't change the line, and is set back
+    path.data.bevel_depth = 0.5
+    A.PlaceOnCurve(path, position=0.5)(camera)
+    bpy.context.view_layer.update()
+    assert tuple(camera.matrix_world.translation) == pytest.approx((4.5, 2, 3), abs=1e-5)
+    assert path.data.bevel_depth == 0.5
+
+    # a smooth curve, sampled as Blender draws it
+    bpy.ops.curve.primitive_bezier_circle_add(radius=2, location=(0, 0, 1))
+    circle = bpy.context.object
+    for _ in range(5):
+        A.PlaceOnCurve(circle, align=True)(camera)
+        bpy.context.view_layer.update()
+        location = camera.matrix_world.translation
+        assert location.z == pytest.approx(1) and (location.xy.length == pytest.approx(2, abs=0.01))
+        assert abs(view_axis(camera).dot(location.xy.to_3d().normalized())) < 0.1  # along the circle
+
+
+def test_place_on_curve_errors(cube):
+    path = poly_curve("Path", [(0, 0, 0), (1, 0, 0)])
+    obj = cube("Cube")
+    with pytest.raises(TypeError, match="curve"):
+        A.PlaceOnCurve(obj)
+    for position in (1.5, -0.1, (0.6, 0.4), (0, 2), "a"):
+        with pytest.raises(ValueError, match="position"):
+            A.PlaceOnCurve(path, position=position)
+    with pytest.raises(ValueError, match="itself"):
+        A.PlaceOnCurve(path)(path)
+    point = poly_curve("Point", [(0, 0, 0), (0, 0, 0)])
+    with pytest.raises(ValueError, match="no length"):
+        A.PlaceOnCurve(point)(obj)
+
+
 def projected_width(scene, obj):
     bpy.context.view_layer.update()
     xs = [world_to_camera_view(scene, scene.camera, obj.matrix_world @ Vector(c)).x for c in obj.bound_box]

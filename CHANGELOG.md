@@ -6,6 +6,16 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.PlaceOnCurve(curve, align=False, position=(0, 1), p=1.0)` moves a camera
+  (or any object) to a random point on a curve object, e.g. a camera path, picked evenly
+  along its length. By default the object keeps its rotation; with `align=True` it faces
+  along the curve direction there, upright. `position` limits it to part of the curve, as a
+  fraction of its length. Put `Translation` and `Rotation` after it to move or turn the
+  object from there, or `LookAt(target)` to aim it at something. `actual` holds the
+  `position` and the world `location`.
+
 ## [0.8.0] - 2026-10-09
 
 ### Added

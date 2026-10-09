@@ -40,6 +40,10 @@ def test_restoring(scene, cube):
     light = bpy.data.objects.new("Light", bpy.data.lights.new("Light", "POINT"))
     scene.collection.objects.link(light)
     camera = scene.camera
+    path = bpy.data.objects.new("Path", bpy.data.curves.new("Path", "CURVE"))
+    path.data.splines.new("POLY").points.add(1)
+    path.data.splines[0].points[1].co = (4, 0, 0, 1)
+    scene.collection.objects.link(path)
     group = bpy.data.node_groups.new("Seeds", "GeometryNodeTree")
     distribute = group.nodes.new("GeometryNodeDistributePointsOnFaces")
 
@@ -87,6 +91,7 @@ def test_restoring(scene, cube):
             A.Boolean("data.use_shadow", p=0, otherwise=False),
         ])([light])
         A.Seed(group)()
+        A.PlaceOnCurve(path, align=True)(camera)
         A.Compose([
             A.LookAt(obj, distance=(5, 6)),
             A.FocalLength((20, 30), target=obj, keep_size=True),

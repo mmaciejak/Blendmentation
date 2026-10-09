@@ -15,7 +15,8 @@ geometry nodes setup), each with its own range, `p` and `otherwise`, given as an
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
-group (e.g. a geometry nodes scatter) its own random value. `OneOf` applies one
+group (e.g. a geometry nodes scatter) its own random value. `PlaceOnCurve` moves a
+camera (or any object) to a random point on a curve, optionally facing along it. `OneOf` applies one
 augmentation from a list, picked at random by weight, and `Chain` applies a list to one
 object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
 
@@ -83,6 +84,15 @@ def check_range(value_range: Any, name: str) -> Any:
     if is_number(value_range):
         raise ValueError(f"{name} must be (low, high) or (low, high, step), got {value_range!r}")
     return check_offset(value_range, name)
+
+
+def check_fraction(value: Any, name: str) -> Any:
+    """A fraction 0-1, or a (low, high) range of them."""
+    values = [value] if is_number(value) else value
+    if (not isinstance(values, Sequence) or len(values) not in (1, 2) or not all(is_number(v) for v in values)
+            or not all(0 <= v <= 1 for v in values) or values[0] > values[-1]):
+        raise ValueError(f"{name} must be a number or (low, high) between 0 and 1, got {value!r}")
+    return value
 
 
 def happens(p: float) -> bool:
@@ -797,6 +807,71 @@ class LookAt(Augmentation):
         self.actual = bpy_a.look_at(
             obj, self.target, self.distance, self.elevation, self.azimuth, self.roll, self.focal_length
         )
+
+
+class PlaceOnCurve(Augmentation):
+    """Moves a camera (or any object) to a random point on a curve, e.g. a camera path.
+
+    The point is picked uniformly along the curve's length (a curve with several splines
+    counts them one after another, in their order), so straight and curved parts get
+    the same density. The curve is read as Blender evaluates it (modifiers included),
+    as the line it draws at its resolution, without bevel or extrusion. It sets
+    `matrix_world`, so parented objects work too.
+
+    By default only the location changes: the object keeps its rotation and scale.
+    With `align`, it also turns to face along the curve direction at that point, the
+    way the curve was drawn (from its first point to its last): a camera's view axis
+    (-Z) follows the tangent, upright (its Y axis up towards world Z). The curve's tilt
+    is ignored. Avoid vertical parts of the curve with `align`, where "up" is undefined.
+
+    !!! tip "Vary it after"
+        Put `Translation` after it in the `Compose` to move the object off the curve
+        (in world axes, Blender units), and `Rotation` to turn it from there, e.g.
+        `Rotation(z=(90, 90))` after `align=True` makes the camera look to the left
+        of the path, and `Rotation(x=5, y=5, z=10)` adds a little shake. To aim at
+        something instead, put `LookAt(target)` after it without `distance`,
+        `elevation` and `azimuth`: it keeps the point on the curve.
+
+    Args:
+        curve: the curve object to place the object on.
+        align: also rotate the object to face along the curve direction.
+        position: where on the curve, as a fraction of its length from its start, a
+            `(min, max)` range (the default is all of it) or an exact number, 0-1.
+        p: probability of applying the augmentation.
+
+    Attributes:
+        actual (dict | None): the `position` (fraction of the length) and the world
+            `location` set by the last call.
+
+    Raises:
+        TypeError: `curve` is not a curve object.
+        ValueError: `position` is not between 0 and 1, the object is the curve, the
+            curve has no length, or it evaluates to faces.
+
+    Example:
+        ```python
+        camera_path = bpy.data.objects["CameraPath"]
+        camera_aug = augmentations.Compose([
+            augmentations.PlaceOnCurve(camera_path, align=True),
+            augmentations.Translation(z=(-0.2, 0.2)),   # a little up or down
+            augmentations.Rotation(x=5, z=(-20, 20)),   # look around a bit
+        ])
+        camera_aug([bpy.context.scene.camera])
+        ```
+    """
+
+    def __init__(self, curve: Object, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0):
+        super().__init__(p)
+        bpy_a.check_curve(curve)
+        self.curve = curve
+        self.align = align
+        self.position = check_fraction(position, "position")
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : camera or other object to move
+        """
+        self.actual = bpy_a.place_on_curve(obj, self.curve, self.align, self.position)
 
 
 class FocalLength(Augmentation):

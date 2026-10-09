@@ -123,6 +123,7 @@ plant = bpy.data.objects["Plant"]                         # in no class
 floor = bpy.data.objects["Floor"]
 lamp = bpy.data.objects["Light"]
 camera = bpy.context.scene.camera
+camera_path = bpy.data.objects["CameraPath"]              # a curve around the cars
 world = bpy.context.scene.world
 
 keep_above = augmentations.KeepAbove(floor, margin=0.01)
@@ -159,7 +160,15 @@ floor_aug = augmentations.Compose([                        # the inputs shown on
         "Density": augmentations.Input((5, 20)),
     }),
 ])
-camera_aug = augmentations.Compose([, distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
+camera_aug = augmentations.Compose([
+    augmentations.OneOf([
+        augmentations.LookAt([car_1, car_2], distance=(6, 12), elevation=(10, 45), azimuth=(0, 360)),
+        augmentations.Chain([                             # or a random point on a curve, then aimed:
+            augmentations.PlaceOnCurve(camera_path),      # align=True faces along the curve instead
+            augmentations.Translation(z=(-0.3, 0.3)),     # Translation / Rotation after it vary it
+            augmentations.LookAt([car_1, car_2]),         # no distance/elevation/azimuth: only aims
+        ]),
+    ], weights=[2, 1]),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
     augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),  # after LookAt/FocalLength; sharp otherwise
 ])
@@ -293,7 +302,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   passes don't change; the image is saved opaque RGB.
 - **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
-- **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
+- **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`, `PlaceOnCurve`,
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
@@ -323,6 +332,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   work). It checks the object where it is, so put it after every augmentation that moves
   or deforms the object. **`PlaceOn(surface, margin=0)`** is the same but also moves it
   down, so it rests on the surface (e.g. an object tipped over around a centered origin).
+- **`PlaceOnCurve(curve, align=False, position=(0, 1))`** moves the object (a camera) to a
+  random point along a curve object (uniform by length; `position` is a fraction of it).
+  Without `align` it keeps its rotation; with `align=True` it faces along the curve
+  direction (-Z along the tangent, upright). Put `Translation` / `Rotation` after it to
+  vary it from there, or `LookAt(target)` without distance/elevation/azimuth to aim it.
 - **`Seed(node_group)`** gives every seed input in a node group (Distribute Points, Random
   Value...) its own random value per call: `seed = augmentations.Seed(bpy.data.node_groups["Geometry Nodes"]); seed()`.
 - **`OneOf(augmentations, weights=None, p=1)`** applies one augmentation from the list,
