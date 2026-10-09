@@ -370,13 +370,19 @@ for _ in range(100):
 
 ## A smart material
 
-A smart material puts its settings on one group node, here "Ferrous metal" in the
-material "Master material". `Node` sets many of its inputs in one augmentation:
-each input gets an `Input` with its range (or menu options), `p` and `otherwise`. Inputs are set like
-`Number`, `Vector`, `Boolean` or `Menu`, by their socket type, and a color range keeps
-alpha. The menus here need Blender 5.
+A smart material puts its settings on one group node, here a node of the group "Ferrous
+metal" in the material "Master material". `Node` sets many of its inputs in one
+augmentation: each input gets an `Input` with its range (or menu options), `p` and
+`otherwise`. Inputs are set like `Number`, `Vector`, `Boolean` or `Menu`, by their socket
+type, and a color range keeps alpha. The menus here need Blender 5.
 
-![The group node "Ferrous metal" with its inputs: texture offset, menus "Grinded" and "Shiny metal", base metal color, rust, paint spread and paint color](images/smart-material-nodes.jpg)
+The path takes the node's **name**, which is not the title on the node: a group node
+shows its group's name, while the node itself is named e.g. "Group.004". Find the name
+in the Sidebar (N) > Node > Name, and rename it there (here to "Ferrous metal"), or right
+click an input > Copy Full Data Path. A menu input shows its current option instead of
+its name, so look the names up in the group's interface.
+
+![The group node "Ferrous metal" with its inputs: Texture Coordinate (linked), Texture ofset, Base metal color, the menus "Base metal type" (showing "Shiny metal") and "Surface effect" (showing "Grinded"), Thin oxidation amount, Texture scale, Surface effect strenght, Rust strength, Rust spread, Paint spread, Paint Color, Paint disccoloration, Paint surface spots and Dust strength](images/smart-material-nodes.jpg)
 
 ```python
 ferrous_metal = aug.Node(
@@ -385,7 +391,12 @@ ferrous_metal = aug.Node(
         # moves the textures: every axis
         "Texture ofset": aug.Input((-100, 100)),
         # any option of the menu, read from the group
-        "Grinded": aug.Input(),
+        "Base metal type": aug.Input(),
+        # some options, the first two more often
+        "Surface effect": aug.Input(
+            options=["Weathered", "Dotted", "Hammered"],
+            weights=[3, 3, 1],
+        ),
         # 0, 0.25, ... 1: (low, high, step)
         "Rust strength": aug.Input((0, 1, 0.25)),
         # rust in 20% of the images, clearly visible; none in the others

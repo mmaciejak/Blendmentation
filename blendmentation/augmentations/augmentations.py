@@ -1104,7 +1104,7 @@ class Input:
         ```python
         augmentations.Input((0.5, 1), p=0.2, otherwise=0)    # a number or a color
         augmentations.Input((0, 1, 0.25))                     # 0, 0.25, ... 1
-        augmentations.Input(options=["Shiny metal", "Dull metal"], weights=[3, 1])
+        augmentations.Input(options=["Shiny metal", "Cast metal"], weights=[3, 1])
         augmentations.Input(p=0.3, otherwise=None)            # a boolean: True 30 %, else kept
         ```
     """
@@ -1263,8 +1263,10 @@ class Node(Augmentation):
     `p`, and `Node`'s own `p` applies the whole node: when it doesn't run, no
     input changes, also not to its `otherwise`.
 
-    The node is given by its data path, absolute (starting with `bpy.`) or relative to
-    the object, e.g. `active_material.node_tree.nodes["Ferrous metal"]` to augment the
+    The node is given by its data path, with the node's name: Sidebar (N) > Node >
+    Name, not the title on the node (a group node shows its group's name), or right
+    click an input > Copy Full Data Path. The path is absolute (starting with `bpy.`) or
+    relative to the object, e.g. `active_material.node_tree.nodes["Ferrous metal"]` to augment the
     material of each object in a `Compose`. The inputs must not be connected to other
     nodes. It changes the **node tree** (the material, the node group…), so everything
     using it is affected.
@@ -1317,8 +1319,8 @@ class Node(Augmentation):
             'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
             {
                 "Texture ofset": (-100, 100),             # Vector: every axis
-                "Grinded": None,                          # Menu: any option
-                "Shiny metal": augmentations.Input(options=["Shiny metal", "Dull metal"], weights=[3, 1]),
+                "Base metal type": None,                  # Menu: any option
+                "Surface effect": augmentations.Input(options=["Weathered", "Grinded"], weights=[3, 1]),
                 "Base metal color": ((0.3, 0.3, 0.3), (0.6, 0.6, 0.6)),  # Color, alpha kept
                 "Rust strength": (0, 1, 0.25),            # Float: 0, 0.25, ... 1
                 # rust in 20 % of the images, none in the others
@@ -1328,7 +1330,7 @@ class Node(Augmentation):
         )
         initial = state.State([], fields=[ferrous_metal])
         ferrous_metal()   # absolute path: no object needed
-        ferrous_metal.actual   # e.g. {"Texture ofset": (12.0, -40.3, 77.1), "Grinded": "Rough", ...}
+        ferrous_metal.actual   # e.g. {"Texture ofset": (12.0, -40.3, 77.1), "Base metal type": "Cast metal", ...}
         initial.restore()
         ```
 

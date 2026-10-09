@@ -18,7 +18,7 @@ print(augmentations.Node.template(
 ```python
 {
     "Texture ofset": Input((0.0, 0.0)),            # vector, now (0, 0, 0)
-    "Grinded": Input(options=["Grinded", "Polished", "Raw"]),   # menu, now "Grinded"
+    "Surface effect": Input(options=["Dotted", "Brushed", "Hammered", "Grinded", "Weathered"]),   # menu, now "Grinded"
     "Surface effect strength": Input((1.0, 1.0)),  # float, now 1.0
     "Base metal color": Input((0.5, 0.5)),         # color, now (0.5, 0.5, 0.5, 1)
     "Rust strength": Input((1.0, 1.0)),            # float, now 1.0
@@ -28,6 +28,11 @@ print(augmentations.Node.template(
 ```
 
 You would widen the ranges you want, and delete the inputs to leave alone.
+
+It would also catch what is easy to get wrong by hand: the node's name, which is not the
+title on the node (a group node shows its group's name, the node is e.g. "Group.004");
+menu inputs, which show their current option instead of their name; and names with a
+stray space at the end ("Paint disccoloration ").
 
 It would also help agents using the library through Blender MCP: one call gives the
 node's inputs, their types and their options.
