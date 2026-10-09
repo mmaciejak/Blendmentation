@@ -67,6 +67,19 @@ def test_restore(scene, cube):
     assert tuple(scene.camera.location) == pytest.approx((0, -10, 0))
 
 
+def test_restore_inside_one_of(scene):
+    """A data path augmentation inside a OneOf is saved through State(fields=compose.augmentations)."""
+    light = bpy.data.objects.new("Light", bpy.data.lights.new("Light", "POINT"))
+    scene.collection.objects.link(light)
+    light.data.energy = 100
+    compose = A.Compose([A.OneOf([A.Number("data.energy", value_range=(600, 1400))])])
+    initial = state.State([light], fields=compose.augmentations)
+    compose([light])
+    assert light.data.energy >= 600
+    initial.restore()
+    assert light.data.energy == 100
+
+
 def test_relative_field_must_resolve(cube):
     obj = cube("Cube")
     with pytest.raises(ValueError, match="does not resolve"):

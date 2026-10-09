@@ -6,6 +6,15 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.OneOf(augmentations, weights=None, p=1.0)` applies one augmentation from a
+  list, picked at random by weight, again for every object in a `Compose`. Its `actual` is
+  the picked index and `results` the index per object. A `OneOf` can contain another `OneOf`.
+  `Compose` clears the `results` of the augmentations inside it, and
+  `state.State(fields=compose.augmentations)` saves the data paths of the `Number`, `Vector`,
+  `Boolean` and `Menu` inside it.
+
 ## [0.7.3] - 2026-10-08
 
 ### Added

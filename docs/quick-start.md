@@ -639,8 +639,14 @@ objects_aug = aug.Compose([
     keep_above,
 ])
 lamp_aug = aug.Compose([
-    aug.Number("data.energy", value_range=(600, 1400)),
-    aug.Vector("data.color", value_range=(0.8, 1.0)),
+    # a new brightness or a new color, brightness twice as often
+    aug.OneOf(
+        [
+            aug.Number("data.energy", value_range=(600, 1400)),
+            aug.Vector("data.color", value_range=(0.8, 1.0)),
+        ],
+        weights=[2, 1],
+    ),
     aug.Menu("data.type", options=["POINT", "SPOT"]),
     aug.Boolean("data.use_shadow", p=0.8),
 ])

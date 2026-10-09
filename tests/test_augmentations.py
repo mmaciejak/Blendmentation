@@ -393,6 +393,66 @@ def test_results(cube):
     assert list(lift.results) == [None] and lift.results[None] == lift.actual
 
 
+def test_one_of(cube):
+    obj = cube("Cube")
+    children = [A.Translation(x=1), A.Rotation(z=90)]
+    one_of = A.OneOf(children)
+    compose = A.Compose([one_of])
+    compose([obj])
+    first = one_of.actual
+    for _ in range(50):
+        compose([obj])
+        if one_of.actual != first:
+            break
+    picked = one_of.actual
+    assert picked != first  # seeded
+    assert one_of.results == {obj.name: picked}
+    assert list(children[picked].results) == [obj.name]
+    assert children[1 - picked].results == {}  # picked last time, cleared by the Compose
+
+    # picked again per object, each child records only the objects it was picked for
+    objs = [cube(f"Cube.{i}") for i in range(8)]
+    compose(objs)
+    assert list(one_of.results) == [o.name for o in objs]
+    assert len(set(one_of.results.values())) == 2  # seeded
+    for index, child in enumerate(children):
+        assert list(child.results) == [name for name, pick in one_of.results.items() if pick == index]
+
+    # nested: the inner children are cleared too
+    inner_child = A.Scale(x=10)
+    inner = A.OneOf([inner_child])
+    outer = A.OneOf([inner, A.Translation(x=1)], weights=[1, 0])
+    A.Compose([outer])([obj])
+    assert list(inner_child.results) == [obj.name] and inner.results == {obj.name: 0}
+    outer.weights = [0, 1]
+    A.Compose([outer])([obj])
+    assert inner_child.results == {} and inner.results == {}
+
+    # weights: always the first one
+    first_only = A.OneOf(children, weights=[1, 0])
+    A.Compose([first_only])(objs)
+    assert set(first_only.results.values()) == {0} and children[1].results == {}
+
+    # p=0: no child runs
+    skipped = A.OneOf(children, p=0)
+    location = tuple(obj.location)
+    A.Compose([skipped])([obj])
+    assert skipped.results == {obj.name: None} and skipped.actual is None
+    assert children[0].results == {} and children[1].results == {}
+    assert tuple(obj.location) == location
+
+
+@pytest.mark.parametrize("augmentations, weights, match", [
+    ([], None, "at least one"),
+    ([A.Scale(x=10)], [1, 2], "one weight per augmentation"),
+    ([A.Scale(x=10), A.Rotation(z=90)], [1, -1], "negative"),
+    ([A.Scale(x=10), A.Rotation(z=90)], [0, 0], "sum to 0"),
+])
+def test_one_of_errors(augmentations, weights, match):
+    with pytest.raises(ValueError, match=match):
+        A.OneOf(augmentations, weights=weights)
+
+
 def test_otherwise_data_paths(cube):
     """A skipped data path augmentation sets otherwise, or keeps the value with None."""
     obj, path = geonode_cube(cube)

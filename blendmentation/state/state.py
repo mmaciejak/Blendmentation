@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Union
 
+from ..augmentations.augmentations import flatten
 from . import bpy_states as bpy_s
 
 if TYPE_CHECKING:
@@ -39,8 +40,8 @@ class State:
             node tree.
         fields: `Number`, `Vector`, `Boolean` and `Menu` augmentations, or data path
             strings. Absolute paths are saved once, relative paths for every object they
-            exist on. Other entries are ignored, so a whole `Compose.augmentations` list
-            can be passed.
+            exist on. Augmentations inside a `OneOf` are saved too, and other entries are
+            ignored, so a whole `Compose.augmentations` list can be passed.
 
     Example:
         ```python
@@ -62,7 +63,7 @@ class State:
         for object in objects:
             self.state_dict[bpy_s.state_key(object)] = bpy_s.create_state_list(object)
         # other augmentations are covered by the object state, so a whole Compose list can be passed
-        data_paths = [field if isinstance(field, str) else field.data_path for field in fields
+        data_paths = [field if isinstance(field, str) else field.data_path for field in flatten(fields)
                       if isinstance(field, str) or hasattr(field, "data_path")]
         self.field_state = bpy_s.create_field_state(data_paths, objects)
 

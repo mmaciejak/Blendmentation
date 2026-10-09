@@ -10,7 +10,8 @@ with `State` first, and restore it after every datapoint.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
-group (e.g. a geometry nodes scatter) its own random value.
+group (e.g. a geometry nodes scatter) its own random value. `OneOf` applies one
+augmentation from a list, picked at random by weight.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -75,6 +76,15 @@ def happens(p: float) -> bool:
     return p >= 1 or random.random() < p
 
 
+def flatten(augmentations: Sequence[Any]) -> list[Any]:
+    """Each item and, after it, the items in its `augmentations` (a `OneOf`, a `Compose`), depth first."""
+    flat = []
+    for augmentation in augmentations:
+        flat.append(augmentation)
+        flat.extend(flatten(getattr(augmentation, "augmentations", ())))
+    return flat
+
+
 class Compose:
     """Applies a list of augmentations to every object it is called with, in place.
 
@@ -84,9 +94,10 @@ class Compose:
     independently. Save the scene with `State` before augmenting, so it can be
     restored.
 
-    Every call first clears the `results` of its augmentations, so afterwards they
-    hold the values for the objects of this call only, also when the call is skipped
-    by `p` (then they are empty). `actual` and `applied` on an augmentation describe
+    Every call first clears the `results` of its augmentations, also of the ones
+    nested in a `OneOf`, so afterwards they hold the values for the objects of this
+    call only, also when the call is skipped by `p` or a `OneOf` didn't pick them
+    (then they are empty). `actual` and `applied` on an augmentation describe
     only the last object, read `results` for all of them.
 
     Args:
@@ -134,7 +145,7 @@ class Compose:
         Raises:
             ValueError: if `p` is not between 0 and 1.
         """
-        for augmentation in self.augmentations:
+        for augmentation in flatten(self.augmentations):
             results = getattr(augmentation, "results", None)
             if isinstance(results, dict):
                 results.clear()
@@ -228,6 +239,63 @@ class Augmentation:
     def set_otherwise(self, obj: Optional[Object]) -> Any:
         """Sets the `otherwise` value, and returns what is stored in `actual`."""
         raise NotImplementedError
+
+
+class OneOf(Augmentation):
+    """Applies one augmentation from a list, picked at random by weight.
+
+    On every call it picks one augmentation and calls it with the object. In a
+    `Compose` it picks again for every object. The picked augmentation then draws its
+    own `p`; the others don't run, so they don't set their `otherwise` either. A
+    `OneOf` can contain another `OneOf`. `Compose` clears the `results` of the
+    augmentations inside it too, and `State(fields=compose.augmentations)` saves the
+    data paths of the ones inside it.
+
+    Args:
+        augmentations: augmentations to pick from, each a callable taking one object.
+        weights: relative probability of each augmentation. None = equal.
+        p: probability of applying one of them.
+
+    Attributes:
+        actual (int | None): index of the augmentation picked by the last call, None
+            when it was skipped.
+        results (dict[str | None, int | None]): the index picked for each object.
+
+    Raises:
+        ValueError: `augmentations` is empty, the number of weights and augmentations
+            differ, a weight is negative, or the weights sum to 0.
+
+    Example:
+        ```python
+        # each part is either moved or turned, turned twice as often
+        one_of = augmentations.OneOf(
+            [augmentations.Translation(x=0.5, y=0.5), augmentations.Rotation(z=180)],
+            weights=[1, 2],
+        )
+        augmentations.Compose([one_of])([car_1, car_2])
+        one_of.results   # e.g. {"car_1": 1, "car_2": 0}
+        ```
+    """
+
+    def __init__(self, augmentations: list[Callable[[Object], Any]],
+                 weights: Optional[Sequence[float]] = None, p: float = 1.0):
+        super().__init__(p)
+        if not augmentations:
+            raise ValueError("Give at least one augmentation")
+        if weights is not None:
+            if len(weights) != len(augmentations):
+                raise ValueError("Give one weight per augmentation")
+            if any(weight < 0 for weight in weights) or sum(weights) <= 0:
+                raise ValueError(f"weights must not be negative and must not sum to 0, got {weights!r}")
+        self.augmentations = augmentations
+        self.weights = weights
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : object passed to the picked augmentation
+        """
+        self.actual = random.choices(range(len(self.augmentations)), weights=self.weights)[0]
+        self.augmentations[self.actual](obj)
 
 
 class AxisAugmentation(Augmentation):

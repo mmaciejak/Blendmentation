@@ -131,7 +131,10 @@ objects_aug = augmentations.Compose([
     keep_above,                                           # after the transforms: lifts out of the floor
 ])
 lamp_aug = augmentations.Compose([
-    augmentations.Number("data.energy", value_range=(600, 1400)),         # any value by data path
+    augmentations.OneOf([                                 # one of them per call, picked by weight
+        augmentations.Number("data.energy", value_range=(600, 1400)),     # any value by data path
+        augmentations.Vector("data.color", value_range=(0.8, 1.0)),
+    ], weights=[2, 1]),
 ])
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
@@ -284,8 +287,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`,
-  `FocalLength`, `DepthOfField`, `Material`, and the data-path ones `Number`, `Vector`,
-  `Boolean`, `Menu`. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
+  `FocalLength`, `DepthOfField`, `Material`, the data-path ones `Number`, `Vector`,
+  `Boolean`, `Menu`, and `OneOf` to pick one of several. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength`,
@@ -309,6 +312,10 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **`Seed(node_group)`** gives every seed input in a node group (Distribute Points, Random
   Value...) its own random value per call: `seed = augmentations.Seed(bpy.data.node_groups["Geometry Nodes"]); seed()`.
   Pass the group to `State([..., node_group])` to restore the seeds.
+- **`OneOf(augmentations, weights=None, p=1)`** applies one augmentation from the list,
+  picked by weight, again for every object in a `Compose`; its `results` hold the picked
+  index. The others don't run, so they don't set their `otherwise`. It can be nested, and
+  `State(fields=compose.augmentations)` and `Compose`'s clearing of `results` reach inside it.
 - **Data paths** starting with `bpy.` are absolute (`'bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value'`),
   others are relative to each object (`"data.energy"`). A world can be passed in place of
   an object (`world_aug([bpy.context.scene.world])`, paths like `'node_tree.nodes["Background"].inputs[1].default_value'`).
