@@ -40,7 +40,7 @@ def test_restore(scene, cube):
 
     object_augs = A.Compose([
         A.Translation(x=1, y=1, z=1), A.Rotation(x=30, z=30), A.Scale(x=20),
-        A.Material("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
+        A.SimpleMaterial("Mat", hue=(0, 1), saturation=(0.5, 1), roughness=(0, 1)),
         A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
         A.Visibility(p=0),
     ])

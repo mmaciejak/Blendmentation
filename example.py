@@ -53,7 +53,7 @@ mesh_transform = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
-        augmentations.Material(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
+        augmentations.SimpleMaterial(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
         # after everything that moves or deforms the parts: lifts them out of the floor
@@ -80,9 +80,14 @@ lamp_transforms = augmentations.Compose(
     ]
 )
 
-# a world is augmented like an object, the path is relative to it
+# a world is augmented like an object, the path is relative to it. SmartMaterial sets
+# several inputs of one node (e.g. a smart material's group node), each its own way
 world_transforms = augmentations.Compose([
-    augmentations.Number('node_tree.nodes["Background"].inputs[1].default_value', value_range=(0.5, 1.5)),
+    augmentations.SmartMaterial('node_tree.nodes["Background"]', {
+        "Strength": (0.5, 1.5, 0.25),  # (low, high, step): 0.5, 0.75, ... 1.5
+        # tinted in 30% of the datapoints, white in the others; alpha is kept
+        "Color": {"value_range": (0.6, 1.0), "p": 0.3, "otherwise": 1.0},
+    }),
 ])
 
 # a new random seed for every seed in the node group, so the pebbles move every time

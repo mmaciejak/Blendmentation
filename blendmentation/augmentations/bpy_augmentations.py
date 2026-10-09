@@ -285,7 +285,7 @@ def is_number(value):
 
 def number(obj, data_path, value_range):
     """Sets the int or float value at the data path to a random value from
-    value_range (min, max).
+    value_range (min, max), or one of min, min + step, ... max for (min, max, step).
 
     Returns:
         float | int: value that was set
@@ -294,8 +294,12 @@ def number(obj, data_path, value_range):
     if not is_number(current):
         raise TypeError(f"'{data_path}' is not an int or float value")
 
-    low, high = value_range
-    new = random.randint(round(low), round(high)) if isinstance(current, int) else random.uniform(low, high)
+    if len(value_range) == 3:
+        new = sample(value_range)
+        new = round(new) if isinstance(current, int) else new
+    else:
+        low, high = value_range
+        new = random.randint(round(low), round(high)) if isinstance(current, int) else random.uniform(low, high)
 
     bpy_paths.set_value(data_path, new, obj)
     return new
@@ -523,10 +527,35 @@ def menu_options(owner, token, data_path):
             if len(prop.enum_items):
                 return [item.identifier for item in prop.enum_items]
     # menu sockets have dynamic items, defined by the menu switch node they belong to
-    node = getattr(owner, "node", None)
-    if getattr(owner, "type", None) == "MENU" and hasattr(node, "enum_items"):
-        return [item.name for item in node.enum_items]
+    if getattr(owner, "type", None) == "MENU":
+        options = socket_menu_options(owner)
+        if options:
+            return options
     raise ValueError(f"Cannot list the options of '{data_path}', pass them as options")
+
+
+def socket_menu_options(socket):
+    """Options of a menu input socket: those of its Menu Switch node, or for a group
+    node, of the Menu Switch the group passes the input to (through reroutes and
+    nested groups). None when there is none."""
+    node = socket.node
+    if hasattr(node, "enum_items"):
+        return [item.name for item in node.enum_items]
+    group = getattr(node, "node_tree", None)
+    if group is None:
+        return None
+    outputs = [output for inner in group.nodes if inner.type == "GROUP_INPUT"
+               for output in inner.outputs if output.identifier == socket.identifier]
+    while outputs:
+        output = outputs.pop()
+        for link in output.links:
+            if link.to_node.type == "REROUTE":
+                outputs.extend(link.to_node.outputs)
+            elif link.to_socket.type == "MENU":
+                options = socket_menu_options(link.to_socket)
+                if options:
+                    return options
+    return None
 
 
 def menu(obj, data_path, options, weights):
@@ -545,3 +574,10 @@ def menu(obj, data_path, options, weights):
     new = random.choices(options, weights=weights)[0]
     bpy_paths.set_value(data_path, new, obj)
     return new
+
+
+def socket_type(obj, data_path):
+    """Type of the node socket whose default_value the data path points at, e.g.
+    VALUE, INT, BOOLEAN, VECTOR, RGBA, MENU."""
+    owner, _ = bpy_paths.resolve(data_path, obj)
+    return owner.type

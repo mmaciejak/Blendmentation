@@ -174,7 +174,7 @@ def test_keep_above(cube):
 def test_material(cube):
     obj = cube("Cube")
     material = new_material(obj, "Mat")
-    augmentation = A.Material("Mat", hue=(0, 1), saturation=(0.4, 0.9), value=(0.2, 0.8), roughness=(0.1, 0.2), metallic=(0.5, 0.6))
+    augmentation = A.SimpleMaterial("Mat", hue=(0, 1), saturation=(0.4, 0.9), value=(0.2, 0.8), roughness=(0.1, 0.2), metallic=(0.5, 0.6))
     augmentation(obj)
     principled = material.node_tree.nodes["Principled BSDF"]
     h, s, v = colorsys.rgb_to_hsv(*principled.inputs["Base Color"].default_value[:3])
@@ -183,7 +183,123 @@ def test_material(cube):
     assert 0.1 <= principled.inputs["Roughness"].default_value <= 0.2
     assert 0.5 <= principled.inputs["Metallic"].default_value <= 0.6
     with pytest.raises(KeyError):
-        A.Material("Nope", roughness=(0, 1))(obj)
+        A.SimpleMaterial("Nope", roughness=(0, 1))(obj)
+
+
+def smart_group_node(obj):
+    """Material "Mat" on obj with a group node "Smart" with inputs Rust (float), Count
+    (int), Offset (vector), Paint (color), Flag (bool), Linked (shader) and, where shader
+    trees have a Menu Switch, Finish (menu, options Rough and Polished, through a reroute)."""
+    material = new_material(obj, "Mat")
+    group = bpy.data.node_groups.new("Smart", "ShaderNodeTree")
+    for name, kind in (("Rust", "NodeSocketFloat"), ("Count", "NodeSocketInt"), ("Offset", "NodeSocketVector"),
+                       ("Paint", "NodeSocketColor"), ("Flag", "NodeSocketBool"), ("Linked", "NodeSocketShader")):
+        group.interface.new_socket(name, in_out="INPUT", socket_type=kind)
+    group.interface.new_socket("Out", in_out="OUTPUT", socket_type="NodeSocketFloat")
+    group_input = group.nodes.new("NodeGroupInput")
+    group_output = group.nodes.new("NodeGroupOutput")
+    try:
+        switch = group.nodes.new("GeometryNodeMenuSwitch")
+        group.interface.new_socket("Finish", in_out="INPUT", socket_type="NodeSocketMenu")
+    except RuntimeError:  # no Menu Switch in shader nodes
+        switch = None
+    if switch is not None:
+        switch.enum_items.clear()
+        switch.enum_items.new("Rough")
+        switch.enum_items.new("Polished")
+        reroute = group.nodes.new("NodeReroute")
+        group.links.new(group_input.outputs["Finish"], reroute.inputs[0])
+        group.links.new(reroute.outputs[0], switch.inputs[0])
+        group.links.new(switch.outputs[0], group_output.inputs["Out"])
+    node = material.node_tree.nodes.new("ShaderNodeGroup")
+    node.name = "Smart"
+    node.node_tree = group
+    node.inputs["Paint"].default_value = (0.5, 0.5, 0.5, 0.25)
+    if switch is not None:
+        node.inputs["Finish"].default_value = "Rough"
+    return material, node, switch is not None
+
+
+def test_smart_material(cube):
+    obj = cube("Cube")
+    material, node, has_menu = smart_group_node(obj)
+    inputs = {
+        "Rust": (0, 1, 0.25),
+        "Count": {"value_range": (2, 5)},
+        "Offset": ((-1, None, 0), (1, None, 0)),
+        "Paint": (0.2, 0.8),
+        "Flag": 1.0,
+    }
+    if has_menu:
+        inputs["Finish"] = {"options": None, "weights": [0, 1]}
+    path = 'bpy.data.materials["Mat"].node_tree.nodes["Smart"]'
+    smart = A.SmartMaterial(path, inputs)
+    initial = state.State([], fields=[smart])
+    smart()
+
+    assert node.inputs["Rust"].default_value in (0, 0.25, 0.5, 0.75, 1)
+    assert 2 <= node.inputs["Count"].default_value <= 5
+    offset = node.inputs["Offset"].default_value
+    assert -1 <= offset[0] <= 1 and offset[1] == 0 and offset[2] == 0
+    paint = node.inputs["Paint"].default_value
+    assert all(0.2 <= c <= 0.8 for c in paint[:3]) and paint[3] == 0.25, "a color range keeps alpha"
+    assert node.inputs["Flag"].default_value is True
+    assert set(smart.actual) == set(inputs)
+    assert smart.actual["Rust"] == node.inputs["Rust"].default_value
+    if has_menu:
+        assert node.inputs["Finish"].default_value == smart.actual["Finish"] == "Polished"
+
+    initial.restore()
+    assert node.inputs["Rust"].default_value == 0 and node.inputs["Flag"].default_value is False
+    assert tuple(node.inputs["Paint"].default_value) == (0.5, 0.5, 0.5, 0.25)
+
+    # per input p and otherwise; a relative path, through a Compose
+    smart = A.SmartMaterial('active_material.node_tree.nodes["Smart"]', {
+        "Rust": {"value_range": (0.5, 1), "p": 0, "otherwise": 0.1},
+        0: {"value_range": (0.5, 1), "p": 0},  # Rust by index, skipped without otherwise
+        "Paint": {"value_range": (0, 1), "p": 0, "otherwise": 1},
+    })
+    A.Compose([smart])([obj])
+    assert node.inputs["Rust"].default_value == pytest.approx(0.1)
+    assert tuple(node.inputs["Paint"].default_value) == (1, 1, 1, 0.25)
+    assert smart.results == {"Cube": {"Rust": pytest.approx(0.1), 0: None, "Paint": (1, 1, 1, 0.25)}}
+    assert smart.augmentations[0].results == {"Cube": pytest.approx(0.1)}
+
+    # its own p: no input changes, not even to otherwise
+    node.inputs["Rust"].default_value = 0.3
+    A.SmartMaterial(path, {"Rust": {"value_range": (0, 1), "otherwise": 0}}, p=0)()
+    assert node.inputs["Rust"].default_value == pytest.approx(0.3)
+
+
+@pytest.mark.parametrize("inputs, error", [
+    ({}, ValueError),
+    ({"Rust": {"range": (0, 1)}}, ValueError),
+    ({"Rust": None}, ValueError),  # a float needs a range
+    ({"Rust": (1, 0)}, ValueError),
+    ({"Flag": {"value_range": (0, 1)}}, ValueError),
+    ({"Linked": (0, 1)}, TypeError),
+    ({"Nope": (0, 1)}, KeyError),
+    ({1.5: (0, 1)}, ValueError),
+])
+def test_smart_material_errors(cube, inputs, error):
+    smart_group_node(cube("Cube"))
+    with pytest.raises(error):
+        A.SmartMaterial('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)()
+
+
+def test_number_step(cube):
+    obj = cube("Cube")
+    light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
+    seen = set()
+    for _ in range(40):
+        A.Number("data.energy", value_range=(600, 1400, 200))(light)
+        seen.add(round(light.data.energy))
+    assert seen == {600, 800, 1000, 1200, 1400}
+    for value_range in ((1, 0), 5, (0, 1, 0), (0,)):
+        with pytest.raises(ValueError):
+            A.Number("location[0]", value_range=value_range)
+    A.Number("pass_index", value_range=(0, 10, 5))(obj)
+    assert obj.pass_index in (0, 5, 10)
 
 
 def test_number_vector_boolean(cube):

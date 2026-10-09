@@ -22,7 +22,7 @@ geometry nodes. Blendmentation randomizes it by changing their values (`Number`,
 augment.
 
 A few augmentations are shortcuts for common setups, so a basic pipeline is quick and
-easy to get going: `KeepAbove`, `PlaceOn`, `LookAt`, `Material`, `FocalLength` and
+easy to get going: `KeepAbove`, `PlaceOn`, `LookAt`, `SimpleMaterial`, `FocalLength` and
 `DepthOfField`. The transforms (`Translation`, `Rotation`, `Scale`) are there for simple
 scenes, and for small changes outside of a geometry nodes setup. For cluttered scenes,
 we recommend placing the objects with geometry nodes instead.
@@ -55,7 +55,7 @@ classes = {"car": cars}
 objects_aug = aug.Compose([
     aug.Translation(x=0.5, y=0.5),
     aug.Rotation(z=180),
-    aug.Material("CarPaint", hue=(0, 1)),
+    aug.SimpleMaterial("CarPaint", hue=(0, 1)),
 ])
 
 # 2. what to save for every datapoint

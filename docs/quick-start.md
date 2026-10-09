@@ -368,6 +368,55 @@ for _ in range(100):
     initial.restore()
 ```
 
+## A smart material
+
+A smart material puts its settings on one group node, here "Ferrous metal" in the
+material "Master material". `SmartMaterial` sets many of its inputs in one augmentation:
+each input gets a range, or a dict with its own `p` and `otherwise`. Inputs are set like
+`Number`, `Vector`, `Boolean` or `Menu`, by their socket type, and a color range keeps
+alpha. The menus here need Blender 5.
+
+![The group node "Ferrous metal" with its inputs: texture offset, menus "Grinded" and "Shiny metal", base metal color, rust, paint spread and paint color](images/smart-material-nodes.jpg)
+
+```python
+ferrous_metal = aug.SmartMaterial(
+    'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
+    {
+        # moves the textures: every axis
+        "Texture ofset": (-100, 100),
+        # any option of the menu, read from the group
+        "Grinded": None,
+        # 0, 0.25, ... 1: (low, high, step)
+        "Rust strength": (0, 1, 0.25),
+        # rust in 20% of the images, clearly visible; none in the others
+        "Rust spread": {"value_range": (0.5, 1), "p": 0.2, "otherwise": 0},
+        # painted in half of the images
+        "Paint spread": {"value_range": (0.2, 0.9), "p": 0.5, "otherwise": 0},
+        # any color: red, green and blue from 0 to 1
+        "Paint Color": (0, 1),
+    },
+)
+generator = gen.Compose(
+    [gen.Render()],
+    path="//dataset",
+    resolution=(640, 480),
+)
+# saves the inputs it sets
+initial = state.State([], fields=[ferrous_metal])
+
+for _ in range(100):
+    # an absolute path: no object needed
+    ferrous_metal()
+    generator()
+    initial.restore()
+```
+
+The inputs are named as in the group's interface (the node shows them shortened), and
+`ferrous_metal.actual` holds the value set to each. To give every object its own copy
+of the material a different look, use a path relative to the object,
+`'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose` called with the
+objects.
+
 ## HDRI world
 
 A random HDRI, brightness and rotation for the world in every image. The world's nodes:
@@ -629,11 +678,21 @@ keep_above = aug.KeepAbove(floor, margin=0.01)
 objects_aug = aug.Compose([
     aug.Translation(x=0.5, y=0.5),
     aug.Rotation(z=180),
-    aug.Material(
+    aug.SimpleMaterial(
         "CarPaint",
         hue=(0, 1),
         saturation=(0.5, 1),
         roughness=(0.1, 0.6),
+    ),
+    # more inputs of the same material, each its own way
+    aug.SmartMaterial(
+        'active_material.node_tree.nodes["Principled BSDF"]',
+        {
+            # (low, high, step): 0, 0.1, ... 0.5
+            "Coat Roughness": (0, 0.5, 0.1),
+            # a clear coat on 30% of the cars, none on the others
+            "Coat Weight": {"value_range": (0.5, 1), "p": 0.3, "otherwise": 0},
+        },
     ),
     # after the transforms: lifts the cars out of the floor
     keep_above,
