@@ -1,7 +1,8 @@
 """Randomize objects, materials and any other value in the scene, in place.
 
 `Compose` applies a list of augmentations to every object it is called with. Each
-augmentation takes `p`, the probability that it runs, drawn per object. After a
+augmentation takes `p`, the probability that it runs, drawn per object; a call can
+override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. `Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength` and
 `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
@@ -193,6 +194,9 @@ class Augmentation:
     `results` first; direct calls add to it, so clear it yourself
     (`aug.results.clear()`) when you call an augmentation in your own loop.
 
+    A direct call can override `p` for that call only, like a `Compose` call:
+    `rust(p=0.2)`.
+
     Args:
         p: probability of applying the augmentation, 0-1.
 
@@ -214,6 +218,8 @@ class Augmentation:
         for car in [car_1, car_2]:
             rotation(car)
             print(car.name, rotation.actual_z)   # read actual after each call
+
+        rotation(car_1, p=0.5)   # this call only: half of the time
         ```
     """
 
@@ -224,13 +230,18 @@ class Augmentation:
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
 
-    def __call__(self, obj: Optional[Object] = None) -> None:
+    def __call__(self, obj: Optional[Object] = None, p: Optional[float] = None) -> None:
         """Applies the augmentation with probability `p`, and records it in `results`.
 
         Args:
             obj: object to augment, not needed for absolute data paths.
+            p: probability of applying it for this call only, instead of the `p` given
+                at construction.
+
+        Raises:
+            ValueError: if `p` is not between 0 and 1.
         """
-        self.applied = happens(self.p)
+        self.applied = happens(self.p if p is None else check_p(p))
         if self.applied:
             self.apply(obj)
         else:

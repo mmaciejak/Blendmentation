@@ -169,7 +169,7 @@ def pipeline():
     camera_transforms([camera])
     world_transforms([world])
     floor_transforms([floor])
-    scatter_seed()
+    scatter_seed(p=0.9)  # an augmentation call can take p too: new pebbles 90% of the time
     # results holds the value for every object, by name (actual only the last one)
     image_generator({"lift": keep_above.results})
     initial_state.restore()

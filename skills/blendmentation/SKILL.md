@@ -300,7 +300,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
   the augmentation picked by socket type; a color range keeps alpha), `Modifier` (the same
   for the inputs of a geometry nodes modifier, by name; `State([obj])` saves them), and `OneOf` to pick
-  one of several. Every one takes `p`, drawn per object. Ranges are `(low, high)` or a single number;
+  one of several. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `Visibility`, `FocalLength`,

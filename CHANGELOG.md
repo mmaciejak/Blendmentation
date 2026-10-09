@@ -30,6 +30,8 @@ All notable changes to Blendmentation. The format follows
   given (numbers, booleans, vectors, colors, rotations and menus).
 - `augmentations.Menu` works on the menu inputs of a geometry nodes modifier in Blender 4.x,
   which Blender stores as numbers: it sets and reports the option names.
+- Every augmentation call takes `p`, which overrides the augmentation's `p` for that call,
+  like a `Compose` call does: `rust(p=0.2)`, `rotation(car, p=0.5)`.
 - `augmentations.Number` takes `value_range=(min, max, step)`, which sets one of min,
   min + step, ... max.
 - `augmentations.Menu` without `options` reads them on a group node's menu input too, from

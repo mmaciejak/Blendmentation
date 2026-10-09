@@ -316,6 +316,23 @@ def test_node_geometry_nodes(cube):
     assert tuple(transform.inputs["Scale"].default_value) == (1, 1, 1)
 
 
+def test_call_p(cube):
+    obj = cube("Cube")
+    rotation = A.Rotation(z=30, p=0)
+    rotation(obj, p=1)
+    assert rotation.applied and obj.rotation_euler.z != 0
+    rotation(obj)
+    assert rotation.applied is False, "the call's p is for that call only"
+    number = A.Number('bpy.data.objects["Cube"].location[0]', value_range=(1, 2), otherwise=0)
+    number(p=0)
+    assert number.applied is False and obj.location.x == 0 and number.results == {None: 0}
+    one_of = A.OneOf([A.Translation(x=1)], p=1)
+    one_of(obj, p=0)
+    assert one_of.applied is False and one_of.actual is None
+    with pytest.raises(ValueError):
+        rotation(obj, p=2)
+
+
 def modifier_cube(cube):
     """geonode_cube, plus inputs Color, Rotation and Menu (options Sand, Gravel; a Menu
     Switch feeding the output, so the modifier lists them)."""

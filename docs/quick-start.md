@@ -821,7 +821,8 @@ for _ in range(1000):
     plant_aug([plant])
     camera_aug([camera])
     floor_aug([floor])
-    scatter_seed()
+    # a call can take p: new pebbles 90% of the time
+    scatter_seed(p=0.9)
     # extra label key: how far each car was lifted
     generator({"lift": keep_above.results})
     initial.restore()
