@@ -4,7 +4,7 @@
 bl_info = {
     "name": "Blendmentation",
     "author": "Maciej Maciejak",
-    "version": (0, 8, 0),
+    "version": (0, 8, 1),
     "blender": (4, 0, 0),
     "location": "Node Editor > Node > Copy Blendmentation Template",
     "description": "Synthetic datasets from Blender scenes. Copies a Node augmentation with the inputs of the active node",

@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-09
+
 ### Added
 
 - `augmentations.PlaceOnCurve(curve, align=False, position=(0, 1), p=1.0)` moves a camera
@@ -279,7 +281,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.1...dev
+[0.8.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.1...v0.7.2
