@@ -32,6 +32,12 @@ node editor gets a tool that writes `Node` augmentations for you (see
 To install it with pip, or to use Blender as a Python module, see
 [Installation](installation.md).
 
+For writing these scripts in Blender's Text Editor,
+[Blender Autocomplete](https://store.csmx.eu/l/blender_autocomplete) is useful: it adds
+code completion with the docstrings of `bpy` and of installed modules like Blendmentation.
+
+![Blender Autocomplete listing the generating steps in Blender's Text Editor](images/blender-autocomplete.jpg)
+
 ## Chained transform augmentations
 
 The scene has a milk carton "Milk Box" standing on a floor "Floor", with its rotation
