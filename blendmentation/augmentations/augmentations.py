@@ -1472,7 +1472,28 @@ class ModifierInput(InputAugmentation):
         return bpy_a.modifier_input(obj, self.modifier, self.key)
 
 
-class Node(Augmentation):
+class InputsAugmentation(Augmentation):
+    """A `Node` or `Modifier`: runs one `InputAugmentation` per input, its `actual` is
+    `{key: the input's actual}`."""
+
+    def __init__(self, inputs: dict[Union[str, int], Any], p: float):
+        super().__init__(p)
+        if not inputs:
+            raise ValueError("Give at least one input")
+        self.inputs = inputs
+        self.augmentations: list[InputAugmentation] = []
+
+    def apply(self, obj: Optional[Object]) -> None:
+        """Args:
+        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
+        """
+        self.actual = {}
+        for augmentation in self.augmentations:
+            augmentation(obj)
+            self.actual[augmentation.key] = augmentation.actual
+
+
+class Node(InputsAugmentation):
     """Sets the inputs of a node to random values, each with its own range, probability
     and `otherwise`.
 
@@ -1585,22 +1606,10 @@ class Node(Augmentation):
     """
 
     def __init__(self, node: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
-        super().__init__(p)
-        if not inputs:
-            raise ValueError("Give at least one input")
+        super().__init__(inputs, p)
         self.node = node
-        self.inputs = inputs
         self.augmentations = [NodeInput(key, f"{node}.inputs[{input_key(key)}].default_value", spec)
                               for key, spec in inputs.items()]
-
-    def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
-        self.actual = {}
-        for augmentation in self.augmentations:
-            augmentation(obj)
-            self.actual[augmentation.key] = augmentation.actual
 
     @staticmethod
     def template(node: Union[str, BpyNode], obj: Optional[Object] = None, prefix: str = "augmentations.") -> str:
@@ -1676,7 +1685,7 @@ def input_key(key: Union[str, int]) -> str:
     return '"' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-class Modifier(Augmentation):
+class Modifier(InputsAugmentation):
     """Sets the inputs of a geometry nodes modifier to random values, each with its own
     range, probability and `otherwise`.
 
@@ -1736,18 +1745,6 @@ class Modifier(Augmentation):
     """
 
     def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
-        super().__init__(p)
-        if not inputs:
-            raise ValueError("Give at least one input")
+        super().__init__(inputs, p)
         self.modifier = modifier
-        self.inputs = inputs
         self.augmentations = [ModifierInput(key, modifier, spec) for key, spec in inputs.items()]
-
-    def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
-        self.actual = {}
-        for augmentation in self.augmentations:
-            augmentation(obj)
-            self.actual[augmentation.key] = augmentation.actual
