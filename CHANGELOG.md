@@ -6,12 +6,16 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-12
+
 ### Changed
 
 - `SimpleMaterial` also takes an exact value for `hue`, `saturation`, `value`,
   `roughness` and `metallic`, e.g. `metallic=1`, next to a `(min, max)` range.
 - `generating.Compose` raises a `TypeError` naming the item when `steps` holds something
   that is not a generating step, e.g. an augmentation.
+- `export.coco(bbox_from="mask")` with an instance that has no instance mask raises the
+  same error as `yolo` and `voc`, which says to add `Segmentation(classes, per="instance")`.
 
 ### Fixed
 
@@ -294,7 +298,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.1...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.2...dev
+[0.8.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/mmaciejak/Blendmentation/compare/v0.7.2...v0.7.3
