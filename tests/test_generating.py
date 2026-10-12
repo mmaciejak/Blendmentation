@@ -729,6 +729,10 @@ def test_keypoints(scene, cube, out):
     G.Compose([G.Keypoints({"deformed": (small, small_vertex)})], out, (320, 240))()
     assert label(out, 1)["keypoints"][0]["position"][1] < found["deformed"]["position"][1] - 10
 
+    # booleans are not coordinates
+    with pytest.raises(TypeError, match="Unknown keypoint source"):
+        G.Compose([G.Keypoints({"flag": (True, 0, 1)})], out, (320, 240))()
+
 
 def test_next_index_counts_all_outputs(out):
     for name in ("000004_Mask.exr", "000002.json", "000007_mask_car.png", "notes.txt"):

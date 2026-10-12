@@ -37,6 +37,7 @@ import random
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, Union
 
+from ..values import is_number
 from . import bpy_augmentations as bpy_a
 
 if TYPE_CHECKING:
@@ -57,10 +58,6 @@ def check_p(p: float) -> float:
     if not 0 <= p <= 1:
         raise ValueError("p must be between 0 and 1")
     return p
-
-
-def is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def check_otherwise(otherwise: Any, valid: bool, expected: str) -> Any:

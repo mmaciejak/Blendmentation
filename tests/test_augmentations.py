@@ -738,6 +738,8 @@ def test_look_at(scene, cube):
 
     A.LookAt((0.5, -1.0, 2.0), distance=7)(camera)
     assert_centered(scene, Vector((0.5, -1.0, 2.0)))
+    with pytest.raises(TypeError, match="LookAt target"):
+        A.LookAt((True, 0, 1), distance=7)(camera)
 
     light = bpy.data.objects.new("spot", bpy.data.lights.new("spot", "SPOT"))
     scene.collection.objects.link(light)

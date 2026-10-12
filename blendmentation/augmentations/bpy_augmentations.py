@@ -9,6 +9,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 
 from .. import bpy_paths, bpy_undo
+from ..values import is_number, is_point
 
 
 def sample(value_range):
@@ -192,7 +193,7 @@ def material_slot(obj, slots, weights):
 def target_center(target):
     """World location of a look-at target: an object or a list of objects (the center
     of their bounding boxes), or a point (x, y, z)."""
-    if isinstance(target, (list, tuple)) and len(target) == 3 and all(isinstance(v, (int, float)) for v in target):
+    if is_point(target):
         return Vector(target)
     objects = [target] if isinstance(target, bpy.types.Object) else list(target)
     if not objects or not all(isinstance(obj, bpy.types.Object) for obj in objects):
@@ -403,10 +404,6 @@ def disable_depth_of_field(obj):
     check_camera(obj)
     bpy_undo.set_attr(obj.data.dof, "use_dof", False)
     return False
-
-
-def is_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def number(obj, data_path, value_range):

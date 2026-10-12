@@ -6,6 +6,12 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A `Keypoints` point and the `target` of `LookAt`, `FocalLength` and `DepthOfField` no
+  longer accept booleans as coordinates: `(True, 0, 1)` raises a `TypeError` instead of
+  being taken as the point (1, 0, 1).
+
 ## [0.8.1] - 2026-10-09
 
 ### Added

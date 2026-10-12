@@ -10,6 +10,7 @@ from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
 from .. import bpy_paths, bpy_undo
+from ..values import is_number, is_point
 from . import bpy_ids, bpy_images, bpy_instances, drawing
 # raises when OpenImageIO is missing
 from .bpy_images import oiio
@@ -30,7 +31,7 @@ CLASS_SETTINGS = ("iou_deconflict", "max_truncation", "max_occlusion")
 
 
 def check_threshold(name, value, owner):
-    if value is not None and not (isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1):
+    if value is not None and not (is_number(value) and 0 <= value <= 1):
         raise ValueError(f"{owner} {name} must be None or a number in 0-1, got {value!r}")
 
 
@@ -689,7 +690,7 @@ def check_background(weights, noise_size, images_path):
     if render.image_settings.color_mode != "RGBA":
         raise ValueError("Background needs RGBA output, set Output Properties > Output > Color to RGBA")
     if not (isinstance(noise_size, (list, tuple)) and len(noise_size) == 2
-            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in noise_size)
+            and all(is_number(v) for v in noise_size)
             and 0 < noise_size[0] <= noise_size[1]):
         raise ValueError(f"Background noise_size must be (min, max) pixels with 0 < min <= max, got {noise_size!r}")
     if background_weights(weights, images_path)["image"]:
@@ -725,7 +726,7 @@ def background_weights(weights, images_path):
     unknown = sorted(set(weights) - set(BACKGROUND_MODES))
     if unknown:
         raise ValueError(f"Unknown background modes {unknown}, available: {', '.join(BACKGROUND_MODES)}")
-    if not all(isinstance(w, (int, float)) and not isinstance(w, bool) and w >= 0 for w in weights.values()):
+    if not all(is_number(w) and w >= 0 for w in weights.values()):
         raise ValueError("Background weights must be numbers >= 0")
     if not sum(weights.values()):
         raise ValueError("Background weights are all 0, at least one mode needs a weight")
@@ -975,7 +976,7 @@ def keypoint_location(source, depsgraph):
     bone head, or a point (x, y, z)."""
     if isinstance(source, bpy.types.Object):
         return source.matrix_world.translation.copy()
-    if isinstance(source, (list, tuple)) and len(source) == 3 and all(isinstance(v, (int, float)) for v in source):
+    if is_point(source):
         return Vector(source)
     if not (isinstance(source, (list, tuple)) and len(source) == 2 and isinstance(source[0], bpy.types.Object)):
         raise TypeError(f"Unknown keypoint source {source}")
