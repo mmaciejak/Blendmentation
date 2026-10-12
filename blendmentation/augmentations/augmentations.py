@@ -324,9 +324,6 @@ class OneOf(Augmentation):
         self.weights = weights
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : object passed to the picked augmentation
-        """
         self.actual = random.choices(range(len(self.augmentations)), weights=self.weights)[0]
         self.augmentations[self.actual](obj)
 
@@ -395,9 +392,6 @@ class Chain(Augmentation):
         self.augmentations = augmentations
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : object passed to every augmentation
-        """
         for augmentation in self.augmentations:
             augmentation(obj)
         self.actual = [getattr(augmentation, "actual", None) for augmentation in self.augmentations]
@@ -467,9 +461,6 @@ class Translation(AxisAugmentation):
     """
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object to be augmented
-        """
         self.actual_x, self.actual_y, self.actual_z = bpy_a.translation(obj, self.x, self.y, self.z)
 
 
@@ -500,9 +491,6 @@ class Rotation(AxisAugmentation):
     """
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object to be augmented
-        """
         self.actual_x, self.actual_y, self.actual_z = bpy_a.rotation(obj, self.x, self.y, self.z)
 
 
@@ -526,9 +514,6 @@ class Scale(AxisAugmentation):
     """
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
-        """
         self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
 
 
@@ -571,9 +556,6 @@ class Visibility(Augmentation):
         super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object to be shown
-        """
         self.actual = bpy_a.visibility(obj, True)
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
@@ -629,9 +611,6 @@ class KeepAbove(Augmentation):
         self.margin = margin
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object to keep above the surface
-        """
         self.actual = bpy_a.keep_above(obj, self.surface, self.margin)
 
 
@@ -687,9 +666,6 @@ class PlaceOn(Augmentation):
         self.margin = margin
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object to place on the surface
-        """
         self.actual = bpy_a.place_on(obj, self.surface, self.margin)
 
 
@@ -739,9 +715,6 @@ class Seed(Augmentation):
         self.node_group = node_group
 
     def apply(self, obj: Optional[Object] = None) -> None:
-        """Args:
-        obj (bpy.object) : not used, the seeds belong to the node group
-        """
         self.actual = bpy_a.seeds(self.node_group)
 
     def set_otherwise(self, obj: Optional[Object]) -> dict[str, int]:
@@ -800,9 +773,6 @@ class LookAt(Augmentation):
         self.focal_length = focal_length
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : camera or other object to move
-        """
         self.actual = bpy_a.look_at(
             obj, self.target, self.distance, self.elevation, self.azimuth, self.roll, self.focal_length
         )
@@ -867,9 +837,6 @@ class PlaceOnCurve(Augmentation):
         self.position = check_fraction(position, "position")
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : camera or other object to move
-        """
         self.actual = bpy_a.place_on_curve(obj, self.curve, self.align, self.position)
 
 
@@ -914,9 +881,6 @@ class FocalLength(Augmentation):
         self.keep_size = keep_size
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        camera obj (bpy.object.type == 'CAMERA') : camera to augment
-        """
         self.actual = bpy_a.focal_length(obj, self.focal_length, self.target, self.keep_size)
 
     def set_otherwise(self, obj: Optional[Object]) -> dict[str, float]:
@@ -957,9 +921,6 @@ class DepthOfField(Augmentation):
         self.f_stop = f_stop
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        camera obj (bpy.object.type == 'CAMERA') : camera to augment
-        """
         self.actual = bpy_a.depth_of_field(obj, self.target, self.f_stop)
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
@@ -1046,9 +1007,6 @@ class MaterialSlot(Augmentation):
         self.weights = weights
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : mesh object whose slots to pick from
-        """
         self.actual = bpy_a.material_slot(obj, self.slots, self.weights)
 
     def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
@@ -1106,9 +1064,6 @@ class SimpleMaterial(Augmentation):
         self.metallic = metallic
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        mesh obj (bpy.object.type == 'MESH') : Object to be augmented
-        """
         self.actual = bpy_a.material(
             obj, self.material_id, self.hue, self.saturation, self.value, self.roughness, self.metallic
         )
@@ -1154,9 +1109,6 @@ class Number(Augmentation):
         self.value_range = check_range(value_range, "value_range")
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
         self.actual = bpy_a.number(obj, self.data_path, self.value_range)
 
     def set_otherwise(self, obj: Optional[Object]) -> float:
@@ -1206,9 +1158,6 @@ class Vector(Augmentation):
         self.value_range = value_range
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
         self.actual = bpy_a.vector(obj, self.data_path, self.value_range)
 
     def set_otherwise(self, obj: Optional[Object]) -> tuple:
@@ -1244,9 +1193,6 @@ class Boolean(Augmentation):
         self.data_path = data_path
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
         self.actual = bpy_a.boolean(obj, self.data_path, True)
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
@@ -1294,9 +1240,6 @@ class Menu(Augmentation):
         self.weights = weights
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
         self.actual = bpy_a.menu(obj, self.data_path, self.options, self.weights)
 
     def set_otherwise(self, obj: Optional[Object]) -> Any:
@@ -1482,9 +1425,6 @@ class InputsAugmentation(Augmentation):
         self.augmentations: list[InputAugmentation] = []
 
     def apply(self, obj: Optional[Object]) -> None:
-        """Args:
-        obj (bpy.object) : Object relative paths start from, not needed for absolute paths
-        """
         self.actual = {}
         for augmentation in self.augmentations:
             augmentation(obj)
