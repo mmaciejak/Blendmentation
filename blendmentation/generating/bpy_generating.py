@@ -3,60 +3,21 @@ import os
 import random
 import re
 import tempfile
-from functools import partial
 
 import bpy
 import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
-try:
-    import OpenImageIO as oiio
-except ImportError as error:
-    # bundled with blender, but not with the bpy python module
-    raise ImportError("OpenImageIO is missing, install it with: pip install OpenImageIO") from error
-
 from .. import bpy_paths, bpy_undo
+from . import bpy_ids, bpy_images, bpy_instances, drawing
+# raises when OpenImageIO is missing
+from .bpy_images import oiio
 
 IMAGE_SETTINGS = ("media_type", "file_format", "color_mode", "color_depth", "exr_codec")
 AOV_FORMATS = {"OPEN_EXR": ".exr", "PNG": ".png"}
 RENDER_FORMATS = {"PNG": ".png", "JPEG": ".jpg", "OPEN_EXR": ".exr"}
-# built-in passes: view layer property, and the layer names in the multilayer EXR
-# (index passes were renamed in blender 5)
-PASSES = {
-    "Depth": ("use_pass_z", ("Depth",)),
-    "Mist": ("use_pass_mist", ("Mist",)),
-    "Normal": ("use_pass_normal", ("Normal",)),
-    "Position": ("use_pass_position", ("Position",)),
-    "Vector": ("use_pass_vector", ("Vector",)),
-    "UV": ("use_pass_uv", ("UV",)),
-    "ObjectIndex": ("use_pass_object_index", ("Object Index", "IndexOB")),
-    "MaterialIndex": ("use_pass_material_index", ("Material Index", "IndexMA")),
-}
-# EXR stores channels sorted by name (U, V, A becomes A, U, V), this is their natural
-# order, which matters when they are written to formats without channel names, like PNG
-CHANNEL_ORDER = ("R", "G", "B", "X", "Y", "Z", "W", "U", "V", "A")
 PREVIEW_FORMATS = {"PNG": ".png", "JPEG": ".jpg"}
-# preview colors, one per class in order of appearance
-CLASS_COLORS = (
-    (230, 25, 75), (60, 180, 75), (0, 130, 200), (255, 225, 25), (245, 130, 48),
-    (145, 30, 180), (70, 240, 240), (240, 50, 230), (210, 245, 60), (250, 190, 212),
-)
-# 3x5 pixel font for the class names, blender's OpenImageIO cannot render text.
-# Rows top to bottom, other characters are drawn as "?"
-FONT = {
-    "A": "010101111101101", "B": "110101110101110", "C": "011100100100011", "D": "110101101101110",
-    "E": "111100110100111", "F": "111100110100100", "G": "011100101101011", "H": "101101111101101",
-    "I": "111010010010111", "J": "001001001101010", "K": "101101110101101", "L": "100100100100111",
-    "M": "101111111101101", "N": "110101101101101", "O": "010101101101010", "P": "110101110100100",
-    "Q": "010101101110011", "R": "110101110101101", "S": "011100010001110", "T": "111010010010010",
-    "U": "101101101101111", "V": "101101101101010", "W": "101101111111101", "X": "101101010101101",
-    "Y": "101101010010010", "Z": "111001010100111", "0": "111101101101111", "1": "010110010010111",
-    "2": "110001010100111", "3": "110001010001110", "4": "101101111001001", "5": "111100110001110",
-    "6": "011100111101111", "7": "111001010010010", "8": "111101111101111", "9": "111101111001110",
-    " ": "000000000000000", "_": "000000000000111", "-": "000000111000000", ".": "000000000000010",
-    ":": "000010000010000", "?": "110001010000010",
-}
 # Object.pass_index limit, more instances fall back to the workbench id render
 MAX_PASS_INDEX = 32767
 BACKGROUND_MODES = ("color", "white_noise", "color_noise", "image")
@@ -89,166 +50,6 @@ def split_class(class_name, value):
     return value["instances"], settings
 
 
-# persistent_id of a depsgraph instance is its path through the nested instances, innermost
-# first, padded with this value
-INSTANCE_PATH_END = 2**31 - 1
-# object types that have no geometry, they are left out of the instances
-NO_GEOMETRY_TYPES = {"EMPTY", "LIGHT", "LIGHT_PROBE", "LIGHTPROBE", "CAMERA", "SPEAKER", "ARMATURE", "LATTICE"}
-# object types that can have a geometry nodes modifier, needed for the id render of instances
-NODES_MODIFIER_TYPES = {"MESH", "CURVE", "FONT", "CURVES", "POINTCLOUD", "VOLUME", "GREASEPENCIL"}
-# instance attribute and custom property holding the ids in the id render of instances
-ID_ATTRIBUTE = "blendmentation_id"
-
-
-def is_instances(entry):
-    """Whether a classes entry is an `Instances` (the instances of a parent object)."""
-    return not isinstance(entry, bpy.types.ID) and hasattr(entry, "parent") and hasattr(entry, "of")
-
-
-def instance_sources(of):
-    """The objects an `Instances` of= selects: None for all, or a set of objects."""
-    if of is None:
-        return None
-    if isinstance(of, bpy.types.Collection):
-        return set(of.all_objects)
-    objects = list(of) if isinstance(of, (list, tuple)) else [of]
-    if not objects or not all(isinstance(obj, bpy.types.Object) for obj in objects):
-        raise TypeError(f"Instances of= must be None, an object, a list of objects or a collection, got {of!r}")
-    return set(objects)
-
-
-def check_instances(class_name, spec):
-    if not isinstance(spec.parent, bpy.types.Object):
-        raise TypeError(f"Class '{class_name}': Instances needs the object that makes the instances, got {spec.parent!r}")
-    instance_sources(spec.of)
-
-
-class InstanceMember:
-    """One object of an instance that geometry nodes or collection instancing make, read
-    from the depsgraph. It stands in for an object in a group: it has a name, type and
-    matrix_world, and the vertices of its evaluated geometry in its local space."""
-
-    def __init__(self, parent, source, top, name, type, matrix_world, coords):
-        self.parent = parent
-        # the instanced object, the parent for a geometry instance
-        self.source = source
-        # index of the top-level instance of the parent it belongs to
-        self.top = top
-        self.name = name
-        self.type = type
-        self.matrix_world = matrix_world
-        self.coords = coords
-
-
-def mesh_coords(obj_eval):
-    """(n, 3) array of the vertices of an evaluated object in its local space."""
-    mesh = obj_eval.to_mesh() if obj_eval.type not in NO_GEOMETRY_TYPES else None
-    if mesh is None:
-        return np.empty((0, 3))
-    try:
-        coords = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
-        mesh.vertices.foreach_get("co", coords)
-    finally:
-        obj_eval.to_mesh_clear()
-    return coords.reshape(-1, 3)
-
-
-def socket(sockets, name):
-    """The socket of a node by name. Blender 4.0 nodes have one socket per data type with
-    the same name, only the one of the node's data type is enabled."""
-    return next(socket for socket in sockets if socket.name == name and socket.enabled)
-
-
-def node_group(name):
-    """New geometry nodes group with a geometry input and output."""
-    tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
-    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
-    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
-    return tree
-
-
-def index_id_nodes():
-    """Geometry nodes group that sets the id attribute of the instances to their index."""
-    tree = node_group("blendmentation index ids")
-    nodes, link = tree.nodes, tree.links.new
-    store = nodes.new("GeometryNodeStoreNamedAttribute")
-    store.data_type = "INT"
-    store.domain = "INSTANCE"
-    store.inputs["Name"].default_value = "id"
-    link(nodes.new("NodeGroupInput").outputs[0], store.inputs["Geometry"])
-    link(nodes.new("GeometryNodeInputIndex").outputs[0], socket(store.inputs, "Value"))
-    link(store.outputs["Geometry"], nodes.new("NodeGroupOutput").inputs[0])
-    return tree
-
-
-def instance_members(view_layer, parent):
-    """The instances of parent in the depsgraph, by top-level instance index.
-
-    The persistent id of an instance holds its id attribute when it has one (Distribute
-    Points on Faces makes it), otherwise its index. For the index, a temporary geometry
-    nodes modifier sets the ids to the indices while the instances are read; the renders
-    keep the real ids.
-
-    Returns:
-        dict: {top-level index: ([InstanceMember], {source objects})}, the source of a
-            geometry instance (no object behind it, like Object Info without As Instance)
-            is the parent
-    """
-    modifier = None
-    if parent.type in NODES_MODIFIER_TYPES:
-        modifier = parent.modifiers.new("blendmentation index ids", "NODES")
-        modifier.node_group = index_id_nodes()
-    try:
-        return read_instance_members(bpy.context.evaluated_depsgraph_get(), parent)
-    finally:
-        if modifier is not None:
-            tree = modifier.node_group
-            parent.modifiers.remove(modifier)
-            bpy.data.node_groups.remove(tree)
-            view_layer.update()
-
-
-def read_instance_members(depsgraph, parent):
-    # a geometry instance is a copy of a mesh, named like it: Object Info without As Instance,
-    # or nodes after the instancing that change the instanced meshes (Smooth by Angle)
-    mesh_users = {}
-    for obj in bpy.data.objects:
-        if obj.type == "MESH" and obj.data is not None:
-            mesh_users.setdefault(obj.data.name, []).append(obj)
-    tops, coords = {}, {}
-    for instance in depsgraph.object_instances:
-        if not instance.is_instance or instance.parent is None or instance.parent.original != parent:
-            continue
-        obj = instance.object
-        path = [index for index in instance.persistent_id if index != INSTANCE_PATH_END]
-        if not path or obj.type in NO_GEOMETRY_TYPES:
-            continue
-        # the evaluated geometry is only valid while iterating, instances of one source share it
-        key = (obj.data.as_pointer() if obj.data else obj.as_pointer(), obj.type)
-        if key not in coords:
-            coords[key] = mesh_coords(obj)
-        source = instance.instance_object.original
-        found = [source]
-        if source == parent:
-            mesh_name = obj.data.name if obj.data else obj.name
-            # None: no object behind it
-            found = mesh_users.get(mesh_name, [None]) if obj.type == "MESH" else [None]
-            source = found[0] or parent
-            source_name = found[0].name if found[0] else mesh_name
-        else:
-            source_name = source.name
-        name = f"{parent.name}/{'.'.join(map(str, reversed(path)))}/{source_name}"
-        member = InstanceMember(parent, source, path[-1], name, obj.type, instance.matrix_world.copy(), coords[key])
-        members, sources = tops.setdefault(path[-1], ([], set()))
-        members.append(member)
-        sources.update(found)
-    # the path inside the top-level instance only tells its objects apart
-    for top, (members, _) in tops.items():
-        if len(members) == 1:
-            members[0].name = f"{parent.name}/{top}/{members[0].name.rsplit('/', 1)[1]}"
-    return tops
-
-
 def to_instances(classes, frame=None):
     """Normalizes {class name: [objects or sublists]} to a list of (class name, [objects]).
     An object alone is an instance of one object, the objects of a sublist are one instance.
@@ -263,15 +64,15 @@ def to_instances(classes, frame=None):
         if not isinstance(entries, (list, tuple)):
             raise TypeError(f"Class '{class_name}' must map to a list of objects or sublists of objects")
         for entry in entries:
-            if is_instances(entry):
-                check_instances(class_name, entry)
+            if bpy_instances.is_instances(entry):
+                bpy_instances.check_instances(class_name, entry)
                 if frame is not None:
                     instances.extend((class_name, group) for group in frame.instance_groups(entry))
                 continue
             group = list(entry) if isinstance(entry, (list, tuple)) else [entry]
             if not group:
                 raise ValueError(f"Class '{class_name}' has an empty sublist")
-            if any(is_instances(obj) for obj in group):
+            if any(bpy_instances.is_instances(obj) for obj in group):
                 raise TypeError(f"Class '{class_name}': Instances can't be in a sublist, list it in the class")
             instances.append((class_name, group))
     names = [obj.name for _, group in instances for obj in group]
@@ -301,11 +102,11 @@ def camera_view_coords(scene, camera, obj, depsgraph):
         tuple: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the
             camera, and whether any vertex is behind it
     """
-    if isinstance(obj, InstanceMember):
+    if isinstance(obj, bpy_instances.InstanceMember):
         coords, matrix_world = obj.coords, obj.matrix_world
     else:
         obj_eval = obj.evaluated_get(depsgraph)
-        coords, matrix_world = mesh_coords(obj_eval), obj_eval.matrix_world
+        coords, matrix_world = bpy_instances.mesh_coords(obj_eval), obj_eval.matrix_world
 
     to_camera = np.array(camera.matrix_world.inverted() @ matrix_world)
     coords = coords @ to_camera[:3, :3].T + to_camera[:3, 3]
@@ -417,48 +218,6 @@ def rotation_to_camera(camera, obj):
     return [list(row) for row in relative.to_3x3().normalized()]
 
 
-def set_file_format(image_settings, file_format):
-    """Sets the output file format, blender 5 also needs the matching media type."""
-    if hasattr(image_settings, "media_type"):
-        image_settings.media_type = "MULTI_LAYER_IMAGE" if file_format == "OPEN_EXR_MULTILAYER" else "IMAGE"
-    image_settings.file_format = file_format
-
-
-def save_render_result(scene, file_path, file_format, color_depth, color_mode=None):
-    """Saves the Render Result to file_path. The output settings it changes are set back
-    by generate."""
-    image_settings = scene.render.image_settings
-    set_file_format(image_settings, file_format)
-    if color_mode is not None:
-        image_settings.color_mode = color_mode
-    image_settings.color_depth = color_depth
-    bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-
-
-def read_ids(file_path, encoded=False):
-    """(height, width) array of the group ids of an RGBA id render EXR: the red channel,
-    or with encoded the 8 bit steps of red and green of `render_ids`. Transparent pixels are 0."""
-    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
-    if encoded:
-        ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
-    else:
-        ids = np.rint(pixels[:, :, 0]).astype(np.int64)
-    ids[pixels[:, :, 3] < 0.5] = 0
-    return ids
-
-
-def object_index_ids(file_path, parts, view_layer):
-    """(height, width) array of the Object Index pass of a multilayer EXR, parts: the
-    channel names of each of its parts."""
-    layer = find_layer_in(file_path, parts, view_layer, PASSES["ObjectIndex"][1])
-    if layer is None:
-        raise RuntimeError("The Object Index pass is missing in the render result")
-    _, part, found = layer
-    pixels = oiio.ImageBuf(file_path, part, 0).get_pixels(oiio.FLOAT)
-    # not anti-aliased, the pass holds whole numbers
-    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
-
-
 def check_aovs(scene, view_layer, aovs, aov_format):
     """Raises if the AOVs cannot be rendered."""
     if aov_format not in AOV_FORMATS:
@@ -478,18 +237,6 @@ def check_aov_images(names, file_format):
     check_aovs(bpy.context.scene, bpy.context.view_layer, names, file_format)
 
 
-def read_multilayer(file_path):
-    """Returns the channel names of every part of a multilayer EXR."""
-    image_input = oiio.ImageInput.open(file_path)
-    if image_input is None:
-        raise RuntimeError(f"Cannot read the render result: {oiio.geterror()}")
-    parts = []
-    while image_input.seek_subimage(len(parts), 0):
-        parts.append(image_input.spec().channelnames)
-    image_input.close()
-    return parts
-
-
 def find_layer(frame, layer_names):
     """Finds a layer of the beauty render (an AOV or a pass) in the multilayer EXR.
     Channels are named <view layer>.<layer>.<channel>, in one or several EXR parts.
@@ -502,18 +249,7 @@ def find_layer(frame, layer_names):
             of the layer, or None when the layer is not in the render result
     """
     multilayer, parts = frame.multilayer()
-    return find_layer_in(multilayer, parts, frame.view_layer, layer_names)
-
-
-def find_layer_in(multilayer, parts, view_layer, layer_names):
-    """`find_layer` in any multilayer EXR, parts: the channel names of each of its parts."""
-    for layer in layer_names:
-        prefix = f"{view_layer.name}.{layer}."
-        for part, names in enumerate(parts):
-            found = [(i, name[len(prefix):]) for i, name in enumerate(names) if name.startswith(prefix)]
-            if found:
-                return multilayer, part, found
-    return None
+    return bpy_images.find_layer_in(multilayer, parts, frame.view_layer, layer_names)
 
 
 def save_layer(frame, layer_names, file_name, file_format, channel_names=None, skip_empty=False):
@@ -533,11 +269,12 @@ def save_layer(frame, layer_names, file_name, file_format, channel_names=None, s
         return False, None
     multilayer, part, found = layer
 
-    found.sort(key=lambda item: CHANNEL_ORDER.index(item[1]) if item[1] in CHANNEL_ORDER else len(CHANNEL_ORDER))
+    order = bpy_images.CHANNEL_ORDER
+    found.sort(key=lambda item: order.index(item[1]) if item[1] in order else len(order))
     indices = tuple(i for i, _ in found)
     new_names = channel_names(len(indices)) if channel_names else tuple(name for _, name in found)
     buffer = oiio.ImageBufAlgo.channels(oiio.ImageBuf(multilayer, part, 0), indices, new_names)
-    if skip_empty and layer_empty(buffer.get_pixels(oiio.FLOAT), new_names):
+    if skip_empty and bpy_images.layer_empty(buffer.get_pixels(oiio.FLOAT), new_names):
         return True, None
     if file_format == "OPEN_EXR":
         buffer.set_write_format(oiio.FLOAT)
@@ -546,261 +283,8 @@ def save_layer(frame, layer_names, file_name, file_format, channel_names=None, s
     return True, file_name
 
 
-def layer_empty(pixels, channel_names):
-    """Whether every pixel of a (height, width, channels) layer is 0 (black), ignoring
-    alpha unless it is the only channel."""
-    channels = [i for i, name in enumerate(channel_names) if name != "A"] or list(range(len(channel_names)))
-    return not pixels[:, :, channels].any()
-
-
 def aov_channel_names(count):
     return ("Y",) if count == 1 else tuple("RGBA"[:count])
-
-
-# color management that leaves the rendered values unchanged
-STANDARD_VIEW = {"view_transform": "Standard", "look": "None", "exposure": 0.0, "gamma": 1.0,
-                 "use_curve_mapping": False}
-
-
-def editable_objects():
-    """Objects not linked from a library. All of bpy.data, since instanced collections
-    may use objects that are not in the scene."""
-    return [obj for obj in bpy.data.objects if obj.library is None]
-
-
-def hide_in_render(changes, keep):
-    """Hides every editable object but those in keep in the render, recorded in changes."""
-    for obj in editable_objects():
-        if obj not in keep and not obj.hide_render:
-            changes.set(obj, "hide_render", True)
-
-
-def render_ids(scene, groups, file_path, hide_others=False):
-    """Renders every group of objects in a flat color encoding its id (1, 2, ...)
-    with workbench, other objects in black so they still occlude, or hidden with hide_others.
-    The id image is saved to file_path (an EXR).
-
-    Returns:
-        np.ndarray: (height, width) array of group ids, 0 = background or other objects
-    """
-    with bpy_undo.temporary() as changes:
-        if hide_others:
-            hide_in_render(changes, {obj for group in groups for obj in group})
-        changes.set_many(scene.render, {"engine": "BLENDER_WORKBENCH", "film_transparent": True,
-                                        "use_compositing": False, "use_sequencer": False})
-        changes.set(scene.display, "render_aa", "OFF")
-        changes.set_many(scene.display.shading, {
-            "type": "SOLID", "light": "FLAT", "color_type": "OBJECT", "show_cavity": False,
-            "show_object_outline": False, "show_shadows": False, "show_specular_highlight": False,
-            "show_xray": False, "use_dof": False, "show_backface_culling": False,
-        })
-        changes.set_many(scene.view_settings, STANDARD_VIEW)
-        for obj in editable_objects():
-            changes.set(obj, "color", (0.0, 0.0, 0.0, 1.0))
-        for group_id, group in enumerate(groups, start=1):
-            # id in 8 bit steps of red and green, read back exactly from the float EXR
-            color = ((group_id % 256) / 255.0, (group_id // 256) / 255.0, 0.0, 1.0)
-            for obj in group:
-                obj.color = color
-
-        bpy.ops.render.render()
-        save_render_result(scene, file_path, "OPEN_EXR", "32", "RGBA")
-    return read_ids(file_path, encoded=True)
-
-
-def render_index_ids(scene, view_layer, groups, file_path):
-    """Renders the groups with Cycles at 1 sample, every other object hidden, and reads
-    the group ids (1, 2, ...) from the Object Index pass, like `index_pass_ids`. The
-    multilayer render result is saved to file_path (an EXR).
-
-    Returns:
-        np.ndarray: (height, width) array of group ids, 0 = background
-    """
-    with bpy_undo.temporary() as changes:
-        hide_in_render(changes, {obj for group in groups for obj in group})
-        changes.set_many(scene.render, {"use_compositing": False, "use_sequencer": False})
-        # the pass is written by the first sample, it is not anti-aliased
-        changes.set_many(scene.cycles, {"samples": 1, "use_denoising": False, "use_adaptive_sampling": False})
-        changes.set(view_layer, "use_pass_object_index", True)
-        for obj in editable_objects():
-            changes.set(obj, "pass_index", 0)
-        for group_id, group in enumerate(groups, start=1):
-            for obj in group:
-                obj.pass_index = group_id
-
-        bpy.ops.render.render()
-        save_render_result(scene, file_path, "OPEN_EXR_MULTILAYER", "32")
-    return object_index_ids(file_path, read_multilayer(file_path), view_layer)
-
-
-def has_instances(groups):
-    return any(isinstance(obj, InstanceMember) for group in groups for obj in group)
-
-
-def instance_id_nodes(lut, keep_own_geometry, hide_others):
-    """Geometry nodes group that stores the id of every top-level instance, read from the
-    point attribute of the lut object at the instance index, as an instance attribute.
-    With hide_others, instances with no id are deleted, and so is the parent's own
-    geometry unless keep_own_geometry."""
-    tree = node_group("blendmentation ids")
-    nodes, link = tree.nodes, tree.links.new
-    group_input, group_output = nodes.new("NodeGroupInput"), nodes.new("NodeGroupOutput")
-    info = nodes.new("GeometryNodeObjectInfo")
-    info.inputs["Object"].default_value = lut
-    attribute = nodes.new("GeometryNodeInputNamedAttribute")
-    attribute.data_type = "INT"
-    attribute.inputs["Name"].default_value = ID_ATTRIBUTE
-    sample = nodes.new("GeometryNodeSampleIndex")
-    sample.data_type = "INT"
-    sample.domain = "POINT"
-    # instances past the lut get its last value, -1
-    sample.clamp = True
-    link(info.outputs["Geometry"], sample.inputs["Geometry"])
-    link(socket(attribute.outputs, "Attribute"), socket(sample.inputs, "Value"))
-    link(nodes.new("GeometryNodeInputIndex").outputs[0], sample.inputs["Index"])
-    store = nodes.new("GeometryNodeStoreNamedAttribute")
-    store.data_type = "INT"
-    store.domain = "INSTANCE"
-    store.inputs["Name"].default_value = ID_ATTRIBUTE
-    link(socket(sample.outputs, "Value"), socket(store.inputs, "Value"))
-    geometry = group_input.outputs[0]
-    if hide_others and not keep_own_geometry:
-        separate = nodes.new("GeometryNodeSeparateComponents")
-        link(geometry, separate.inputs[0])
-        geometry = separate.outputs["Instances"]
-    link(geometry, store.inputs["Geometry"])
-    geometry = store.outputs["Geometry"]
-    if hide_others:
-        compare = nodes.new("FunctionNodeCompare")
-        compare.data_type = "FLOAT"
-        compare.operation = "LESS_THAN"
-        link(socket(sample.outputs, "Value"), compare.inputs[0])
-        compare.inputs[1].default_value = 0.5
-        delete = nodes.new("GeometryNodeDeleteGeometry")
-        delete.domain = "INSTANCE"
-        link(geometry, delete.inputs["Geometry"])
-        link(compare.outputs[0], delete.inputs["Selection"])
-        geometry = delete.outputs["Geometry"]
-    link(geometry, group_output.inputs[0])
-    return tree
-
-
-def instance_id_material(hide_others):
-    """Emission material showing the id: the instance attribute of an instance that has one
-    (-1, an instance of no group, is 0), otherwise the object's custom property. With
-    hide_others, what has no id is transparent."""
-    material = bpy.data.materials.new("blendmentation ids")
-    # blender 5 materials always have nodes, use_nodes is deprecated
-    if material.node_tree is None:
-        material.use_nodes = True
-    nodes, link = material.node_tree.nodes, material.node_tree.links.new
-    nodes.clear()
-
-    def math(operation, a, b=None):
-        node = nodes.new("ShaderNodeMath")
-        node.operation = operation
-        for socket, value in zip(node.inputs, (a, b)):
-            if isinstance(value, (int, float)):
-                socket.default_value = value
-            elif value is not None:
-                link(value, socket)
-        return node.outputs[0]
-
-    attributes = {}
-    for kind in ("INSTANCER", "OBJECT"):
-        node = nodes.new("ShaderNodeAttribute")
-        node.attribute_type = kind
-        node.attribute_name = ID_ATTRIBUTE
-        attributes[kind] = node.outputs["Fac"]
-    instance_id, object_id = attributes["INSTANCER"], attributes["OBJECT"]
-    is_instance = math("GREATER_THAN", math("ABSOLUTE", instance_id), 0.5)
-    # object_id + is_instance * (max(instance_id, 0) - object_id)
-    difference = math("SUBTRACT", math("MAXIMUM", instance_id, 0.0), object_id)
-    group_id = math("ADD", object_id, math("MULTIPLY", is_instance, difference))
-    emission = nodes.new("ShaderNodeEmission")
-    link(group_id, emission.inputs["Color"])
-    surface = emission.outputs[0]
-    if hide_others:
-        mix = nodes.new("ShaderNodeMixShader")
-        link(math("GREATER_THAN", group_id, 0.5), mix.inputs[0])
-        link(nodes.new("ShaderNodeBsdfTransparent").outputs[0], mix.inputs[1])
-        link(surface, mix.inputs[2])
-        surface = mix.outputs[0]
-    output = nodes.new("ShaderNodeOutputMaterial")
-    link(surface, output.inputs["Surface"])
-    return material
-
-
-def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False):
-    """Renders the group ids of groups with instances (`InstanceMember`s) with Cycles at
-    1 sample and an emission material override, whatever the engine. A temporary geometry
-    nodes modifier on each parent stores the ids of its top-level instances as an instance
-    attribute; objects get theirs as a custom property. Everything is restored afterwards.
-    Without hide_others, all other objects and instances are 0 and still occlude;
-    with it, they are hidden.
-
-    Returns:
-        np.ndarray: (height, width) array of group ids, 0 = background or other objects
-    """
-    objects, parents, sources = {}, {}, set()
-    for group_id, group in enumerate(groups, start=1):
-        for obj in group:
-            if isinstance(obj, InstanceMember):
-                parents.setdefault(obj.parent, {})[obj.top] = group_id
-                sources.add(obj.source)
-            else:
-                objects[obj] = group_id
-    with bpy_undo.temporary() as changes:
-        if hide_others:
-            # hiding a source hides its instances in blender 4.0, the material hides what has no id
-            hide_in_render(changes, set(objects) | set(parents) | sources)
-        for obj, group_id in objects.items():
-            changes.set_item(obj, ID_ATTRIBUTE, float(group_id))
-        for parent, tops in parents.items():
-            lut_ids = [-1] * (max(tops) + 2)
-            for top, group_id in tops.items():
-                lut_ids[top] = group_id
-            mesh = bpy.data.meshes.new("blendmentation ids")
-            changes.add(partial(bpy.data.meshes.remove, mesh))
-            mesh.vertices.add(len(lut_ids))
-            mesh.attributes.new(ID_ATTRIBUTE, "INT", "POINT").data.foreach_set("value", lut_ids)
-            lut = bpy.data.objects.new("blendmentation ids", mesh)
-            changes.add(partial(bpy.data.objects.remove, lut))
-            tree = instance_id_nodes(lut, parent in objects, hide_others)
-            changes.add(partial(bpy.data.node_groups.remove, tree))
-            modifier = parent.modifiers.new("blendmentation ids", "NODES")
-            changes.add(partial(parent.modifiers.remove, modifier))
-            modifier.node_group = tree
-        material = instance_id_material(hide_others)
-        changes.add(partial(bpy.data.materials.remove, material))
-
-        changes.set_many(scene.render, {"engine": "CYCLES", "film_transparent": True, "use_compositing": False,
-                                        "use_sequencer": False, "use_motion_blur": False})
-        changes.set_many(scene.cycles, {
-            "samples": 1, "use_denoising": False, "use_adaptive_sampling": False,
-            # one sample near the pixel center, the ids are not blended
-            "pixel_filter_type": "BOX", "filter_width": 0.01,
-            "film_exposure": 1.0, "sample_clamp_direct": 0.0, "sample_clamp_indirect": 0.0,
-            "transparent_max_bounces": 1024,
-        })
-        changes.set(view_layer, "material_override", material)
-        if hasattr(view_layer, "samples"):
-            changes.set(view_layer, "samples", 0)
-        changes.set_many(scene.view_settings, STANDARD_VIEW)
-
-        bpy.ops.render.render()
-        save_render_result(scene, file_path, "OPEN_EXR", "32", "RGBA")
-    return read_ids(file_path)
-
-
-def write_mask(path, file_name, mask):
-    """Writes a boolean (height, width) mask as a black and white PNG."""
-    height, width = mask.shape
-    buffer = oiio.ImageBuf(oiio.ImageSpec(width, height, 1, oiio.UINT8))
-    buffer.set_pixels(oiio.ROI(), np.where(mask, 255, 0).astype(np.uint8).reshape(height, width, 1))
-    if not buffer.write(os.path.join(path, file_name)):
-        raise RuntimeError(f"Cannot write mask {file_name}: {buffer.geterror()}")
-    return file_name
 
 
 def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), full=None, previous_full=()):
@@ -834,7 +318,7 @@ def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), 
         while file_name in taken:
             file_name, copy = f"{index:06d}_{name}_{copy}.png", copy + 1
         taken.add(file_name)
-        return write_mask(path, file_name, mask)
+        return bpy_images.write_mask(path, file_name, mask)
 
     def safe(class_name):
         return re.sub(r"[^\w.-]", "_", class_name)
@@ -919,7 +403,7 @@ class Frame:
     def in_render(self, obj):
         """Whether obj is in the render: not hidden itself (e.g. by Visibility) or by its
         collections. An InstanceMember is when its parent is."""
-        if isinstance(obj, InstanceMember):
+        if isinstance(obj, bpy_instances.InstanceMember):
             obj = obj.parent
         return not obj.hide_render and obj in self.collection_objects
 
@@ -930,8 +414,8 @@ class Frame:
         if not self.in_render(parent):
             return []
         if parent not in self.instances:
-            self.instances[parent] = instance_members(self.view_layer, parent)
-        sources = instance_sources(spec.of)
+            self.instances[parent] = bpy_instances.instance_members(self.view_layer, parent)
+        sources = bpy_instances.instance_sources(spec.of)
         tops = sorted(self.instances[parent].items())
         groups = [members for _, (members, found) in tops if sources is None or found & sources]
         unknown = sum(None in found for _, (_, found) in tops)
@@ -972,11 +456,11 @@ class Frame:
         if self.beauty_rgba is None:
             self.beauty()
             file_path = os.path.join(self.temp_dir, "beauty.png")
-            save_render_result(self.scene, file_path, "PNG", "8", "RGBA")
+            bpy_images.save_render_result(self.scene, file_path, "PNG", "8", "RGBA")
             # OpenImageIO premultiplies the colors by alpha when reading a PNG
             pixels = oiio.ImageBuf(file_path).get_pixels(oiio.UINT8)
             if self.background is not None:
-                pixels = over_background(pixels, self.background)
+                pixels = drawing.over_background(pixels, self.background)
             self.beauty_rgba = pixels
         return np.array(self.beauty_rgba)
 
@@ -984,7 +468,7 @@ class Frame:
         """Linear 32 bit float RGBA beauty render (premultiplied), as a (height, width, 4) array."""
         self.beauty()
         file_path = os.path.join(self.temp_dir, "beauty.exr")
-        save_render_result(self.scene, file_path, "OPEN_EXR", "32", "RGBA")
+        bpy_images.save_render_result(self.scene, file_path, "OPEN_EXR", "32", "RGBA")
         return oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
 
     def replace_render(self):
@@ -1000,23 +484,24 @@ class Frame:
         if key not in self.id_images:
             self.replace_render()
             file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
-            if has_instances(groups):
-                self.id_images[key] = render_instance_ids(self.scene, self.view_layer, groups, file_path, hide_others)
+            if bpy_instances.has_instances(groups):
+                self.id_images[key] = bpy_ids.render_instance_ids(self.scene, self.view_layer, groups, file_path,
+                                                                  hide_others)
             else:
-                self.id_images[key] = render_ids(self.scene, groups, file_path, hide_others)
+                self.id_images[key] = bpy_ids.render_ids(self.scene, groups, file_path, hide_others)
         return self.id_images[key]
 
     def full_ids(self, groups):
         """Id image of the groups with every other object hidden, so nothing occludes
         them: in Cycles from the Object Index pass of a 1 sample render (see
         `render_index_ids`), otherwise from the workbench (`ids`, shared with BBox occlusion)."""
-        if self.scene.render.engine != "CYCLES" or has_instances(groups):
+        if self.scene.render.engine != "CYCLES" or bpy_instances.has_instances(groups):
             return self.ids(groups, hide_others=True)
         key = (group_key(groups), "index")
         if key not in self.id_images:
             self.replace_render()
             file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
-            self.id_images[key] = render_index_ids(self.scene, self.view_layer, groups, file_path)
+            self.id_images[key] = bpy_ids.render_index_ids(self.scene, self.view_layer, groups, file_path)
         return self.id_images[key]
 
     def multilayer(self):
@@ -1028,8 +513,8 @@ class Frame:
         if self.multilayer_file is None:
             self.beauty()
             file_path = os.path.join(self.temp_dir, "render.exr")
-            save_render_result(self.scene, file_path, "OPEN_EXR_MULTILAYER", "32")
-            self.multilayer_file = (file_path, read_multilayer(file_path))
+            bpy_images.save_render_result(self.scene, file_path, "OPEN_EXR_MULTILAYER", "32")
+            self.multilayer_file = (file_path, bpy_images.read_multilayer(file_path))
         return self.multilayer_file
 
 
@@ -1047,7 +532,7 @@ def check_instance_renders(classes, step_name):
     temporary geometry nodes modifier."""
     for class_name, value in classes.items():
         for entry in split_class(class_name, value)[0]:
-            if is_instances(entry) and entry.parent.type not in NODES_MODIFIER_TYPES:
+            if bpy_instances.is_instances(entry) and entry.parent.type not in bpy_instances.NODES_MODIFIER_TYPES:
                 raise TypeError(
                     f"{step_name} of the instances of '{entry.parent.name}' (class '{class_name}') needs geometry "
                     f"nodes on it, a {entry.parent.type.lower()} can't have them: make the instances with a "
@@ -1183,16 +668,16 @@ def render_image(frame, file_format):
     file_name = frame.file_name(RENDER_FORMATS[file_format])
     file_path = os.path.join(frame.path, file_name)
     if frame.background is None:
-        set_file_format(frame.scene.render.image_settings, file_format)
+        bpy_images.set_file_format(frame.scene.render.image_settings, file_format)
         frame.beauty(file_path)
     elif file_format == "OPEN_EXR":
         pixels = frame.beauty_float()
         # the background is sRGB, the EXR linear
-        rgb = pixels[:, :, :3] + srgb_to_linear(frame.background) * (1.0 - pixels[:, :, 3:])
-        write_pixels(file_path, rgb.astype(np.float32), oiio.FLOAT)
+        rgb = pixels[:, :, :3] + drawing.srgb_to_linear(frame.background) * (1.0 - pixels[:, :, 3:])
+        bpy_images.write_pixels(file_path, rgb.astype(np.float32), oiio.FLOAT)
     else:
         quality = frame.scene.render.image_settings.quality if file_format == "JPEG" else None
-        write_pixels(file_path, frame.beauty_pixels()[:, :, :3], oiio.UINT8, quality)
+        bpy_images.write_pixels(file_path, frame.beauty_pixels()[:, :, :3], oiio.UINT8, quality)
     frame.label["image"] = file_name
 
 
@@ -1247,14 +732,6 @@ def background_weights(weights, images_path):
     return {mode: float(weights.get(mode, 0)) for mode in BACKGROUND_MODES}
 
 
-def noise(rng, height, width, cell_size, channels):
-    """Random 8 bit (height, width, channels) noise in square cells of cell_size pixels."""
-    rows = (np.arange(height) / cell_size).astype(np.int64)
-    columns = (np.arange(width) / cell_size).astype(np.int64)
-    cells = rng.integers(0, 256, (rows[-1] + 1, columns[-1] + 1, channels), dtype=np.uint8)
-    return cells[rows][:, columns]
-
-
 def cover_image(file_path, width, height, rng):
     """An image scaled to cover width x height and cropped there at a random position,
     as 8 bit (height, width, 3) RGB. Gray images become RGB, alpha is dropped."""
@@ -1287,7 +764,7 @@ def background(frame, weights, noise_size, images_path, images):
         info["color"] = color.tolist()
     elif mode in ("white_noise", "color_noise"):
         size = random.uniform(*noise_size)
-        pixels = noise(rng, height, width, size, 1 if mode == "white_noise" else 3)
+        pixels = drawing.noise(rng, height, width, size, 1 if mode == "white_noise" else 3)
         pixels = np.broadcast_to(pixels, (height, width, 3))
         info["noise_size"] = size
     else:
@@ -1296,31 +773,6 @@ def background(frame, weights, noise_size, images_path, images):
         info["image"] = os.path.relpath(file_path, bpy.path.abspath(images_path))
     frame.background = np.array(pixels)
     frame.label["background"] = info
-
-
-def srgb_to_linear(pixels):
-    """8 bit sRGB to linear float."""
-    values = pixels / 255.0
-    return np.where(values <= 0.04045, values / 12.92, ((values + 0.055) / 1.055) ** 2.4)
-
-
-def over_background(pixels, background):
-    """Premultiplied 8 bit RGBA pixels over an 8 bit RGB background, opaque 8 bit RGBA."""
-    alpha = pixels[:, :, 3:] / 255.0
-    rgb = np.clip(np.rint(pixels[:, :, :3] + background * (1.0 - alpha)), 0, 255).astype(np.uint8)
-    return np.concatenate([rgb, np.full(alpha.shape, 255, dtype=np.uint8)], axis=2)
-
-
-def write_pixels(file_path, pixels, pixel_type, quality=None):
-    """Writes a (height, width, channels) array, with the JPEG quality when given."""
-    height, width, channels = pixels.shape
-    spec = oiio.ImageSpec(width, height, channels, pixel_type)
-    if quality is not None:
-        spec.attribute("Compression", f"jpeg:{quality}")
-    buffer = oiio.ImageBuf(spec)
-    buffer.set_pixels(oiio.ROI(), np.ascontiguousarray(pixels))
-    if not buffer.write(file_path):
-        raise RuntimeError(f"Cannot write {os.path.basename(file_path)}: {buffer.geterror()}")
 
 
 def aov_images(frame, names, file_format, skip_empty=False):
@@ -1336,9 +788,9 @@ def aov_images(frame, names, file_format, skip_empty=False):
 
 
 def check_passes(names, file_format):
-    unknown = [name for name in names if name not in PASSES]
+    unknown = [name for name in names if name not in bpy_images.PASSES]
     if unknown:
-        raise ValueError(f"Unknown passes {unknown}, available: {list(PASSES)}")
+        raise ValueError(f"Unknown passes {unknown}, available: {list(bpy_images.PASSES)}")
     if file_format not in AOV_FORMATS:
         raise ValueError(f"Passes file_format must be one of {list(AOV_FORMATS)}")
 
@@ -1346,7 +798,7 @@ def check_passes(names, file_format):
 def prepare_passes(frame, names):
     """Enables the passes in the view layer for this datapoint."""
     for name in names:
-        frame.set(frame.view_layer, PASSES[name][0], True)
+        frame.set(frame.view_layer, bpy_images.PASSES[name][0], True)
 
 
 def render_passes(frame, names, file_format, skip_empty=False):
@@ -1355,7 +807,8 @@ def render_passes(frame, names, file_format, skip_empty=False):
     files = {}
     for name in names:
         file_name = frame.file_name(f"_{name}{AOV_FORMATS[file_format]}")
-        found, files[name] = save_layer(frame, PASSES[name][1], file_name, file_format, skip_empty=skip_empty)
+        layer_names = bpy_images.PASSES[name][1]
+        found, files[name] = save_layer(frame, layer_names, file_name, file_format, skip_empty=skip_empty)
         if not found:
             hint = ", Vector also needs motion blur off" if name == "Vector" else ""
             raise RuntimeError(f"Pass '{name}' was not rendered, {frame.scene.render.engine} may not support it{hint}")
@@ -1371,66 +824,8 @@ def check_preview(step_name, file_format, line_width, min_line_width, opacity=No
         raise ValueError(f"{step_name} opacity must be between 0 and 1")
 
 
-def text_pixels(text, scale):
-    """Boolean (height, width) array of the text in the 3x5 pixel font, scaled up."""
-    glyphs = [np.array([int(bit) for bit in FONT.get(char, FONT["?"])], dtype=bool).reshape(5, 3)
-              for char in text.upper()]
-    spaced = [np.pad(glyph, ((0, 0), (0, 1))) for glyph in glyphs]
-    pixels = np.concatenate(spaced, axis=1)[:, :-1] if spaced else np.zeros((5, 0), dtype=bool)
-    return np.kron(pixels, np.ones((scale, scale), dtype=bool))
-
-
-def paint(pixels, rows, columns, color):
-    """Paints the clipped area with an RGB color, opaque when the image has alpha."""
-    rows, columns = slice(max(rows.start, 0), max(rows.stop, 0)), slice(max(columns.start, 0), max(columns.stop, 0))
-    pixels[rows, columns, :3] = color
-    if pixels.shape[2] == 4:
-        pixels[rows, columns, 3] = 255
-
-
-def draw_tab(pixels, x, y, text, color, scale):
-    """Draws the text on a filled tab above the point (below it when at the top edge)."""
-    height, width = pixels.shape[:2]
-    glyphs = text_pixels(text, scale)
-    padding = scale
-    tab_height, tab_width = glyphs.shape[0] + 2 * padding, glyphs.shape[1] + 2 * padding
-    top = y - tab_height if y - tab_height >= 0 else y
-    left = min(x, width - tab_width)
-    paint(pixels, slice(top, top + tab_height), slice(left, left + tab_width), color)
-    # dark text on bright colors
-    text_color = (0, 0, 0) if 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2] > 150 else (255, 255, 255)
-    rows, columns = np.nonzero(glyphs)
-    rows, columns = rows + top + padding, columns + left + padding
-    inside = (rows >= 0) & (rows < height) & (columns >= 0) & (columns < width)
-    pixels[rows[inside], columns[inside], :3] = text_color
-
-
-def draw_bbox(pixels, box, color, line_width):
-    """Draws a bbox outline."""
-    height, width = pixels.shape[:2]
-    x_min, y_min = int(np.floor(box[0])), int(np.floor(box[1]))
-    x_max, y_max = min(int(np.ceil(box[2])), width), min(int(np.ceil(box[3])), height)
-    paint(pixels, slice(y_min, y_max), slice(x_min, x_min + line_width), color)
-    paint(pixels, slice(y_min, y_max), slice(x_max - line_width, x_max), color)
-    paint(pixels, slice(y_min, y_min + line_width), slice(x_min, x_max), color)
-    paint(pixels, slice(y_max - line_width, y_max), slice(x_min, x_max), color)
-
-
-def erode(mask, steps):
-    """Shrinks a boolean mask by steps pixels (4-neighborhood)."""
-    for _ in range(steps):
-        padded = np.pad(mask, 1)
-        mask = mask & padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:]
-    return mask
-
-
 def text_scale(frame):
     return max(2, frame.height // 160)
-
-
-def class_color(class_names, class_name):
-    """Color of a class, by its position among the classes in the labels."""
-    return CLASS_COLORS[class_names.index(class_name) % len(CLASS_COLORS)]
 
 
 def write_preview(frame, pixels, suffix, file_format, label_key):
@@ -1438,7 +833,7 @@ def write_preview(frame, pixels, suffix, file_format, label_key):
     if file_format == "JPEG":
         pixels = pixels[:, :, :3]
     file_name = frame.file_name(f"{suffix}{PREVIEW_FORMATS[file_format]}")
-    write_pixels(os.path.join(frame.path, file_name), pixels, oiio.UINT8)
+    bpy_images.write_pixels(os.path.join(frame.path, file_name), pixels, oiio.UINT8)
     frame.label[label_key] = file_name
 
 
@@ -1452,10 +847,11 @@ def bbox_image(frame, file_format, line_width, show_class):
     class_names = list(dict.fromkeys(entry["class"] for entry in entries))
     for entry in entries:
         if entry["bbox"] is not None:
-            color = class_color(class_names, entry["class"])
-            draw_bbox(pixels, entry["bbox"], color, line_width)
+            color = drawing.class_color(class_names, entry["class"])
+            drawing.draw_bbox(pixels, entry["bbox"], color, line_width)
             if show_class:
-                draw_tab(pixels, int(entry["bbox"][0]), int(entry["bbox"][1]), entry["class"], color, text_scale(frame))
+                x, y = int(entry["bbox"][0]), int(entry["bbox"][1])
+                drawing.draw_tab(pixels, x, y, entry["class"], color, text_scale(frame))
     write_preview(frame, pixels, "_bboxes", file_format, "bbox_image")
 
 
@@ -1474,7 +870,7 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
         # a mask skipped by skip_empty has no pixels to draw
         if entry["per"] == per and entry["mask"] is not None:
             mask = oiio.ImageBuf(os.path.join(frame.path, entry["mask"])).get_pixels(oiio.UINT8)[:, :, 0] > 127
-            masks.append((class_color(class_names, entry["class"]), mask, entry["class"]))
+            masks.append((drawing.class_color(class_names, entry["class"]), mask, entry["class"]))
 
     rgb = pixels[:, :, :3].astype(np.float64)
     for color, mask, _ in masks:
@@ -1485,10 +881,10 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
         pixels[np.any([mask for _, mask, _ in masks], axis=0), 3] = 255
     for color, mask, class_name in masks:
         if line_width:
-            pixels[mask & ~erode(mask, line_width), :3] = color
+            pixels[mask & ~drawing.erode(mask, line_width), :3] = color
         if show_class and mask.any():
             rows, columns = np.nonzero(mask)
-            draw_tab(pixels, int(columns.min()), int(rows.min()), class_name, color, text_scale(frame))
+            drawing.draw_tab(pixels, int(columns.min()), int(rows.min()), class_name, color, text_scale(frame))
     write_preview(frame, pixels, "_segmentation", file_format, "segmentation_image")
 
 
@@ -1680,12 +1076,11 @@ def prepare_segmentation(frame, classes):
     geometry nodes instances the Cycles one of `render_instance_ids`."""
     groups = [group for _, group in to_instances(classes, frame)]
     if (frame.scene.render.engine != "CYCLES" or frame.index_groups is not None or len(groups) > MAX_PASS_INDEX
-            or has_instances(groups)):
+            or bpy_instances.has_instances(groups)):
         return
     frame.set(frame.view_layer, "use_pass_object_index", True)
-    # instanced collections may use objects that are not in the scene, so all objects are set
-    for obj in bpy.data.objects:
-        if obj.library is None and obj.pass_index:
+    for obj in bpy_ids.editable_objects():
+        if obj.pass_index:
             frame.set(obj, "pass_index", 0)
     for group_id, group in enumerate(groups, start=1):
         for obj in group:
@@ -1695,7 +1090,7 @@ def prepare_segmentation(frame, classes):
 
 def index_pass_ids(frame):
     """Id image of the instances from the Object Index pass of the beauty render, like `render_ids`."""
-    return object_index_ids(*frame.multilayer(), frame.view_layer)
+    return bpy_images.object_index_ids(*frame.multilayer(), frame.view_layer)
 
 
 # object types whose evaluated mesh bounds their silhouette, for packing full mask renders

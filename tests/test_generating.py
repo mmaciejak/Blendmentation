@@ -9,7 +9,7 @@ bpy = pytest.importorskip("bpy")
 from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
-from blendmentation.generating import bpy_generating, generating as G  # noqa: E402
+from blendmentation.generating import bpy_generating, bpy_images, drawing, generating as G  # noqa: E402
 from conftest import add_aov, label, new_material, read_image  # noqa: E402
 
 
@@ -83,11 +83,11 @@ def test_aovs_and_passes_skip_empty(scene, cube, out):
 def test_layer_empty():
     pixels = np.zeros((2, 2, 4))
     pixels[..., 3] = 1
-    assert bpy_generating.layer_empty(pixels, ("R", "G", "B", "A"))
+    assert bpy_images.layer_empty(pixels, ("R", "G", "B", "A"))
     pixels[0, 0, 1] = 0.001
-    assert not bpy_generating.layer_empty(pixels, ("R", "G", "B", "A"))
-    assert bpy_generating.layer_empty(np.zeros((2, 2, 1)), ("A",))
-    assert not bpy_generating.layer_empty(np.full((2, 2, 1), -1.0), ("Y",))
+    assert not bpy_images.layer_empty(pixels, ("R", "G", "B", "A"))
+    assert bpy_images.layer_empty(np.zeros((2, 2, 1)), ("A",))
+    assert not bpy_images.layer_empty(np.full((2, 2, 1), -1.0), ("Y",))
 
 
 def test_segmentation_skip_empty(scene, cube, out):
@@ -290,7 +290,7 @@ def test_bbox_image(scene, cube, out, renders):
     assert data["image"] == "000000.png" and data["bbox_image"] == "000000_bboxes.png"
     image = read_image(os.path.join(out, "000000.png"))
     drawn = read_image(os.path.join(out, "000000_bboxes.png"))
-    for entry, color in zip(data["bboxes"], bpy_generating.CLASS_COLORS):
+    for entry, color in zip(data["bboxes"], drawing.CLASS_COLORS):
         x_min, y_min, x_max, y_max = entry["bbox"]
         middle_row = int((y_min + y_max) / 2)
         edge = drawn[middle_row, int(x_min) + 1]
@@ -325,7 +325,7 @@ def test_segmentation_image(scene, cube, out, renders):
     image = read_image(os.path.join(out, "000000.png"))
     drawn = read_image(os.path.join(out, "000000_segmentation.png"))
     masks = [mask(out, entry["mask"]) for entry in data["masks"]]
-    colors = [np.array(bpy_generating.CLASS_COLORS[i]) / 255 for i in (0, 0, 1)]
+    colors = [np.array(drawing.CLASS_COLORS[i]) / 255 for i in (0, 0, 1)]
     for m, color in zip(masks, colors):
         rows, columns = np.nonzero(m)
         center = (int(rows.mean()), int(columns.mean()))
@@ -795,7 +795,7 @@ def test_background_exr_jpeg_and_seed(scene, cube, out):
     color = np.array(label(out)["background"]["color"])
     image = read_image(os.path.join(out, "000000.exr"))
     assert image.shape == (24, 32, 3)
-    assert image[0, 0] == pytest.approx(bpy_generating.srgb_to_linear(color), abs=1e-5)
+    assert image[0, 0] == pytest.approx(drawing.srgb_to_linear(color), abs=1e-5)
     # the same seed, the same background
     random.seed(3)
     assert G.Compose([G.Background({"color": 1}), G.Render("JPEG")], out, (32, 24))()
