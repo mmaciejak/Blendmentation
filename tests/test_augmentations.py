@@ -183,6 +183,10 @@ def test_material(cube):
     assert abs(h - actual["hue"]) < 1e-4 and abs(s - actual["saturation"]) < 1e-4 and abs(v - actual["value"]) < 1e-4
     assert 0.1 <= principled.inputs["Roughness"].default_value <= 0.2
     assert 0.5 <= principled.inputs["Metallic"].default_value <= 0.6
+    exact = A.SimpleMaterial("Mat", metallic=1, roughness=0.25)
+    exact(obj)
+    assert exact.actual == {"metallic": 1.0, "roughness": 0.25}
+    assert principled.inputs["Metallic"].default_value == 1.0 and principled.inputs["Roughness"].default_value == 0.25
     with pytest.raises(KeyError):
         A.SimpleMaterial("Nope", roughness=(0, 1))(obj)
 

@@ -6,6 +6,11 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `SimpleMaterial` also takes an exact value for `hue`, `saturation`, `value`,
+  `roughness` and `metallic`, e.g. `metallic=1`, next to a `(min, max)` range.
+
 ### Fixed
 
 - A `Keypoints` point and the `target` of `LookAt`, `FocalLength` and `DepthOfField` no

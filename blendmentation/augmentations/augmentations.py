@@ -1058,8 +1058,8 @@ class MaterialSlot(Augmentation):
 class SimpleMaterial(Augmentation):
     """Sets random Principled BSDF base color, roughness and metallic values.
 
-    Each parameter is an absolute `(min, max)` range, 0-1, and None leaves the value
-    unchanged. The base color is set through hue, saturation and value. The sockets
+    Each parameter is an absolute `(min, max)` range, 0-1, or an exact value, and None
+    leaves the value unchanged. The base color is set through hue, saturation and value. The sockets
     must not be connected to other nodes.
 
     It changes the **material**, so every object using it is affected.
@@ -1083,17 +1083,18 @@ class SimpleMaterial(Augmentation):
     Example:
         ```python
         augmentations.SimpleMaterial("CarPaint", hue=(0, 1), saturation=(0.5, 1), roughness=(0.1, 0.6))
+        augmentations.SimpleMaterial("CarPaint", hue=(0, 1), metallic=1)  # always fully metallic
         ```
     """
 
     def __init__(
         self,
         material_id: str,
-        hue: Optional[tuple[float, float]] = None,
-        saturation: Optional[tuple[float, float]] = None,
-        value: Optional[tuple[float, float]] = None,
-        roughness: Optional[tuple[float, float]] = None,
-        metallic: Optional[tuple[float, float]] = None,
+        hue: Optional[RangeOrValue] = None,
+        saturation: Optional[RangeOrValue] = None,
+        value: Optional[RangeOrValue] = None,
+        roughness: Optional[RangeOrValue] = None,
+        metallic: Optional[RangeOrValue] = None,
         p: float = 1.0,
     ):
         super().__init__(p)

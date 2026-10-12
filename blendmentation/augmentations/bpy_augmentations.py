@@ -108,17 +108,19 @@ def scale(obj, x, y, z):
     return factors
 
 
-def sample_absolute(value_range):
-    """Draws a value from a (min, max) range, None means no change."""
+def range_or_value(value_range, current):
+    """None keeps the current value, a number is used as it is, (min, max) is sampled."""
     if value_range is None:
-        return None
+        return current
+    if isinstance(value_range, (int, float)):
+        return float(value_range)
     low, high = value_range
     return random.uniform(low, high)
 
 
 def material(obj, material_id, hue, saturation, value, roughness, metallic):
     """Sets base color, roughness and metallic of the material's Principled BSDF
-    to random values from (min, max) ranges. None leaves the value unchanged.
+    to random values from (min, max) ranges, or exact values. None leaves the value unchanged.
     Base color is set through hue, saturation and value, each in 0-1.
 
     Returns:
@@ -128,7 +130,8 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
     principled = get_node(mat.node_tree, "BSDF_PRINCIPLED", mat.name)
     applied = {}
 
-    hsv = {"hue": sample_absolute(hue), "saturation": sample_absolute(saturation), "value": sample_absolute(value)}
+    hsv = {"hue": range_or_value(hue, None), "saturation": range_or_value(saturation, None),
+           "value": range_or_value(value, None)}
     if any(new is not None for new in hsv.values()):
         base_color = get_unlinked_input(principled, "Base Color", mat.name)
         red, green, blue, alpha = base_color.default_value
@@ -140,7 +143,7 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
         bpy_undo.set_attr(base_color, "default_value", (*colorsys.hsv_to_rgb(*current.values()), alpha))
 
     for name, socket_name, value_range in (("roughness", "Roughness", roughness), ("metallic", "Metallic", metallic)):
-        new = sample_absolute(value_range)
+        new = range_or_value(value_range, None)
         if new is not None:
             bpy_undo.set_attr(get_unlinked_input(principled, socket_name, mat.name), "default_value", new)
             applied[name] = new
@@ -200,16 +203,6 @@ def target_center(target):
         raise TypeError("LookAt target must be an object, a list of objects or a point (x, y, z)")
     centers = [obj.matrix_world @ (sum((Vector(corner) for corner in obj.bound_box), Vector()) / 8) for obj in objects]
     return sum(centers, Vector()) / len(centers)
-
-
-def range_or_value(value_range, current):
-    """None keeps the current value, a number is used as it is, (min, max) is sampled."""
-    if value_range is None:
-        return current
-    if isinstance(value_range, (int, float)):
-        return float(value_range)
-    low, high = value_range
-    return random.uniform(low, high)
 
 
 def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
