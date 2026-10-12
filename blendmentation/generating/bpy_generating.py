@@ -3,6 +3,7 @@ import os
 import random
 import re
 import tempfile
+from functools import partial
 
 import bpy
 import numpy as np
@@ -15,7 +16,7 @@ except ImportError as error:
     # bundled with blender, but not with the bpy python module
     raise ImportError("OpenImageIO is missing, install it with: pip install OpenImageIO") from error
 
-from .. import bpy_paths
+from .. import bpy_paths, bpy_undo
 
 IMAGE_SETTINGS = ("media_type", "file_format", "color_mode", "color_depth", "exr_codec")
 AOV_FORMATS = {"OPEN_EXR": ".exr", "PNG": ".png"}
@@ -521,6 +522,24 @@ def aov_channel_names(count):
     return ("Y",) if count == 1 else tuple("RGBA"[:count])
 
 
+# color management that leaves the rendered values unchanged
+STANDARD_VIEW = {"view_transform": "Standard", "look": "None", "exposure": 0.0, "gamma": 1.0,
+                 "use_curve_mapping": False}
+
+
+def editable_objects():
+    """Objects not linked from a library. All of bpy.data, since instanced collections
+    may use objects that are not in the scene."""
+    return [obj for obj in bpy.data.objects if obj.library is None]
+
+
+def hide_in_render(changes, keep):
+    """Hides every editable object but those in keep in the render, recorded in changes."""
+    for obj in editable_objects():
+        if obj not in keep and not obj.hide_render:
+            changes.set(obj, "hide_render", True)
+
+
 def render_ids(scene, groups, file_path, hide_others=False):
     """Renders every group of objects in a flat color encoding its id (1, 2, ...)
     with workbench, other objects in black so they still occlude, or hidden with hide_others.
@@ -529,43 +548,20 @@ def render_ids(scene, groups, file_path, hide_others=False):
     Returns:
         np.ndarray: (height, width) array of group ids, 0 = background or other objects
     """
-    shading = scene.display.shading
-    view_settings = scene.view_settings
-    saved = [
-        (scene.render, ("engine", "film_transparent", "use_compositing", "use_sequencer")),
-        (scene.display, ("render_aa",)),
-        (shading, ("type", "light", "color_type", "show_cavity", "show_object_outline", "show_shadows",
-                   "show_specular_highlight", "show_xray", "use_dof", "show_backface_culling")),
-        (view_settings, ("view_transform", "look", "exposure", "gamma", "use_curve_mapping")),
-    ]
-    saved = [(owner, {name: getattr(owner, name) for name in names}) for owner, names in saved]
-    # instanced collections may use objects that are not in the scene, so all objects are recolored
-    editable = [obj for obj in bpy.data.objects if obj.library is None]
-    saved_colors = {obj: tuple(obj.color) for obj in editable}
-    in_groups = {obj for group in groups for obj in group}
-    hidden = [obj for obj in editable if hide_others and obj not in in_groups and not obj.hide_render]
-    try:
-        for obj in hidden:
-            obj.hide_render = True
-        scene.render.engine = "BLENDER_WORKBENCH"
-        scene.render.film_transparent = True
-        scene.render.use_compositing = False
-        scene.render.use_sequencer = False
-        scene.display.render_aa = "OFF"
-        shading.type = "SOLID"
-        shading.light = "FLAT"
-        shading.color_type = "OBJECT"
-        for name in ("show_cavity", "show_object_outline", "show_shadows", "show_specular_highlight",
-                     "show_xray", "use_dof", "show_backface_culling"):
-            setattr(shading, name, False)
-        view_settings.view_transform = "Standard"
-        view_settings.look = "None"
-        view_settings.exposure = 0.0
-        view_settings.gamma = 1.0
-        view_settings.use_curve_mapping = False
-
-        for obj in editable:
-            obj.color = (0.0, 0.0, 0.0, 1.0)
+    with bpy_undo.temporary() as changes:
+        if hide_others:
+            hide_in_render(changes, {obj for group in groups for obj in group})
+        changes.set_many(scene.render, {"engine": "BLENDER_WORKBENCH", "film_transparent": True,
+                                        "use_compositing": False, "use_sequencer": False})
+        changes.set(scene.display, "render_aa", "OFF")
+        changes.set_many(scene.display.shading, {
+            "type": "SOLID", "light": "FLAT", "color_type": "OBJECT", "show_cavity": False,
+            "show_object_outline": False, "show_shadows": False, "show_specular_highlight": False,
+            "show_xray": False, "use_dof": False, "show_backface_culling": False,
+        })
+        changes.set_many(scene.view_settings, STANDARD_VIEW)
+        for obj in editable_objects():
+            changes.set(obj, "color", (0.0, 0.0, 0.0, 1.0))
         for group_id, group in enumerate(groups, start=1):
             # id in 8 bit steps of red and green, read back exactly from the float EXR
             color = ((group_id % 256) / 255.0, (group_id // 256) / 255.0, 0.0, 1.0)
@@ -577,14 +573,6 @@ def render_ids(scene, groups, file_path, hide_others=False):
         scene.render.image_settings.color_mode = "RGBA"
         scene.render.image_settings.color_depth = "32"
         bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-    finally:
-        for obj in hidden:
-            obj.hide_render = False
-        for owner, values in saved:
-            for name, value in values.items():
-                setattr(owner, name, value)
-        for obj, color in saved_colors.items():
-            obj.color = color
 
     pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
     ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
@@ -600,28 +588,14 @@ def render_index_ids(scene, view_layer, groups, file_path):
     Returns:
         np.ndarray: (height, width) array of group ids, 0 = background
     """
-    saved = [
-        (scene.render, ("use_compositing", "use_sequencer")),
-        (scene.cycles, ("samples", "use_denoising", "use_adaptive_sampling")),
-        (view_layer, ("use_pass_object_index",)),
-    ]
-    saved = [(owner, {name: getattr(owner, name) for name in names}) for owner, names in saved]
-    editable = [obj for obj in bpy.data.objects if obj.library is None]
-    saved_indices = {obj: obj.pass_index for obj in editable}
-    in_groups = {obj for group in groups for obj in group}
-    hidden = [obj for obj in editable if obj not in in_groups and not obj.hide_render]
-    try:
-        for obj in hidden:
-            obj.hide_render = True
-        scene.render.use_compositing = False
-        scene.render.use_sequencer = False
+    with bpy_undo.temporary() as changes:
+        hide_in_render(changes, {obj for group in groups for obj in group})
+        changes.set_many(scene.render, {"use_compositing": False, "use_sequencer": False})
         # the pass is written by the first sample, it is not anti-aliased
-        scene.cycles.samples = 1
-        scene.cycles.use_denoising = False
-        scene.cycles.use_adaptive_sampling = False
-        view_layer.use_pass_object_index = True
-        for obj in editable:
-            obj.pass_index = 0
+        changes.set_many(scene.cycles, {"samples": 1, "use_denoising": False, "use_adaptive_sampling": False})
+        changes.set(view_layer, "use_pass_object_index", True)
+        for obj in editable_objects():
+            changes.set(obj, "pass_index", 0)
         for group_id, group in enumerate(groups, start=1):
             for obj in group:
                 obj.pass_index = group_id
@@ -630,14 +604,6 @@ def render_index_ids(scene, view_layer, groups, file_path):
         set_file_format(scene.render.image_settings, "OPEN_EXR_MULTILAYER")
         scene.render.image_settings.color_depth = "32"
         bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-    finally:
-        for obj in hidden:
-            obj.hide_render = False
-        for obj, pass_index in saved_indices.items():
-            obj.pass_index = pass_index
-        for owner, values in saved:
-            for name, value in values.items():
-                setattr(owner, name, value)
 
     layer = find_layer_in(file_path, read_multilayer(file_path), view_layer, PASSES["ObjectIndex"][1])
     if layer is None:
@@ -756,15 +722,6 @@ def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False)
     Returns:
         np.ndarray: (height, width) array of group ids, 0 = background or other objects
     """
-    names = [
-        (scene.render, ("engine", "film_transparent", "use_compositing", "use_sequencer", "use_motion_blur")),
-        (scene.cycles, ("samples", "use_denoising", "use_adaptive_sampling", "pixel_filter_type", "filter_width",
-                        "film_exposure", "sample_clamp_direct", "sample_clamp_indirect", "transparent_max_bounces")),
-        (view_layer, ("material_override", "samples")),
-        (scene.view_settings, ("view_transform", "look", "exposure", "gamma", "use_curve_mapping")),
-    ]
-    saved = [(owner, {name: getattr(owner, name) for name in names if hasattr(owner, name)}) for owner, names in names]
-    editable = [obj for obj in bpy.data.objects if obj.library is None]
     objects, parents, sources = {}, {}, set()
     for group_id, group in enumerate(groups, start=1):
         for obj in group:
@@ -773,80 +730,49 @@ def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False)
                 sources.add(obj.source)
             else:
                 objects[obj] = group_id
-    # hiding a source hides its instances in blender 4.0, the material hides what has no id
-    hidden = [obj for obj in editable if hide_others and obj not in objects and obj not in parents
-              and obj not in sources and not obj.hide_render]
-    saved_properties = {obj: obj.get(ID_ATTRIBUTE) for obj in objects}
-    created, modifiers = [], []
-    try:
-        for obj in hidden:
-            obj.hide_render = True
+    with bpy_undo.temporary() as changes:
+        if hide_others:
+            # hiding a source hides its instances in blender 4.0, the material hides what has no id
+            hide_in_render(changes, set(objects) | set(parents) | sources)
         for obj, group_id in objects.items():
-            obj[ID_ATTRIBUTE] = float(group_id)
+            changes.set_item(obj, ID_ATTRIBUTE, float(group_id))
         for parent, tops in parents.items():
             lut_ids = [-1] * (max(tops) + 2)
             for top, group_id in tops.items():
                 lut_ids[top] = group_id
             mesh = bpy.data.meshes.new("blendmentation ids")
+            changes.add(partial(bpy.data.meshes.remove, mesh))
             mesh.vertices.add(len(lut_ids))
             mesh.attributes.new(ID_ATTRIBUTE, "INT", "POINT").data.foreach_set("value", lut_ids)
             lut = bpy.data.objects.new("blendmentation ids", mesh)
+            changes.add(partial(bpy.data.objects.remove, lut))
             tree = instance_id_nodes(lut, parent in objects, hide_others)
-            created += [lut, mesh, tree]
+            changes.add(partial(bpy.data.node_groups.remove, tree))
             modifier = parent.modifiers.new("blendmentation ids", "NODES")
+            changes.add(partial(parent.modifiers.remove, modifier))
             modifier.node_group = tree
-            modifiers.append((parent, modifier))
         material = instance_id_material(hide_others)
-        created.append(material)
+        changes.add(partial(bpy.data.materials.remove, material))
 
-        scene.render.engine = "CYCLES"
-        scene.render.film_transparent = True
-        scene.render.use_compositing = False
-        scene.render.use_sequencer = False
-        scene.render.use_motion_blur = False
-        cycles = scene.cycles
-        cycles.samples = 1
-        cycles.use_denoising = False
-        cycles.use_adaptive_sampling = False
-        # one sample near the pixel center, the ids are not blended
-        cycles.pixel_filter_type = "BOX"
-        cycles.filter_width = 0.01
-        cycles.film_exposure = 1.0
-        cycles.sample_clamp_direct = 0.0
-        cycles.sample_clamp_indirect = 0.0
-        cycles.transparent_max_bounces = 1024
-        view_layer.material_override = material
+        changes.set_many(scene.render, {"engine": "CYCLES", "film_transparent": True, "use_compositing": False,
+                                        "use_sequencer": False, "use_motion_blur": False})
+        changes.set_many(scene.cycles, {
+            "samples": 1, "use_denoising": False, "use_adaptive_sampling": False,
+            # one sample near the pixel center, the ids are not blended
+            "pixel_filter_type": "BOX", "filter_width": 0.01,
+            "film_exposure": 1.0, "sample_clamp_direct": 0.0, "sample_clamp_indirect": 0.0,
+            "transparent_max_bounces": 1024,
+        })
+        changes.set(view_layer, "material_override", material)
         if hasattr(view_layer, "samples"):
-            view_layer.samples = 0
-        view_settings = scene.view_settings
-        view_settings.view_transform = "Standard"
-        view_settings.look = "None"
-        view_settings.exposure = 0.0
-        view_settings.gamma = 1.0
-        view_settings.use_curve_mapping = False
+            changes.set(view_layer, "samples", 0)
+        changes.set_many(scene.view_settings, STANDARD_VIEW)
 
         bpy.ops.render.render()
         set_file_format(scene.render.image_settings, "OPEN_EXR")
         scene.render.image_settings.color_mode = "RGBA"
         scene.render.image_settings.color_depth = "32"
         bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-    finally:
-        for parent, modifier in modifiers:
-            parent.modifiers.remove(modifier)
-        for owner, values in saved:
-            for name, value in values.items():
-                setattr(owner, name, value)
-        for datablock in created:
-            collection = {bpy.types.Object: bpy.data.objects, bpy.types.Mesh: bpy.data.meshes,
-                          bpy.types.Material: bpy.data.materials}.get(type(datablock), bpy.data.node_groups)
-            collection.remove(datablock)
-        for obj, value in saved_properties.items():
-            if value is None:
-                del obj[ID_ATTRIBUTE]
-            else:
-                obj[ID_ATTRIBUTE] = value
-        for obj in hidden:
-            obj.hide_render = False
 
     pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
     ids = np.rint(pixels[:, :, 0]).astype(np.int64)
@@ -951,7 +877,7 @@ class Frame:
     The beauty render happens at most once, steps that need it reuse the render result.
     """
 
-    def __init__(self, scene, path, index, width, height, temp_dir):
+    def __init__(self, scene, path, index, width, height, temp_dir, changes):
         self.scene = scene
         self.camera = scene.camera
         self.view_layer = bpy.context.view_layer
@@ -972,7 +898,8 @@ class Frame:
         self.id_images = {}
         # groups whose ids are the pass indices of the beauty render, set by Segmentation in Cycles
         self.index_groups = None
-        self.changed = []
+        # settings changed for this datapoint, restored by generate
+        self.changes = changes
         self.collection_objects = collection_objects(self.view_layer.layer_collection)
         self.instances = {}
 
@@ -1012,13 +939,7 @@ class Frame:
 
     def set(self, owner, name, value):
         """Changes a setting for this datapoint only, it is restored afterwards."""
-        self.changed.append((owner, name, getattr(owner, name)))
-        setattr(owner, name, value)
-
-    def restore(self):
-        for owner, name, value in reversed(self.changed):
-            setattr(owner, name, value)
-        self.changed = []
+        self.changes.set(owner, name, value)
 
     def beauty(self, file_path=None):
         """Renders the scene with its engine, once. With file_path the image is also written."""
@@ -1873,43 +1794,23 @@ def generate(path, resolution, steps, custom_dict=None):
     os.makedirs(path, exist_ok=True)
 
     width, height = int(resolution[0]), int(resolution[1])
-    render_settings = scene.render
-    image_settings = render_settings.image_settings
-    previous = (
-        render_settings.resolution_x,
-        render_settings.resolution_y,
-        render_settings.resolution_percentage,
-        render_settings.filepath,
-    )
-    previous_image = {name: getattr(image_settings, name) for name in IMAGE_SETTINGS if hasattr(image_settings, name)}
-    try:
+    image_settings = scene.render.image_settings
+    with bpy_undo.temporary() as changes, tempfile.TemporaryDirectory() as temp_dir:
+        # the steps change these freely (file outputs), set back last, the format first: the
+        # other settings depend on it
+        changes.save(image_settings, *(name for name in IMAGE_SETTINGS if hasattr(image_settings, name)))
+        changes.save(scene.render, "filepath")
         # set before computing bboxes, the camera frame depends on the resolution
-        render_settings.resolution_x = width
-        render_settings.resolution_y = height
-        render_settings.resolution_percentage = 100
+        changes.set_many(scene.render, {"resolution_x": width, "resolution_y": height, "resolution_percentage": 100})
         bpy.context.view_layer.update()
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            frame = Frame(scene, path, next_index(path), width, height, temp_dir)
-            try:
-                for step in steps:
-                    if hasattr(step, "prepare"):
-                        step.prepare(frame)
-                for step in steps:
-                    if step(frame) is False:
-                        return False
-            finally:
-                frame.restore()
-    finally:
-        (
-            render_settings.resolution_x,
-            render_settings.resolution_y,
-            render_settings.resolution_percentage,
-            render_settings.filepath,
-        ) = previous
-        # format first, the other settings depend on it
-        for name, value in previous_image.items():
-            setattr(image_settings, name, value)
+        frame = Frame(scene, path, next_index(path), width, height, temp_dir, changes)
+        for step in steps:
+            if hasattr(step, "prepare"):
+                step.prepare(frame)
+        for step in steps:
+            if step(frame) is False:
+                return False
 
     label = frame.label
     if custom_dict:

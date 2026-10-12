@@ -4,9 +4,13 @@ Every write to Blender made by an augmentation goes through set_attr, set_item o
 the record_* functions. While a journal is open (state.restoring()), the first change of
 each value records how to set it back; undo() does that in reverse order. Without an open
 journal the values are only set.
+
+Temporary records settings changed for a while by Blendmentation itself (render settings
+of an id render), which are set back right after, whatever journal is open.
 """
 
 from array import array
+from contextlib import contextmanager
 
 import bpy
 
@@ -130,6 +134,65 @@ def record_transforms(obj):
         obj.update_tag()
 
     record((pointer(obj), "transforms"), restore)
+
+
+class Temporary:
+    """Settings changed for a while, outside the journals: e.g. the render settings of an
+    id render, or a datapoint's. restore() sets them back, the last change first."""
+
+    def __init__(self):
+        self.restores = []
+
+    def save(self, owner, *names):
+        """Records the values of owner's names, set back in this order by one restore."""
+        old = [(name, to_plain(getattr(owner, name))) for name in names]
+
+        def restore():
+            for name, value in old:
+                setattr(owner, name, value)
+
+        self.restores.append(restore)
+
+    def set(self, owner, name, value):
+        """Sets owner.name, recording the old value."""
+        self.save(owner, name)
+        setattr(owner, name, value)
+
+    def set_many(self, owner, values):
+        """Sets owner's attributes from a {name: value} dict, recording the old values."""
+        for name, value in values.items():
+            self.set(owner, name, value)
+
+    def set_item(self, owner, key, value):
+        """Sets owner[key] (an id property), recording the old value or that it had none."""
+        old = owner.get(key)
+
+        def restore():
+            if old is None:
+                del owner[key]
+            else:
+                owner[key] = old
+
+        self.restores.append(restore)
+        owner[key] = value
+
+    def add(self, restore):
+        """Records a function to call on restore, e.g. to remove a datablock created for a while."""
+        self.restores.append(restore)
+
+    def restore(self):
+        while self.restores:
+            self.restores.pop()()
+
+
+@contextmanager
+def temporary():
+    """A Temporary that is restored when the block ends, also on an exception."""
+    changes = Temporary()
+    try:
+        yield changes
+    finally:
+        changes.restore()
 
 
 def record_material_indices(mesh):

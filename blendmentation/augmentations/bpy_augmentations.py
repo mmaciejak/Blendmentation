@@ -280,10 +280,9 @@ def curve_segments(curve):
     flat = {"extrude": 0.0, "bevel_depth": 0.0, "bevel_object": None}
     if data.dimensions == "2D":
         flat["fill_mode"] = "NONE"
-    changed = {name: getattr(data, name) for name, value in flat.items() if getattr(data, name) != value}
-    try:
-        for name in changed:
-            setattr(data, name, flat[name])
+    # temporary, not recorded in the restoring() journal
+    with bpy_undo.temporary() as changes:
+        changes.set_many(data, {name: value for name, value in flat.items() if getattr(data, name) != value})
         curve_eval = curve.evaluated_get(bpy.context.evaluated_depsgraph_get())
         mesh = curve_eval.to_mesh()
         try:
@@ -295,9 +294,6 @@ def curve_segments(curve):
             segments = [(vertices[a], vertices[b]) for a, b in (edge.vertices for edge in mesh.edges)]
         finally:
             curve_eval.to_mesh_clear()
-    finally:
-        for name, value in changed.items():
-            setattr(data, name, value)
     segments = [(start, end) for start, end in segments if (end - start).length > 0]
     if not segments:
         raise ValueError(f"Curve '{curve.name}' has no length")
