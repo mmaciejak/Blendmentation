@@ -126,26 +126,39 @@ def check_bbox_from(bbox_from):
         raise ValueError('bbox_from must be "label" or "mask"')
 
 
+def visible_instances(path, label, need_masks):
+    """(class, objects, instance, mask) of every instance of a label (see `instances`)
+    that is not fully hidden: mask is its instance mask read as a boolean array, None when
+    it has none. An instance whose mask is empty, or was not written because it was
+    (Segmentation(skip_empty=True)), is left out.
+
+    Raises:
+        ValueError: need_masks (bbox_from="mask") and an instance has no instance mask
+    """
+    for (class_name, objects), instance in instances(label).items():
+        if "mask" not in instance:
+            if need_masks:
+                raise ValueError(
+                    f'bbox_from="mask" needs instance masks, {label["image"]} has none for {list(objects)}: '
+                    'add Segmentation(classes, per="instance") with the classes of BBox'
+                )
+            yield class_name, objects, instance, None
+            continue
+        if instance["mask"] is None:
+            continue
+        mask = read_mask(path, instance["mask"])
+        if mask.any():
+            yield class_name, objects, instance, mask
+
+
 def label_boxes(path, label, bbox_from):
     """(class, objects, [x_min, y_min, x_max, y_max]) of every instance of a label with a
     box in the frame: the BBox boxes, or with bbox_from="mask" the visible pixels' extent."""
     if bbox_from == "label":
         return [(entry["class"], entry["objects"], entry["bbox"]) for entry in label.get("bboxes", [])
                 if entry["bbox"] is not None]
-    boxes = []
-    for (class_name, objects), instance in instances(label).items():
-        if "mask" not in instance:
-            raise ValueError(
-                f'bbox_from="mask" needs instance masks, {label["image"]} has none for {list(objects)}: '
-                'add Segmentation(classes, per="instance") with the classes of BBox'
-            )
-        if instance["mask"] is None:
-            # empty mask not written, Segmentation(skip_empty=True)
-            continue
-        box = mask_bbox(read_mask(path, instance["mask"]))
-        if box is not None:
-            boxes.append((class_name, list(objects), box))
-    return boxes
+    return [(class_name, list(objects), mask_bbox(mask))
+            for class_name, objects, _, mask in visible_instances(path, label, need_masks=True)]
 
 
 def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]] = None,
@@ -202,19 +215,10 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     for index, label in labels:
         width, height = label["resolution"]
         images.append({"id": index, "file_name": label["image"], "width": width, "height": height})
-        for (class_name, objects), instance in instances(label).items():
-            if "mask" in instance and instance["mask"] is None:
-                # empty mask not written, Segmentation(skip_empty=True)
-                continue
-            mask = read_mask(path, instance["mask"]) if "mask" in instance else None
-            if mask is not None and not mask.any():
-                # fully hidden behind other objects
-                continue
+        for class_name, objects, instance, mask in visible_instances(path, label, need_masks=bbox_from == "mask"):
             box = instance.get("bbox")
             if mask is not None and (bbox_from == "mask" or box is None):
                 box = mask_bbox(mask)
-            elif bbox_from == "mask":
-                raise ValueError(f'bbox_from="mask" needs instance masks, {label["image"]} has none for {list(objects)}')
             if box is None:
                 continue
             x_min, y_min, x_max, y_max = box
