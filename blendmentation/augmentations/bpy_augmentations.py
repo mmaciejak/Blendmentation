@@ -793,18 +793,72 @@ def template_string(text):
     return json.dumps(text, ensure_ascii=False)
 
 
-def node_path(node):
-    """The absolute data path of a node, with double quoted names."""
-    full = repr(node)
-    if not full.startswith("bpy."):
-        raise ValueError(f"Cannot find the data path of {full}, pass it as a string")
-    path = "bpy"
-    for kind, key in bpy_paths.parse(full)[1:]:
+def path_text(steps):
+    """Parsed data path steps as text, with double quoted names."""
+    path = ""
+    for kind, key in steps:
         if kind == "attr":
             path += "." + key
         else:
             path += f"[{key}]" if isinstance(key, int) else f"[{template_string(key)}]"
     return path
+
+
+def node_path(node):
+    """The absolute data path of a node (or any datablock), with double quoted names."""
+    full = repr(node)
+    if not full.startswith("bpy."):
+        raise ValueError(f"Cannot find the data path of {full}, pass it as a string")
+    return "bpy" + path_text(bpy_paths.parse(full)[1:])
+
+
+# the datablock kinds a template names, by their bpy.data collection
+ID_KINDS = {"objects": "object", "materials": "material", "worlds": "world", "lights": "light",
+            "node_groups": "node group", "meshes": "mesh", "shape_keys": "shape keys"}
+
+
+def path_owner(path):
+    """The datablock an absolute path starts from (bpy.data.<collection>[name]), its
+    collection, and the rest of the path as steps."""
+    steps = bpy_paths.parse(path)[1:]
+    collection, name = steps[1][1], steps[2][1]
+    return getattr(bpy.data, collection)[name], collection, steps[3:]
+
+
+def relative_node_path(node, obj):
+    """The data path of a node relative to obj: through the object itself (a world),
+    its data (a light), its active material or another material slot, or a geometry
+    nodes modifier using the node's group."""
+    owner, _, rest = path_owner(node_path(node))
+    rest = path_text(rest)
+    if owner == obj:
+        return rest.lstrip(".")
+    if owner == getattr(obj, "data", None):
+        return "data" + rest
+    if owner == getattr(obj, "active_material", None):
+        return "active_material" + rest
+    for index, slot in enumerate(getattr(obj, "material_slots", ())):
+        if slot.material == owner:
+            return f"material_slots[{index}].material" + rest
+    for modifier in getattr(obj, "modifiers", ()):
+        if modifier.type == "NODES" and modifier.node_group == owner:
+            return f"modifiers[{template_string(modifier.name)}].node_group" + rest
+    raise ValueError(f"Node '{node.name}' is not in a material, modifier or data of '{obj.name}', "
+                     f"so it has no path relative to it: use an absolute path")
+
+
+def template_header(relative_to, owner, collection):
+    """The comment lines on top of a template that say which kind of paths it has: for
+    relative paths the object they start from, for absolute ones what they change."""
+    if relative_to is not None:
+        return [f"# Relative paths: they start from the object it is called with, here "
+                f"{template_string(relative_to.name)}.",
+                f"# Pass that object to the Compose, compose([{node_path(relative_to)}]), "
+                f"or one set up the same way."]
+    kind = ID_KINDS.get(collection, "datablock")
+    return [f"# Absolute paths: they always change the {kind} {template_string(owner.name)}, "
+            f"so it works with any",
+            "# objects passed to the Compose, or called alone without one."]
 
 
 def template_input(socket):
@@ -834,7 +888,7 @@ def template_input(socket):
     return None
 
 
-def node_template(node, obj=None, prefix="augmentations."):
+def node_template(node, obj=None, prefix="augmentations.", relative=False):
     """Source text of a Node augmentation that sets every input of the node, see
     augmentations.Node.template.
 
@@ -843,15 +897,23 @@ def node_template(node, obj=None, prefix="augmentations."):
             to obj), which is then kept in the text
         obj (bpy.types.Object): object a relative path starts from
         prefix (str): written before Node and Input
+        relative (bool): for a node, write its path relative to obj (a world's node:
+            to the world)
     """
     if isinstance(node, str):
         path, node = node, bpy_paths.get_value(node, obj)
+        relative = not bpy_paths.is_absolute(path)
     else:
         path = None
     if not isinstance(getattr(node, "inputs", None), bpy.types.bpy_prop_collection) or not hasattr(node, "bl_idname"):
         raise TypeError(f"{node!r} is not a node")
+    owner, collection, _ = path_owner(node_path(node))
+    if relative and isinstance(owner, bpy.types.World):
+        obj = owner  # a world is augmented itself
     if path is None:
-        path = node_path(node)
+        if relative and obj is None:
+            raise ValueError("A relative template needs the object its path starts from")
+        path = relative_node_path(node, obj) if relative else node_path(node)
     sockets = [(index, socket) for index, socket in enumerate(node.inputs)
                if socket.enabled and socket.bl_idname != "NodeSocketVirtual"]
     if not sockets:
@@ -877,20 +939,22 @@ def node_template(node, obj=None, prefix="augmentations."):
             rows.append((f"{key}: {prefix}Input({arguments}),", named + comment))
     # comments aligned, past longer lines (e.g. a menu with many options) only by two spaces
     width = max((len(code) for code, _ in rows if code and len(code) <= TEMPLATE_ALIGN), default=0)
-    lines = [f"{prefix}Node({path!r}, {{"]
+    lines = template_header(obj if relative else None, owner, collection)
+    lines.append(f"{prefix}Node({path!r}, {{")
     for code, comment in rows:
         lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
     lines.append("})")
     return "\n".join(lines) + "\n"
 
 
-def shape_keys_template(obj, prefix="augmentations."):
+def shape_keys_template(obj, prefix="augmentations.", relative=True):
     """Source text of a Chain with a Number for the value of every shape key of the
     object, see augmentations.Chain.shape_keys_template.
 
     Args:
         obj (bpy.types.Object): object with shape keys (mesh, curve, lattice)
         prefix (str): written before Chain and Number
+        relative (bool): paths relative to the object, otherwise absolute through it
     """
     key = getattr(getattr(obj, "data", None), "shape_keys", None)
     name = getattr(obj, "name", repr(obj))
@@ -904,6 +968,8 @@ def shape_keys_template(obj, prefix="augmentations."):
         if block == key.reference_key:
             continue
         path = f"data.shape_keys.key_blocks[{template_string(block.name)}].value"
+        if not relative:
+            path = f"{node_path(obj)}.{path}"
         now = template_number(block.value)
         if block.path_from_id("value") in drivers:
             rows.append((None, f"{path!r}: driven, now {now}"))
@@ -914,7 +980,8 @@ def shape_keys_template(obj, prefix="augmentations."):
             rows.append((f"{prefix}Number({path!r}, {value_range}),", f"now {now}"))
     # the lines differ only by the key names, so all comments are aligned
     width = max((len(code) for code, _ in rows if code), default=0)
-    lines = [f"{prefix}Chain([  # shape keys of {template_string(name)}"]
+    lines = template_header(obj if relative else None, obj, "objects")
+    lines.append(f"{prefix}Chain([")
     for code, comment in rows:
         lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
     lines.append("])")

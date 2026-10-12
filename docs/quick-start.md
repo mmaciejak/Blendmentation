@@ -388,7 +388,7 @@ click an input > Copy Full Data Path. A menu input shows its current option inst
 its name, so look the names up in the group's interface.
 
 Or let the add-on write it: select the node, then Sidebar (N) > Blendmentation > Copy
-Blendmentation Template (or Node menu, right click the node, or F3). It copies a `Node`
+Node Template > Absolute (or Node menu, right click the node, or F3). It copies a `Node`
 with the node's path and every input, by its exact name, with the widest range the node
 allows (the Min and Max of the group's inputs) and all menu options. Set the prefix to `aug.` in the add-on's
 preferences, paste, narrow the ranges and delete the inputs to leave alone. Without the
@@ -751,10 +751,10 @@ objects_aug = aug.Compose([
         roughness=(0.1, 0.6),
     ),
     # more inputs of the same material, each its own way; to start from every input with
-    # its range: the add-on's Sidebar > Blendmentation > Copy Blendmentation Template, or
-    # print(aug.Node.template('active_material.node_tree.nodes["Principled BSDF"]', car_1, prefix="aug."))
+    # its range: the add-on's Sidebar > Blendmentation > Copy Node Template > Relative, or
+    # print(aug.Node.template(car_1.active_material.node_tree.nodes["Principled BSDF"], car_1, prefix="aug.", relative=True))
     # the shape keys of the car (none here), to start from every one: the add-on's
-    # 3D viewport Sidebar > Blendmentation > Copy Shape Keys Template, or
+    # 3D viewport Sidebar > Blendmentation > Copy Shape Keys Template > Relative, or
     # print(aug.Chain.shape_keys_template(car_1, prefix="aug."))
     aug.Node(
         'active_material.node_tree.nodes["Principled BSDF"]',

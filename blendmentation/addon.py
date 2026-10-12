@@ -31,9 +31,10 @@ def template_prefix(context):
     return addon.preferences.prefix if addon else DEFAULT_PREFIX
 
 
-def copy_template(node, window_manager, prefix=DEFAULT_PREFIX):
-    """Copies the Node template of the node to the clipboard and returns it."""
-    text = augmentations.Node.template(node, prefix=prefix)
+def copy_template(node, window_manager, prefix=DEFAULT_PREFIX, obj=None, relative=False):
+    """Copies the Node template of the node (its path relative to obj, or absolute) to
+    the clipboard and returns it."""
+    text = augmentations.Node.template(node, obj, prefix=prefix, relative=relative)
     window_manager.clipboard = text
     return text
 
@@ -43,6 +44,13 @@ class NODE_OT_blendmentation_copy_template(bpy.types.Operator):
 
     bl_idname = "node.blendmentation_copy_template"
     bl_label = "Copy Blendmentation Template"
+
+    relative: bpy.props.BoolProperty(  # type: ignore[valid-type]
+        name="Relative",
+        description="Path relative to the active object (its material, data or geometry nodes modifier; "
+                    "a world's node: to the world), instead of absolute",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -54,17 +62,19 @@ class NODE_OT_blendmentation_copy_template(bpy.types.Operator):
         if node is None:
             return {"CANCELLED"}
         try:
-            copy_template(node, context.window_manager, template_prefix(context))
+            copy_template(node, context.window_manager, template_prefix(context), context.active_object,
+                          self.relative)
         except (TypeError, ValueError) as error:
             self.report({"WARNING"}, str(error))
             return {"CANCELLED"}
-        self.report({"INFO"}, f"Copied the Node template of '{node.name}'")
+        kind = "relative" if self.relative else "absolute"
+        self.report({"INFO"}, f"Copied the Node template of '{node.name}', {kind}")
         return {"FINISHED"}
 
 
-def copy_shape_keys_template(obj, window_manager, prefix=DEFAULT_PREFIX):
+def copy_shape_keys_template(obj, window_manager, prefix=DEFAULT_PREFIX, relative=True):
     """Copies the shape keys Chain template of the object to the clipboard and returns it."""
-    text = augmentations.Chain.shape_keys_template(obj, prefix=prefix)
+    text = augmentations.Chain.shape_keys_template(obj, prefix=prefix, relative=relative)
     window_manager.clipboard = text
     return text
 
@@ -74,6 +84,13 @@ class OBJECT_OT_blendmentation_copy_shape_keys_template(bpy.types.Operator):
 
     bl_idname = "object.blendmentation_copy_shape_keys_template"
     bl_label = "Copy Shape Keys Template"
+
+    relative: bpy.props.BoolProperty(  # type: ignore[valid-type]
+        name="Relative",
+        description="Paths relative to the object the Chain is called with, instead of absolute "
+                    "paths through the active object",
+        default=True,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -85,12 +102,21 @@ class OBJECT_OT_blendmentation_copy_shape_keys_template(bpy.types.Operator):
         if obj is None:
             return {"CANCELLED"}
         try:
-            copy_shape_keys_template(obj, context.window_manager, template_prefix(context))
+            copy_shape_keys_template(obj, context.window_manager, template_prefix(context), self.relative)
         except ValueError as error:
             self.report({"WARNING"}, str(error))
             return {"CANCELLED"}
-        self.report({"INFO"}, f"Copied the shape keys template of '{obj.name}'")
+        kind = "relative" if self.relative else "absolute"
+        self.report({"INFO"}, f"Copied the shape keys template of '{obj.name}', {kind}")
         return {"FINISHED"}
+
+
+def draw_buttons(layout, label, idname):
+    """A label and a Relative and an Absolute button for a template operator."""
+    layout.label(text=label)
+    row = layout.row(align=True)
+    row.operator(idname, text="Relative").relative = True
+    row.operator(idname, text="Absolute").relative = False
 
 
 class NODE_PT_blendmentation(bpy.types.Panel):
@@ -100,7 +126,7 @@ class NODE_PT_blendmentation(bpy.types.Panel):
     bl_category = "Blendmentation"
 
     def draw(self, context):
-        self.layout.operator(NODE_OT_blendmentation_copy_template.bl_idname)  # pyright: ignore[reportOptionalMemberAccess]  (a drawn panel has a layout)
+        draw_buttons(self.layout, "Copy Node Template", NODE_OT_blendmentation_copy_template.bl_idname)
 
 
 class VIEW3D_PT_blendmentation(bpy.types.Panel):
@@ -110,12 +136,14 @@ class VIEW3D_PT_blendmentation(bpy.types.Panel):
     bl_category = "Blendmentation"
 
     def draw(self, context):
-        self.layout.operator(OBJECT_OT_blendmentation_copy_shape_keys_template.bl_idname)  # pyright: ignore[reportOptionalMemberAccess]  (a drawn panel has a layout)
+        draw_buttons(self.layout, "Copy Shape Keys Template", OBJECT_OT_blendmentation_copy_shape_keys_template.bl_idname)
 
 
 def draw_menu(self, context):
     self.layout.separator()
-    self.layout.operator(NODE_OT_blendmentation_copy_template.bl_idname)
+    idname = NODE_OT_blendmentation_copy_template.bl_idname
+    self.layout.operator(idname, text="Copy Blendmentation Template (Relative)").relative = True
+    self.layout.operator(idname, text="Copy Blendmentation Template (Absolute)").relative = False
 
 
 CLASSES = (BlendmentationPreferences, NODE_OT_blendmentation_copy_template,

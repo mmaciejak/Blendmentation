@@ -88,7 +88,7 @@ from there (this needs `git`). The `main` branch always holds the
   install it in Edit > Preferences > Add-ons > Install from Disk. Scripts can then import
   it. Its sidebar tab (N) in the node editor copies a `Node` augmentation with every
   input of the selected node and its range, and in the 3D viewport a `Chain` with a
-  `Number` for every shape key of the active object.
+  `Number` for every shape key of the active object, each with relative or absolute paths.
 - **Inside Blender, from a copy of the repository:** clone it and add the cloned folder
   to `sys.path` in your script (`sys.path.append("/path/to/Blendmentation")`):
 

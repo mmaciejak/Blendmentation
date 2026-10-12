@@ -39,7 +39,7 @@ def test_register():
         material.use_nodes = True
         node = material.node_tree.nodes["Principled BSDF"]
         text = addon.copy_template(node, bpy.context.window_manager, prefix="aug.")
-        assert text.startswith("""aug.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {""")
+        assert """\naug.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {""" in text
 
         bpy.ops.mesh.primitive_cube_add()
         obj = bpy.context.active_object
@@ -49,7 +49,8 @@ def test_register():
         assert bpy.ops.object.blendmentation_copy_shape_keys_template.poll()
         assert bpy.ops.object.blendmentation_copy_shape_keys_template() == {"FINISHED"}
         text = addon.copy_shape_keys_template(obj, bpy.context.window_manager, prefix="aug.")
-        assert text.startswith('aug.Chain([  # shape keys of "Cube"')
+        assert 'here "Cube"' in text and "\naug.Chain([" in text
+        assert bpy.ops.object.blendmentation_copy_shape_keys_template(relative=False) == {"FINISHED"}
     finally:
         blendmentation.unregister()
     assert not hasattr(bpy.types, "NODE_OT_blendmentation_copy_template")

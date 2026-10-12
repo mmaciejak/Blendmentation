@@ -99,10 +99,13 @@ Before writing a `Node`, print the node's template:
 It writes a `Node` with the node's exact path and every input by its exact name (group
 nodes show their group's name, not the node's; menus show their current option; names
 can end in a space), with its type, current value, widest range and menu options, and
-connected or unsupported inputs as comments. Narrow it down with the user. For shape
-keys, `print(augmentations.Chain.shape_keys_template(obj))` writes a `Chain` with a
-`Number` over each shape key's slider range (relative paths; muted and driven keys as
-comments).
+connected or unsupported inputs as comments. Narrow it down with the user. The path is
+absolute; `Node.template(node, obj, relative=True)` writes it relative to `obj` (its
+material, data or geometry nodes modifier; a world's node to the world), for a `Compose`
+over that object and others set up the same way. For shape keys,
+`print(augmentations.Chain.shape_keys_template(obj))` writes a `Chain` with a `Number`
+over each shape key's slider range (relative paths, `relative=False` for absolute; muted
+and driven keys as comments). Both start with a comment saying which kind of path.
 
 Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a

@@ -31,12 +31,22 @@ from blendmentation.state import state
 
 It also adds a tool for writing `Node` augmentations: select a node in a node editor (a
 smart material's group node, the Principled BSDF...), then Sidebar (N) > Blendmentation >
-Copy Blendmentation Template, or Node menu > Copy Blendmentation Template, or right
-click > Copy Blendmentation Template, or search for it with F3. It copies a
+Copy Node Template > Relative or Absolute. The same two are in the Node menu, the right
+click menu and F3 search as Copy Blendmentation Template (Relative / Absolute). It copies a
 [`Node`][blendmentation.augmentations.augmentations.Node] with every input of the node and
-the widest range each allows to the clipboard, to paste into a script and narrow down:
+the widest range each allows to the clipboard, to paste into a script and narrow down.
+A comment on top says which kind of path it has:
+
+- **Absolute** (`bpy.data.materials["Master material"].node_tree...`): it always changes
+  that node, so it works with any objects passed to the `Compose`, or called alone.
+- **Relative** (`active_material.node_tree...`): it starts from the object it is called
+  with, so pass that object to the `Compose`; it also works for other objects set up the
+  same way. The path goes from the active object, through its material, its data (a
+  light) or its geometry nodes modifier; a world's node starts from the world.
 
 ```python
+# Absolute paths: they always change the material "Master material", so it works with any
+# objects passed to the Compose, or called alone without one.
 augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
     # "Texture Coordinate": connected
     "Base metal type": augmentations.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
@@ -46,14 +56,16 @@ augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferro
 })
 ```
 
-In the 3D viewport, Sidebar (N) > Blendmentation > Copy Shape Keys Template does the
-same for the shape keys of the active object: a
+In the 3D viewport, Sidebar (N) > Blendmentation > Copy Shape Keys Template > Relative
+or Absolute does the same for the shape keys of the active object: a
 [`Chain`][blendmentation.augmentations.augmentations.Chain] with a `Number` for every
 shape key, over its slider range (0 to 1 by default). Muted and driven shape keys are
 comments.
 
 ```python
-augmentations.Chain([  # shape keys of "Face"
+# Relative paths: they start from the object it is called with, here "Face".
+# Pass that object to the Compose, compose([bpy.data.objects["Face"]]), or one set up the same way.
+augmentations.Chain([
     augmentations.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),  # now 0.0
     augmentations.Number('data.shape_keys.key_blocks["Blink"].value', (0.0, 1.0)),  # now 0.25
 ])

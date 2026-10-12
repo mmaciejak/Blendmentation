@@ -8,13 +8,24 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
-- `augmentations.Chain.shape_keys_template(obj, prefix="augmentations.")` writes a
-  `Chain` with a `Number` for every shape key of an object, over its slider range (0 to 1
-  by default), with relative paths and the current value in a comment; muted and driven
-  shape keys are comments. The add-on copies it for the active object from the 3D
-  viewport's Sidebar (N) > Blendmentation > Copy Shape Keys Template.
-- The add-on's Copy Blendmentation Template is also in the node editor's Sidebar (N) >
-  Blendmentation.
+- `augmentations.Chain.shape_keys_template(obj, prefix="augmentations.", relative=True)`
+  writes a `Chain` with a `Number` for every shape key of an object, over its slider range
+  (0 to 1 by default), with the current value in a comment; muted and driven shape keys
+  are comments. The paths are relative to the object, or absolute through it with
+  `relative=False`. The add-on copies it for the active object from the 3D viewport's
+  Sidebar (N) > Blendmentation > Copy Shape Keys Template > Relative or Absolute.
+- `Node.template` takes `relative=True`, which writes the node's path relative to `obj`
+  (through its active material, another material slot, its data or a geometry nodes
+  modifier; a world's node relative to the world) instead of absolute.
+- The add-on has a Blendmentation tab in the node editor's sidebar (N): Copy Node Template
+  > Relative (from the active object) or Absolute. The Node menu, right click menu and F3
+  search have both too.
+
+### Changed
+
+- The templates (`Node.template`, `Chain.shape_keys_template` and the add-on's) start
+  with a comment that says whether the paths are relative or absolute, with the name of
+  the object they start from or of what they change, and how to call the augmentation.
 
 ## [0.8.2] - 2026-10-12
 

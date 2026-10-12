@@ -289,7 +289,8 @@ def test_node_template(cube):
     material.node_tree.links.new(texture.outputs[0], node.inputs["Paint"])
 
     text = A.Node.template(node)
-    lines = text.splitlines()
+    header, lines = text.splitlines()[:2], text.splitlines()[2:]
+    assert header[0].startswith('# Absolute paths: they always change the material "Mat"'), "absolute by default"
     assert lines[0] == """augmentations.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"""
     assert lines[-1] == "})" and text.endswith("\n")
     rows = {line.split(":")[0].strip(): line for line in lines[1:-1]}
@@ -317,7 +318,9 @@ def test_node_template(cube):
 
     # a path is kept as it is, relative to the object, and the prefix is used
     principled = A.Node.template('active_material.node_tree.nodes["Principled BSDF"]', obj, prefix="aug.")
-    assert principled.startswith("""aug.Node('active_material.node_tree.nodes["Principled BSDF"]', {""")
+    assert principled.startswith('# Relative paths: they start from the object it is called with, here "Cube".')
+    assert 'compose([bpy.data.objects["Cube"]])' in principled.splitlines()[1]
+    assert """\naug.Node('active_material.node_tree.nodes["Principled BSDF"]', {""" in principled
     assert '"Metallic": aug.Input((0.0, 1.0)),' in principled, "a factor: 0 to 1"
     assert '"Base Color": aug.Input((0.0, 1.0)),' in principled
     assert '# "Normal": no value on the node' in principled
@@ -352,8 +355,10 @@ def test_shape_keys_template(cube):
     driven.driver_add("value")
 
     text = A.Chain.shape_keys_template(obj, prefix="aug.")
-    lines = text.splitlines()
-    assert lines[0] == 'aug.Chain([  # shape keys of "Cube"'
+    header, lines = text.splitlines()[:2], text.splitlines()[2:]
+    assert header[0] == '# Relative paths: they start from the object it is called with, here "Cube".'
+    assert header[1].startswith('# Pass that object to the Compose, compose([bpy.data.objects["Cube"]])')
+    assert lines[0] == "aug.Chain(["
     assert lines[-1] == "])" and text.endswith("\n")
     assert "Basis" not in text
     assert """aug.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),""" in lines[1]
@@ -373,9 +378,67 @@ def test_shape_keys_template(cube):
         assert len(chain.actual) == 2
     assert blocks['Wide "w"'].value == 0.5
 
+    # absolute paths go through the object, and run without one
+    text = A.Chain.shape_keys_template(obj, relative=False)
+    assert text.startswith('# Absolute paths: they always change the object "Cube", so it works with any')
+    assert """augmentations.Number('bpy.data.objects["Cube"].data.shape_keys.key_blocks["Smile"].value',""" in text
+    chain = eval(text, {"augmentations": A})
+    with state.restoring():
+        chain()
+        assert -1 <= blocks['Wide "w"'].value <= 2
+    assert blocks['Wide "w"'].value == 0.5
+
     obj.data.shape_keys.use_relative = False
     with pytest.raises(ValueError, match="not relative"):
         A.Chain.shape_keys_template(obj)
+
+
+def test_node_template_relative(cube):
+    obj = cube("Cube")
+    first, second = bpy.data.materials.new("First"), bpy.data.materials.new("Second")
+    for material in (first, second):
+        material.use_nodes = True
+        obj.data.materials.append(material)
+
+    def path(text):
+        return text.splitlines()[2].split("'")[1]
+
+    def runs(text, target):
+        with state.restoring():
+            eval(text, {"augmentations": A})(target)
+
+    absolute = A.Node.template(second.node_tree.nodes["Principled BSDF"])
+    assert path(absolute) == 'bpy.data.materials["Second"].node_tree.nodes["Principled BSDF"]'
+    obj.active_material_index = 0
+    text = A.Node.template(first.node_tree.nodes["Principled BSDF"], obj, relative=True)
+    assert path(text) == 'active_material.node_tree.nodes["Principled BSDF"]'
+    runs(text, obj)
+    text = A.Node.template(second.node_tree.nodes["Principled BSDF"], obj, relative=True)
+    assert path(text) == 'material_slots[1].material.node_tree.nodes["Principled BSDF"]', "not the active one"
+    runs(text, obj)
+
+    group = bpy.data.node_groups.new("Scatter", "GeometryNodeTree")
+    group.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    group.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    transform = group.nodes.new("GeometryNodeSetPosition")
+    obj.modifiers.new("GN", "NODES").node_group = group
+    text = A.Node.template(transform, obj, relative=True)
+    assert path(text) == 'modifiers["GN"].node_group.nodes["Set Position"]'
+    runs(text, obj)
+
+    world = bpy.data.worlds.new("Sky")
+    world.use_nodes = True
+    text = A.Node.template(world.node_tree.nodes["Background"], relative=True)
+    assert path(text) == 'node_tree.nodes["Background"]', "a world's node is relative to the world"
+    assert 'here "Sky"' in text and 'compose([bpy.data.worlds["Sky"]])' in text
+    runs(text, world)
+
+    other = bpy.data.materials.new("Other")
+    other.use_nodes = True
+    with pytest.raises(ValueError, match="no path relative"):
+        A.Node.template(other.node_tree.nodes["Principled BSDF"], obj, relative=True)
+    with pytest.raises(ValueError, match="needs the object"):
+        A.Node.template(other.node_tree.nodes["Principled BSDF"], relative=True)
 
 
 def test_node_input(cube):

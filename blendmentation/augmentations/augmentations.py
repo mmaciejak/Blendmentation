@@ -398,14 +398,18 @@ class Chain(Augmentation):
         self.actual = [getattr(augmentation, "actual", None) for augmentation in self.augmentations]
 
     @staticmethod
-    def shape_keys_template(obj: Object, prefix: str = "augmentations.") -> str:
+    def shape_keys_template(obj: Object, prefix: str = "augmentations.", relative: bool = True) -> str:
         """Writes the source of a `Chain` that sets the value of every shape key of an
         object, to paste into a script and edit.
 
         Each shape key gets a `Number` with the range of its slider (Range Min and Max,
-        0 to 1 by default) and its current value in a comment. The paths are relative
-        (`data.shape_keys.key_blocks["Smile"].value`), so the `Chain` works in a
-        `Compose` for every object with shape keys of those names. The basis is left out,
+        0 to 1 by default) and its current value in a comment. By default the paths are
+        relative (`data.shape_keys.key_blocks["Smile"].value`): pass the object to the
+        `Compose`, and the `Chain` also works for every other object with shape keys of
+        those names. With `relative=False` they are absolute
+        (`bpy.data.objects["Face"].data.shape_keys...`) and always change this object,
+        whatever the `Chain` is called with. A comment on top says which, with the
+        object's name. The basis is left out,
         and muted or driven shape keys are only comments, since their value has no
         effect or a driver overwrites it. With the default `p=1` the `Chain` does the same
         as its `Number`s listed one by one in a `Compose`; it keeps them together, e.g.
@@ -413,12 +417,13 @@ class Chain(Augmentation):
 
         In the Blender app, the add-on does the same for the active object and copies it
         to the clipboard: 3D Viewport sidebar (N) > Blendmentation > Copy Shape Keys
-        Template. See [Installation](installation.md#inside-blender-as-an-add-on).
+        Template, Relative or Absolute. See [Installation](installation.md#inside-blender-as-an-add-on).
 
         Args:
             obj: object with shape keys (a mesh, curve or lattice).
             prefix: written before `Chain` and `Number`, e.g. `"aug."` after
                 `from blendmentation.augmentations import augmentations as aug`.
+            relative: paths relative to the object; False: absolute paths through it.
 
         Returns:
             The source of the `Chain`, ending in a newline.
@@ -435,14 +440,16 @@ class Chain(Augmentation):
             prints
 
             ```python
-            augmentations.Chain([  # shape keys of "Face"
+            # Relative paths: they start from the object it is called with, here "Face".
+            # Pass that object to the Compose, compose([bpy.data.objects["Face"]]), or one set up the same way.
+            augmentations.Chain([
                 augmentations.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),  # now 0.0
                 augmentations.Number('data.shape_keys.key_blocks["Blink"].value', (0.0, 1.0)),  # now 0.25
                 # 'data.shape_keys.key_blocks["Old"].value': muted, now 0.0
             ])
             ```
         """
-        return bpy_a.shape_keys_template(obj, prefix)
+        return bpy_a.shape_keys_template(obj, prefix, relative)
 
 
 class AxisAugmentation(Augmentation):
@@ -1598,7 +1605,8 @@ class Node(InputsAugmentation):
                               for key, spec in inputs.items()]
 
     @staticmethod
-    def template(node: Union[str, BpyNode], obj: Optional[Object] = None, prefix: str = "augmentations.") -> str:
+    def template(node: Union[str, BpyNode], obj: Optional[Object] = None, prefix: str = "augmentations.",
+                 relative: bool = False) -> str:
         """Writes the source of a `Node` that sets every input of a node, to paste into a
         script and edit.
 
@@ -1619,25 +1627,36 @@ class Node(InputsAugmentation):
         Inputs that share a name are keyed by index, with the name in the comment. The
         node's name and the input names are written exactly, trailing spaces included.
 
+        The path is absolute by default (`bpy.data.materials["Paint"].node_tree...`): the
+        `Node` always changes that node, so it works with any objects passed to the
+        `Compose`, or called alone. With `relative=True` it starts from `obj`, through
+        its active material, another material slot, its data (a light) or the
+        geometry nodes modifier using the node's group (`active_material.node_tree...`):
+        pass the object to the `Compose`, and the `Node` also works for other objects
+        set up the same way. A world's node is relative to the world. A comment on top
+        says which, with the object's name.
+
         In the Blender app, the add-on does the same for the active node in the node
-        editor and copies it to the clipboard: Sidebar (N) > Blendmentation, Node menu or
-        right click a node > Copy Blendmentation Template, or search for it with F3. See
+        editor and copies it to the clipboard: Sidebar (N) > Blendmentation > Copy Node
+        Template, Relative (from the active object) or Absolute; or Node menu, right
+        click a node or F3 > Copy Blendmentation Template. See
         [Installation](installation.md#inside-blender-as-an-add-on).
 
         Args:
             node: the node, or its data path. A path is kept in the text as it is, so a
-                path relative to `obj` makes a relative template; a node gets its
-                absolute path.
+                path relative to `obj` makes a relative template.
             obj: object a relative path starts from.
             prefix: written before `Node` and `Input`, e.g. `"aug."` after
                 `from blendmentation.augmentations import augmentations as aug`.
+            relative: for a node, write its path relative to `obj`.
 
         Returns:
             The source of the `Node`, ending in a newline.
 
         Raises:
             TypeError: `node` is not a node.
-            ValueError: the node has no inputs.
+            ValueError: the node has no inputs, or `relative` and the node can't be
+                reached from `obj`.
 
         Example:
             ```python
@@ -1649,6 +1668,8 @@ class Node(InputsAugmentation):
             prints
 
             ```python
+            # Absolute paths: they always change the material "Master material", so it works with any
+            # objects passed to the Compose, or called alone without one.
             augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
                 # "Texture Coordinate": connected
                 "Base metal color": augmentations.Input((0.0, 1.0)),   # color, now (0.1385, 0.1385, 0.1385, 1.0)
@@ -1659,7 +1680,7 @@ class Node(InputsAugmentation):
             })
             ```
         """
-        return bpy_a.node_template(node, obj, prefix)
+        return bpy_a.node_template(node, obj, prefix, relative)
 
 
 def input_key(key: Union[str, int]) -> str:
