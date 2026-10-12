@@ -348,6 +348,8 @@ def test_segmentation_image(scene, cube, out, renders):
 
     with pytest.raises(ValueError, match="Segmentation"):
         G.Compose([G.Render(), G.SegmentationImage()], out, (64, 48))
+    with pytest.raises(TypeError, match="generating steps"):
+        G.Compose([G.Render(), "BBox"], out, (64, 48))
 
 
 def test_many_instances(scene, cube, out):

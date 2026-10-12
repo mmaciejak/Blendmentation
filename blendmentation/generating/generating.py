@@ -40,6 +40,28 @@ Classes = Mapping[str, Union[InstanceList, Mapping[str, Any]]]
 KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
 
 
+class Step:
+    """A generating step of a `Compose`.
+
+    `Compose` sorts the steps by `stage` (0 labels, 1 `Background`, 2 `Render`, 3 the
+    images that reuse the render, 4 `Segmentation`, 5 `SegmentationImage`), calls `check`
+    on all of them before anything renders, then `prepare(frame)` on all of them, then
+    each step with the frame. A step returning False skips the datapoint.
+    """
+
+    stage = 0
+
+    def check(self) -> None:
+        """Raises when the settings can't work, before anything renders."""
+
+    def prepare(self, frame: Any) -> None:
+        """Changes settings the beauty render needs, with `frame.set`, which sets them back
+        after the datapoint."""
+
+    def __call__(self, frame: Any) -> Optional[bool]:
+        raise NotImplementedError
+
+
 class Compose:
     """Generates one datapoint per call from a list of steps.
 
@@ -56,6 +78,7 @@ class Compose:
         resolution: `(width, height)` of the images in pixels.
 
     Raises:
+        TypeError: an item of `steps` is not a generating step.
         ValueError: a `BBoxImage` without a `BBox` step, or a `SegmentationImage`
             without a `Segmentation` step.
 
@@ -71,7 +94,12 @@ class Compose:
         ```
     """
 
-    def __init__(self, steps: Sequence[Any], path: str, resolution: tuple[int, int]):
+    def __init__(self, steps: Sequence[Step], path: str, resolution: tuple[int, int]):
+        for step in steps:
+            if not isinstance(step, Step):
+                raise TypeError(
+                    f"Compose takes generating steps (generating.Render(), generating.BBox(...)...), got {step!r}"
+                )
         for preview, source in ((BBoxImage, BBox), (SegmentationImage, Segmentation)):
             if any(isinstance(step, preview) for step in steps) and not any(isinstance(step, source) for step in steps):
                 raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, add {source.__name__} to the steps")
@@ -161,7 +189,7 @@ class Instances:
         self.of = of
 
 
-class BBox:
+class BBox(Step):
     """Adds the 2D bounding box of every instance to the label.
 
     Boxes are in pixels as `[x_min, y_min, x_max, y_max]` from the top-left corner,
@@ -246,7 +274,7 @@ class BBox:
         return bpy_g.bboxes(frame, self.classes, self._settings())
 
 
-class RotationMatrix:
+class RotationMatrix(Step):
     """Adds the rotation of every object relative to the camera to the label, as a 3x3
     matrix with the scale removed, in Blender's camera axes (x right, y up, looking down
     -z). For the full 6D pose in OpenCV axes, use `Pose`.
@@ -274,7 +302,7 @@ class RotationMatrix:
         bpy_g.rotation_matrices(frame, self.objects)
 
 
-class Pose:
+class Pose(Step):
     """Adds the 6D pose of every instance relative to the camera to the label, for pose
     estimation.
 
@@ -312,7 +340,7 @@ class Pose:
         bpy_g.poses(frame, self.classes)
 
 
-class OutputField:
+class OutputField(Step):
     """Saves the value at a data path to the label.
 
     Values are converted to JSON: datablocks become their name, menus the option name,
@@ -349,7 +377,7 @@ class OutputField:
         bpy_g.output_field(frame, self.name, self.data_path, self.objects)
 
 
-class CameraData:
+class CameraData(Step):
     """Adds the active camera to the label.
 
     Saves the name, type, `matrix_world`, `extrinsics_opencv` (3x4 world-to-camera
@@ -379,7 +407,7 @@ class CameraData:
         bpy_g.camera_data(frame)
 
 
-class Keypoints:
+class Keypoints(Step):
     """Projects 3D points to the image and adds them to the label.
 
     Vertices include deformations from armatures and modifiers. A point is visible when
@@ -414,7 +442,7 @@ class Keypoints:
         bpy_g.keypoints(frame, self.points)
 
 
-class Background:
+class Background(Step):
     """Puts a random background behind the transparent render, in the image of `Render`
     and in the preview images (`BBoxImage`, `SegmentationImage`).
 
@@ -486,7 +514,7 @@ class Background:
         bpy_g.background(frame, self.weights, self.noise_size, self.images_path, self.images)
 
 
-class Render:
+class Render(Step):
     """Renders the image with the scene's engine to `<index>.<ext>`.
 
     In the label JSON: `"image": file name`.
@@ -512,7 +540,7 @@ class Render:
         bpy_g.render_image(frame, self.file_format)
 
 
-class AOVToImage:
+class AOVToImage(Step):
     """Saves shader AOVs as images `<index>_<aov>.<ext>`.
 
     Uses the same render as `Render`; without `Render`, the scene is still rendered
@@ -551,7 +579,7 @@ class AOVToImage:
         bpy_g.aov_images(frame, self.names, self.file_format, self.skip_empty)
 
 
-class Passes:
+class Passes(Step):
     """Saves built-in render passes as images `<index>_<pass>.<ext>`.
 
     Uses the same render as `Render` and `AOVToImage`. Each pass is enabled in the view
@@ -597,7 +625,7 @@ class Passes:
         bpy_g.render_passes(frame, self.names, self.file_format, self.skip_empty)
 
 
-class BBoxImage:
+class BBoxImage(Step):
     """Saves a copy of the rendered image with the boxes of the `BBox` step drawn on it,
     to `<index>_bboxes.<ext>`, for checking the labels.
 
@@ -632,7 +660,7 @@ class BBoxImage:
         bpy_g.bbox_image(frame, self.file_format, self.line_width, self.show_class)
 
 
-class Segmentation:
+class Segmentation(Step):
     """Saves black-and-white masks of the visible pixels of every instance or class.
 
     Objects that are not in `classes` still hide what is behind them. Files are
@@ -721,7 +749,7 @@ class Segmentation:
         bpy_g.segmentation(frame, self.classes, self.per, self.skip_empty, self.full_masks)
 
 
-class SegmentationImage:
+class SegmentationImage(Step):
     """Saves a copy of the rendered image with the masks of the `Segmentation` step drawn
     over it, to `<index>_segmentation.<ext>`, for checking the labels.
 

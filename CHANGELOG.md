@@ -10,6 +10,8 @@ All notable changes to Blendmentation. The format follows
 
 - `SimpleMaterial` also takes an exact value for `hue`, `saturation`, `value`,
   `roughness` and `metallic`, e.g. `metallic=1`, next to a `(min, max)` range.
+- `generating.Compose` raises a `TypeError` naming the item when `steps` holds something
+  that is not a generating step, e.g. an augmentation.
 
 ### Fixed
 

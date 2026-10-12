@@ -1180,8 +1180,7 @@ def generate(path, resolution, steps, custom_dict=None):
     if scene.camera is None:
         raise RuntimeError("Scene has no active camera")
     for step in steps:
-        if hasattr(step, "check"):
-            step.check()
+        step.check()
 
     path = bpy.path.abspath(path or "//")
     os.makedirs(path, exist_ok=True)
@@ -1199,8 +1198,7 @@ def generate(path, resolution, steps, custom_dict=None):
 
         frame = Frame(scene, path, next_index(path), width, height, temp_dir, changes)
         for step in steps:
-            if hasattr(step, "prepare"):
-                step.prepare(frame)
+            step.prepare(frame)
         for step in steps:
             if step(frame) is False:
                 return False
