@@ -23,16 +23,32 @@ All notable changes to Blendmentation. The format follows
 
 ### Changed
 
+- The inputs of a `Node` or `Modifier` are set with `Number`, `Vector`, `Boolean` and
+  `Menu` written without a data path, e.g. `"Rust strength": augmentations.Number((0,
+  1))`: the `Node` or `Modifier` gives each one the path of its input (for a `Node`,
+  `<node path>.inputs["Rust strength"].default_value`, relative or absolute as the node's
+  path is). Use `Vector` for vector, rotation and color inputs; on a color input it keeps
+  alpha. An augmentation that doesn't fit the socket raises a `TypeError` naming the
+  right one. `Node.template` and the add-on write inputs this way.
 - The templates (`Node.template`, `Chain.shape_keys_template` and the add-on's) start
   with a comment that says whether the paths are relative or absolute, with the name of
   the object they start from or of what they change, and how to call the augmentation.
 
 ### Fixed
 
-- `Node.template` (and the add-on's Copy Node Template) no longer writes an empty
-  `Input()` for a built-in node's menu input, e.g. Transform Geometry's Mode, whose
-  options Python can't list; the template failed when run. It is now a comment starting
-  with `Warning!`, with the current option, to add `Input(options=[...])` yourself.
+- `Node.template` (and the add-on's Copy Node Template) no longer writes an input that
+  fails when run for a built-in node's menu input, e.g. Transform Geometry's Mode, whose
+  options Python can't list. It is now a comment starting with `Warning!`, with the
+  current option, to add `Menu([...])` yourself.
+
+### Removed
+
+- `augmentations.Input`, and the dict form of a `Node` or `Modifier` input
+  (`{"value_range": ..., "p": ...}`). Set each input with `Number`, `Vector`, `Boolean`
+  or `Menu` written without a data path instead, e.g. `Input((0.5, 1), p=0.2,
+  otherwise=0)` becomes `Number((0.5, 1), p=0.2, otherwise=0)`, `Input(p=0.3)` becomes
+  `Boolean(p=0.3)` and `Input(options=["A", "B"])` becomes `Menu(["A", "B"])`. A plain
+  range or option list (`"Rust": (0, 1)`) still works.
 
 ## [0.8.2] - 2026-10-12
 

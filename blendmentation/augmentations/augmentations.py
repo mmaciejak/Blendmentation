@@ -9,7 +9,8 @@ it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
 last object; `results` holds the values for every object, by name. Augment inside
 `with state.restoring():`, which sets everything back when the datapoint is done.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
-geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
+geometry nodes setup), each with its own `Number`, `Vector`, `Boolean` or `Menu`
+written without a data path: the `Node` gives each the path of its input;
 `Modifier` does the same for the inputs of a geometry nodes modifier, by name.
 `Node.template` writes a `Node` with every input of a node and its range, to paste and
 edit; the Blender add-on copies it for the selected node. `Chain.shape_keys_template`
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
 #: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
 #: (low, high, step) picks one of low, low + step, ... up to high
 Offset = Union[float, tuple[float, float], tuple[float, float, float]]
+#: a (min, max) range, or (min, max, step) for one of min, min + step, ... max
+Range = Union[tuple[float, float], tuple[float, float, float]]
 #: a (min, max) range or an exact number
 RangeOrValue = Union[float, tuple[float, float]]
 #: an object, objects (the center of their bounding boxes), or a point (x, y, z)
@@ -372,13 +375,13 @@ class Chain(Augmentation):
                 augmentations.Chain([
                     augmentations.MaterialSlot(["Ferrous metal"]),
                     augmentations.Node('active_material.node_tree.nodes["Ferrous metal"]', {
-                        "Rust strength": augmentations.Input((0.3, 1)),
+                        "Rust strength": augmentations.Number((0.3, 1)),
                     }),
                 ]),
                 augmentations.Chain([
                     augmentations.MaterialSlot(["Plastic"]),
                     augmentations.Node('active_material.node_tree.nodes["Principled BSDF"]', {
-                        "Roughness": augmentations.Input((0.1, 0.6)),
+                        "Roughness": augmentations.Number((0.1, 0.6)),
                     }),
                 ]),
             ], weights=[3, 1]),
@@ -1042,11 +1045,11 @@ class MaterialSlot(Augmentation):
             augmentations.MaterialSlot(["Ferrous metal", "Plastic"]),
             augmentations.Node(
                 'bpy.data.materials["Ferrous metal"].node_tree.nodes["Ferrous metal"]',
-                {"Rust strength": augmentations.Input((0.3, 1))},
+                {"Rust strength": augmentations.Number((0.3, 1))},
             ),
             augmentations.Node(
                 'bpy.data.materials["Plastic"].node_tree.nodes["Principled BSDF"]',
-                {"Base Color": augmentations.Input((0, 1))},
+                {"Base Color": augmentations.Vector((0, 1))},
             ),
         ])
         ```
@@ -1124,22 +1127,55 @@ class SimpleMaterial(Augmentation):
         )
 
 
-class Number(Augmentation):
+def split_path(data_path: Any, main: Any) -> tuple[Optional[str], Any]:
+    """The data path and the main argument of a `Number`, `Vector`, `Boolean` or `Menu`:
+    without a path (inside a `Node` or `Modifier`), the first argument is the main one."""
+    if data_path is None or isinstance(data_path, str):
+        return data_path, main
+    if main is not None:
+        raise TypeError(f"The data path must be a string, got {data_path!r}")
+    return None, data_path
+
+
+class PathAugmentation(Augmentation):
+    """A `Number`, `Vector`, `Boolean` or `Menu`: sets the value at its data path. Inside
+    a `Node` or `Modifier` it has none of its own; the `Node` or `Modifier` gives it the
+    path of the input it sets before each call (`data_path`), and for a color input
+    `color=True`."""
+
+    data_path: Optional[str]
+    color = False
+
+    def path(self) -> str:
+        if self.data_path is None:
+            raise ValueError(f"{type(self).__name__} has no data path: give it one, or use it as an "
+                             f"input of a Node or Modifier, which gives it the input's path")
+        return self.data_path
+
+
+class Number(PathAugmentation):
     """Sets any int or float value, given by its data path, to a random value.
 
     For shader node inputs, geometry nodes inputs, shape keys, light settings and so
     on. Ints are rounded. With a step, the value is one of min, min + step, ... max.
 
+    As an input of a [`Node`][blendmentation.augmentations.augmentations.Node] or
+    [`Modifier`][blendmentation.augmentations.augmentations.Modifier], leave the data
+    path out: `Number((0, 1))`. The `Node` or `Modifier` gives it the path of the input.
+
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object (or the World, material… passed in its place). Use `[index]` for one vector component, e.g. `'location[2]'`.
+            the object (or the World, material… passed in its place). Use `[index]` for
+            one vector component, e.g. `'location[2]'`. Left out inside a `Node` or
+            `Modifier`.
         value_range: `(min, max)` range of the new value, or `(min, max, step)`.
         p: probability of applying the augmentation.
         otherwise: value to set when it doesn't run, None keeps the value.
 
     Raises:
         ValueError: `value_range` is not `(min, max)` or `(min, max, step)`, min is
-            above max, or step is not above 0.
+            above max, or step is not above 0. At a call, there is no data path (outside
+            a `Node` or `Modifier`).
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
@@ -1154,32 +1190,42 @@ class Number(Augmentation):
         # rust in 20 % of the images, none in the others
         augmentations.Number('node_tree.nodes["Rust"].outputs[0].default_value',
                              value_range=(0.5, 1), p=0.2, otherwise=0)
+        # an input of a Node: the path comes from the Node
+        augmentations.Node('node_tree.nodes["Rust"]', {"Scale": augmentations.Number((1, 5))})
         ```
     """
 
-    def __init__(self, data_path: str, value_range: Union[tuple[float, float], tuple[float, float, float]],
+    def __init__(self, data_path: Union[str, Range, None] = None, value_range: Optional[Range] = None,
                  p: float = 1.0, otherwise: Optional[float] = None):
         super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"))
-        self.data_path = data_path
+        self.data_path, value_range = split_path(data_path, value_range)
         self.value_range = check_range(value_range, "value_range")
 
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.number(obj, self.data_path, self.value_range)
+        self.actual = bpy_a.number(obj, self.path(), self.value_range)
 
     def set_otherwise(self, obj: Optional[Object]) -> float:
-        return bpy_a.number(obj, self.data_path, (self.otherwise, self.otherwise))
+        return bpy_a.number(obj, self.path(), (self.otherwise, self.otherwise))
 
 
-class Vector(Augmentation):
+class Vector(PathAugmentation):
     """Sets any vector value, given by its data path, to random values per component.
 
     For locations, colors, vector node inputs and so on. Each bound of `value_range` is
     a number for all components, or a sequence with one value per component, where
     None keeps that component. Int components are rounded.
 
+    As an input of a [`Node`][blendmentation.augmentations.augmentations.Node] or
+    [`Modifier`][blendmentation.augmentations.augmentations.Modifier], leave the data
+    path out: `Vector((-1, 1))`. The `Node` or `Modifier` gives it the path of the
+    input. It sets vector, rotation (X, Y, Z angles in radians) and color inputs; on a
+    color input a bound (or `otherwise`) of one number or 3 values sets red, green and
+    blue and keeps alpha, so `Vector((0, 1))` is any color.
+
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object (or the World, material… passed in its place).
+            the object (or the World, material… passed in its place). Left out inside a
+            `Node` or `Modifier`.
         value_range: `(min, max)` bounds of the new values.
         p: probability of applying the augmentation.
         otherwise: vector to set when it doesn't run, a number for all components or
@@ -1200,34 +1246,52 @@ class Vector(Augmentation):
         )
         # a random offset in half of the images, no offset in the others
         augmentations.Vector('node_tree.nodes["Offset"].vector', value_range=(-1, 1), p=0.5, otherwise=0)
+        # inputs of a Node: the path comes from the Node
+        augmentations.Node('active_material.node_tree.nodes["Principled BSDF"]', {
+            "Base Color": augmentations.Vector((0, 1)),   # any color, alpha kept
+        })
         ```
     """
 
-    def __init__(self, data_path: str, value_range: tuple[Bound, Bound], p: float = 1.0,
+    def __init__(self, data_path: Union[str, tuple[Bound, Bound], None] = None,
+                 value_range: Optional[tuple[Bound, Bound]] = None, p: float = 1.0,
                  otherwise: Optional[Bound] = None):
         valid = is_number(otherwise) or (
             isinstance(otherwise, Sequence) and not isinstance(otherwise, str)
             and all(value is None or is_number(value) for value in otherwise))
         super().__init__(p, check_otherwise(otherwise, valid, "a number or one value per component"))
-        self.data_path = data_path
+        self.data_path, value_range = split_path(data_path, value_range)
+        if isinstance(value_range, str) or not isinstance(value_range, Sequence) or len(value_range) != 2:
+            raise ValueError(f"value_range must be (min, max), got {value_range!r}")
         self.value_range = value_range
 
+    def bounds(self, low: Any, high: Any) -> tuple:
+        """The bounds as given, or on a color input with alpha kept."""
+        if self.color:
+            return color_bound(low), color_bound(high)
+        return low, high
+
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.vector(obj, self.data_path, self.value_range)
+        self.actual = bpy_a.vector(obj, self.path(), self.bounds(*self.value_range))
 
     def set_otherwise(self, obj: Optional[Object]) -> tuple:
-        return bpy_a.vector(obj, self.data_path, (self.otherwise, self.otherwise))
+        return bpy_a.vector(obj, self.path(), self.bounds(self.otherwise, self.otherwise))
 
 
-class Boolean(Augmentation):
+class Boolean(PathAugmentation):
     """Sets any boolean value, given by its data path, to True with probability `p`,
     otherwise to `otherwise` (False by default).
 
     For geometry nodes switches, object visibility, modifier toggles and so on.
 
+    As an input of a [`Node`][blendmentation.augmentations.augmentations.Node] or
+    [`Modifier`][blendmentation.augmentations.augmentations.Modifier], leave the data
+    path out: `Boolean(p=0.3)`. The `Node` or `Modifier` gives it the path of the input.
+
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object (or the World, material… passed in its place).
+            the object (or the World, material… passed in its place). Left out inside a
+            `Node` or `Modifier`.
         p: probability of True.
         otherwise: value to set the rest of the time, None keeps the value.
 
@@ -1240,31 +1304,44 @@ class Boolean(Augmentation):
         augmentations.Boolean("data.use_shadow", p=0.8)
         # turned on in 30 % of the images, otherwise as it is in the scene
         augmentations.Boolean("data.use_shadow", p=0.3, otherwise=None)
+        # an input of a Node: the path comes from the Node
+        augmentations.Node('node_tree.nodes["Scatter"]', {"Mossy": augmentations.Boolean(p=0.3)})
         ```
     """
 
-    def __init__(self, data_path: str, p: float = 0.5, otherwise: Optional[bool] = False):
-        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
+    def __init__(self, data_path: Union[str, float, None] = None, p: Optional[float] = None,
+                 otherwise: Optional[bool] = False):
+        data_path, p = split_path(data_path, p)
+        super().__init__(0.5 if p is None else p,
+                         check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
         self.data_path = data_path
 
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.boolean(obj, self.data_path, True)
+        self.actual = bpy_a.boolean(obj, self.path(), True)
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
-        return bpy_a.boolean(obj, self.data_path, self.otherwise)
+        return bpy_a.boolean(obj, self.path(), self.otherwise)
 
 
-class Menu(Augmentation):
+class Menu(PathAugmentation):
     """Sets any menu (enum) value, given by its data path, to a random option.
 
     For geometry nodes menu inputs, node settings like the Principled BSDF
     distribution, the light type and so on.
 
+    As an input of a [`Node`][blendmentation.augmentations.augmentations.Node] or
+    [`Modifier`][blendmentation.augmentations.augmentations.Modifier], leave the data
+    path out: `Menu(["Sand", "Gravel"])`. The `Node` or `Modifier` gives it the path of
+    the input.
+
     Args:
         data_path: path to the value, absolute (starting with `bpy.`) or relative to
-            the object (or the World, material… passed in its place).
-        options: options to choose from. None = all options of the menu; required when
-            Blender doesn't list them, e.g. for menu sockets not on a Menu Switch node.
+            the object (or the World, material… passed in its place). Left out inside a
+            `Node` or `Modifier`.
+        options: options to choose from. None = all options of the menu: a Menu
+            Switch's, or a group node's input that leads to one; required when Blender
+            doesn't list them, e.g. for a built-in node's menu like Transform Geometry's
+            Mode.
         weights: relative probability of each option. None = equal.
         p: probability of applying the augmentation.
         otherwise: option to set when it doesn't run, None keeps the value. It doesn't
@@ -1282,164 +1359,110 @@ class Menu(Augmentation):
         augmentations.Menu("data.type", options=["POINT", "SPOT", "AREA"], weights=[2, 1, 1])
         # a spot or area light in 30 % of the images, a point light in the others
         augmentations.Menu("data.type", options=["SPOT", "AREA"], p=0.3, otherwise="POINT")
+        # an input of a Node: the path comes from the Node
+        augmentations.Node('node_tree.nodes["Ground"]', {"Type": augmentations.Menu(["Sand", "Gravel"])})
         ```
     """
 
-    def __init__(self, data_path: str, options: Optional[Sequence[Any]] = None,
+    def __init__(self, data_path: Union[str, Sequence[Any], None] = None, options: Optional[Sequence[Any]] = None,
                  weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None):
         super().__init__(p, otherwise)
+        self.data_path, options = split_path(data_path, options)
         if options is not None and weights is not None and len(options) != len(weights):
             raise ValueError("Give one weight per option")
-        self.data_path = data_path
         self.options = options
         self.weights = weights
 
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.menu(obj, self.data_path, self.options, self.weights)
+        self.actual = bpy_a.menu(obj, self.path(), self.options, self.weights)
 
     def set_otherwise(self, obj: Optional[Object]) -> Any:
-        return bpy_a.menu(obj, self.data_path, [self.otherwise], None)
-
-
-class Unset:
-    """The default of `Input(otherwise=...)`: the default of the augmentation it becomes."""
-
-    def __repr__(self) -> str:
-        return "UNSET"
-
-
-UNSET = Unset()
-
-
-class Input:
-    """How a `Node` sets one input: its range or options, `p` and `otherwise`.
-
-    The arguments are those of the augmentation the input becomes, picked by its
-    socket type: `value_range`, `p` and `otherwise` for numbers, vectors and colors
-    (as in [`Number`][blendmentation.augmentations.augmentations.Number] and
-    [`Vector`][blendmentation.augmentations.augmentations.Vector]), `p` and `otherwise`
-    for booleans ([`Boolean`][blendmentation.augmentations.augmentations.Boolean]), and
-    `options`, `weights`, `p` and `otherwise` for menus
-    ([`Menu`][blendmentation.augmentations.augmentations.Menu]). Arguments that don't
-    fit the socket raise a `ValueError` at the first call.
-
-    Args:
-        value_range: `(min, max)`, or `(min, max, step)` for numbers. For a color, a
-            number or 3 values per bound set red, green and blue and keep alpha.
-        options: menu options to choose from. None = all of them.
-        weights: relative probability of each menu option. None = equal.
-        p: probability of setting the input. None = the augmentation's default: 1,
-            or 0.5 for a boolean, which is then the probability of True.
-        otherwise: value to set when it doesn't run because of `p`. None keeps the
-            value; left out, it is the augmentation's default: None, or False for a
-            boolean.
-
-    Raises:
-        ValueError: both `value_range` and `options` are given, `value_range` is not
-            a pair or a triple, `p` is not between 0 and 1, or the number of weights
-            and options differ.
-
-    Example:
-        ```python
-        augmentations.Input((0.5, 1), p=0.2, otherwise=0)    # a number or a color
-        augmentations.Input((0, 1, 0.25))                     # 0, 0.25, ... 1
-        augmentations.Input(options=["Shiny metal", "Cast metal"], weights=[3, 1])
-        augmentations.Input(p=0.3, otherwise=None)            # a boolean: True 30 %, else kept
-        ```
-    """
-
-    def __init__(self, value_range: Optional[Sequence[Any]] = None, options: Optional[Sequence[Any]] = None,
-                 weights: Optional[Sequence[float]] = None, p: Optional[float] = None, otherwise: Any = UNSET):
-        if value_range is not None and options is not None:
-            raise ValueError("Give value_range or options, not both")
-        if value_range is not None and (isinstance(value_range, str) or not isinstance(value_range, Sequence)
-                                        or len(value_range) not in (2, 3)):
-            raise ValueError(f"value_range must be (min, max) or (min, max, step), got {value_range!r}")
-        if options is not None and weights is not None and len(options) != len(weights):
-            raise ValueError("Give one weight per option")
-        self.value_range = value_range
-        self.options = options
-        self.weights = weights
-        self.p = None if p is None else check_p(p)
-        self.otherwise = otherwise
-
-    def arguments(self) -> dict[str, Any]:
-        """The arguments that were given, for the augmentation the input becomes."""
-        arguments = {name: getattr(self, name) for name in ("value_range", "options", "weights", "p")
-                     if getattr(self, name) is not None}
-        if self.otherwise is not UNSET:
-            arguments["otherwise"] = self.otherwise
-        return arguments
-
-    def __repr__(self) -> str:
-        return f"Input({', '.join(f'{name}={value!r}' for name, value in self.arguments().items())})"
-
-
-#: the arguments an input of a `Node` can set, in a dict
-INPUT_ARGUMENTS = ("value_range", "options", "weights", "p", "otherwise")
+        return bpy_a.menu(obj, self.path(), [self.otherwise], None)
 
 
 def color_bound(bound: Any) -> Any:
-    """A bound or otherwise for a color socket: a number or 3 values set R, G, B and keep alpha."""
+    """A bound or otherwise for a color input: a number or 3 values set R, G, B and keep alpha."""
     if is_number(bound):
         return (bound, bound, bound, None)
-    if isinstance(bound, Sequence) and len(bound) == 3:
+    if isinstance(bound, Sequence) and not isinstance(bound, str) and len(bound) == 3:
         return (*bound, None)
     return bound
 
 
-def input_augmentation(kind: str, key: Union[str, int], data_path: str, spec: Any) -> Augmentation:
-    """The `Number`, `Vector`, `Boolean` or `Menu` for an input of a `Node`, by socket type."""
-    augmentations = {"VALUE": (Number, "value_range"), "INT": (Number, "value_range"),
-                     "VECTOR": (Vector, "value_range"), "ROTATION": (Vector, "value_range"),
-                     "RGBA": (Vector, "value_range"),
-                     "BOOLEAN": (Boolean, "p"), "MENU": (Menu, "options")}
-    if kind not in augmentations:
-        raise TypeError(f"Input {key!r} is a {kind} socket, only number, vector, rotation, color, boolean and menu inputs can be augmented")
-    augmentation, main = augmentations[kind]
-    if isinstance(spec, Input):
-        arguments = spec.arguments()
-    else:
-        arguments = dict(spec) if isinstance(spec, dict) else {} if spec is None else {main: spec}
-    if kind == "RGBA":
-        if "value_range" in arguments:
-            arguments["value_range"] = tuple(color_bound(bound) for bound in arguments["value_range"])
-        if arguments.get("otherwise") is not None:
-            arguments["otherwise"] = color_bound(arguments["otherwise"])
-    if augmentation in (Number, Vector) and arguments.get("value_range") is None:
-        raise ValueError(f"Input {key!r} is a {kind} socket, give it a value_range")
+#: the augmentation that sets each socket type, and its main argument
+INPUT_AUGMENTATIONS = {"VALUE": "Number", "INT": "Number", "VECTOR": "Vector", "ROTATION": "Vector",
+                       "RGBA": "Vector", "BOOLEAN": "Boolean", "MENU": "Menu"}
+#: socket types as they are named in errors
+SOCKET_NAMES = {"VALUE": "a float", "INT": "an int", "VECTOR": "a vector", "ROTATION": "a rotation",
+                "RGBA": "a color", "BOOLEAN": "a boolean", "MENU": "a menu"}
+
+
+def input_augmentation(kind: str, key: Union[str, int], spec: Any) -> PathAugmentation:
+    """The `Number`, `Vector`, `Boolean` or `Menu` (without a path) for a plain value
+    given as an input of a `Node` or `Modifier`, by socket type."""
+    if kind not in INPUT_AUGMENTATIONS:
+        raise TypeError(f"Input {key!r} is a {kind} socket, only number, vector, rotation, color, boolean "
+                        f"and menu inputs can be augmented")
+    augmentation = {"Number": Number, "Vector": Vector, "Boolean": Boolean, "Menu": Menu}[INPUT_AUGMENTATIONS[kind]]
+    if augmentation in (Number, Vector) and spec is None:
+        raise ValueError(f"Input {key!r} is {SOCKET_NAMES[kind]} input, give it a range")
     try:
-        return augmentation(data_path, **arguments)
-    except TypeError as error:
-        raise ValueError(f"Input {key!r} is a {kind} socket: {error}") from None
+        return augmentation(spec)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Input {key!r} is {SOCKET_NAMES[kind]} input: {error}") from None
 
 
 class InputAugmentation:
-    """One input of a `Node` or `Modifier`. On every call it runs a `Number`, `Vector`,
-    `Boolean` or `Menu`, picked by the type of the socket, with the input's arguments."""
+    """One input of a `Node` or `Modifier`. On every call it finds the data path of the
+    input's value and its socket type, gives the path to the input's `Number`,
+    `Vector`, `Boolean` or `Menu` and calls it."""
 
     def __init__(self, key: Union[str, int], spec: Any):
-        if isinstance(spec, dict):
-            unknown = set(spec) - set(INPUT_ARGUMENTS)
-            if unknown:
-                raise ValueError(f"Input {key!r}: unknown arguments {sorted(unknown)}, use {', '.join(INPUT_ARGUMENTS)}")
+        if isinstance(spec, Augmentation) and not isinstance(spec, PathAugmentation):
+            raise TypeError(f"Input {key!r}: {type(spec).__name__} can't set an input, use Number, Vector, "
+                            f"Boolean or Menu")
+        if isinstance(spec, PathAugmentation) and spec.data_path is not None:
+            raise ValueError(f"Input {key!r}: leave the data path out, the input's path is used")
         self.key = key
         self.spec = spec
-        self.by_path: dict[tuple[str, str], Augmentation] = {}
+        # a plain value becomes one augmentation per socket type
+        self.by_kind: dict[str, PathAugmentation] = {}
         self.applied: Optional[bool] = None
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
+
+    @property
+    def augmentations(self) -> list[PathAugmentation]:
+        """The input's augmentation, so `Compose` clears its `results` too."""
+        return [self.spec] if isinstance(self.spec, PathAugmentation) else list(self.by_kind.values())
 
     def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
         """The data path of the input's value for this object, and its socket type."""
         raise NotImplementedError
 
+    def augmentation(self, kind: str) -> PathAugmentation:
+        """The input's augmentation for a socket type, checked against it."""
+        if not isinstance(self.spec, PathAugmentation):
+            if kind not in self.by_kind:
+                self.by_kind[kind] = input_augmentation(kind, self.key, self.spec)
+            return self.by_kind[kind]
+        expected = INPUT_AUGMENTATIONS.get(kind)
+        if expected is None:
+            raise TypeError(f"Input {self.key!r} is a {kind} socket, only number, vector, rotation, color, "
+                            f"boolean and menu inputs can be augmented")
+        if type(self.spec).__name__ != expected:
+            raise TypeError(f"Input {self.key!r} is {SOCKET_NAMES[kind]} input: set it with {expected}, "
+                            f"not {type(self.spec).__name__}")
+        return self.spec
+
     def __call__(self, obj: Optional[Object] = None) -> None:
         data_path, kind = self.resolve(obj)
-        if (data_path, kind) not in self.by_path:
-            self.by_path[data_path, kind] = input_augmentation(kind, self.key, data_path, self.spec)
-        augmentation = self.by_path[data_path, kind]
-        augmentation(obj)
+        augmentation = self.augmentation(kind)
+        augmentation.data_path, augmentation.color = data_path, kind == "RGBA"
+        try:
+            augmentation(obj)
+        finally:
+            augmentation.data_path = None  # it is the Node's, given again on the next call
         self.applied, self.actual = augmentation.applied, augmentation.actual
         self.results[None if obj is None else obj.name] = self.actual
 
@@ -1496,28 +1519,33 @@ class Node(InputsAugmentation):
     [`Modifier`][blendmentation.augmentations.augmentations.Modifier].
 
     `inputs` maps each input to augment, by name (or index, for inputs that share a
-    name), to how it is set: an [`Input`][blendmentation.augmentations.augmentations.Input],
-    or for short its main argument alone. Inputs that are left out keep their values.
-    Each input is set by a [`Number`][blendmentation.augmentations.augmentations.Number],
-    [`Vector`][blendmentation.augmentations.augmentations.Vector],
-    [`Boolean`][blendmentation.augmentations.augmentations.Boolean] or
-    [`Menu`][blendmentation.augmentations.augmentations.Menu], picked by the type of
-    the socket, and takes the arguments of that augmentation. A dict with the same
-    keys as the `Input` arguments works too.
+    name), to the augmentation that sets it, written **without a data path**: the
+    `Node` gives each one the path of its input. Inputs that are left out keep their
+    values.
 
-    | Socket | Main argument alone | `Input` arguments |
-    | --- | --- | --- |
-    | Float, Int | `value_range`: `(min, max)` or `(min, max, step)` | `value_range`, `p`, `otherwise` |
-    | Vector | `value_range`: `(min, max)`, as in `Vector` | `value_range`, `p`, `otherwise` |
-    | Rotation | `value_range`: `(min, max)` of the X, Y, Z angles in radians, as in `Vector` | `value_range`, `p`, `otherwise` |
-    | Color | `value_range`: `(min, max)`, as in `Vector` | `value_range`, `p`, `otherwise` |
-    | Boolean | `p`, the probability of True | `p`, `otherwise` |
-    | Menu | `options`, None = all of them | `options`, `weights`, `p`, `otherwise` |
+    | Socket | Set it with |
+    | --- | --- |
+    | Float, Int | [`Number`][blendmentation.augmentations.augmentations.Number]`((min, max))` or `((min, max, step))` |
+    | Vector | [`Vector`][blendmentation.augmentations.augmentations.Vector]`((min, max))` |
+    | Rotation | `Vector((min, max))` of the X, Y, Z angles in radians |
+    | Color | `Vector((min, max))`: a number or 3 values set red, green and blue and keep alpha, so `(0, 1)` is any color; 4 values set alpha too |
+    | Boolean | [`Boolean`][blendmentation.augmentations.augmentations.Boolean]`(p=...)`, the probability of True |
+    | Menu | [`Menu`][blendmentation.augmentations.augmentations.Menu]`([options])`, or `Menu()` for every option |
 
-    For a color, a number or 3 values set red, green and blue and keep alpha, so
-    `(0, 1)` is any color; give 4 values to set alpha too. Each input draws its own
-    `p`, and `Node`'s own `p` applies the whole node: when it doesn't run, no
-    input changes, also not to its `otherwise`.
+    They take all their usual arguments but the path (`p`, `otherwise`, `weights`…).
+    The path inherited from the `Node` is that of the input's value, so
+    `augmentations.Node('active_material.node_tree.nodes["Ferrous metal"]', {"Rust
+    strength": augmentations.Number((0, 1))})` sets
+    `active_material.node_tree.nodes["Ferrous metal"].inputs["Rust strength"].default_value`:
+    relative to the object when the node's path is, absolute when it is. The `Node`
+    gives the path before each call and takes it back after, so the same `Number` does
+    nothing on its own (it raises a `ValueError` without a path). An augmentation that
+    doesn't match the socket, e.g. a `Number` on a color input, raises a `TypeError`
+    at the call. For short, an input can also be just the range or options, e.g.
+    `"Rust strength": (0, 1)`, and `Node` picks the augmentation by the socket type.
+
+    Each input draws its own `p`, and `Node`'s own `p` applies the whole node: when it
+    doesn't run, no input changes, also not to its `otherwise`.
 
     The node is given by its data path, with the node's name: Sidebar (N) > Node >
     Name, not the title on the node (a group node shows its group's name), or right
@@ -1541,10 +1569,12 @@ class Node(InputsAugmentation):
 
     Raises:
         ValueError: `inputs` is empty, an input's key is not a name or index, or its
-            dict has other keys. At the first call: an input's arguments don't fit
-            its socket type, e.g. a Float without a range.
-        TypeError: at a call, an input is not a number, vector, rotation, color,
-            boolean or menu socket.
+            augmentation has a data path of its own. At the first call: a short value
+            doesn't fit its socket type, e.g. a Float without a range.
+        TypeError: an input is set with an augmentation other than `Number`,
+            `Vector`, `Boolean` or `Menu`. At a call: the augmentation doesn't match
+            the socket, or the input is not a number, vector, rotation, color, boolean
+            or menu socket.
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
@@ -1552,34 +1582,25 @@ class Node(InputsAugmentation):
         and the last values set are kept.
 
     Tip:
-        Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
-        `Menu` and the data path of its value,
-        `'node_tree.nodes["Ferrous metal"].inputs["Rust strength"].default_value'`.
-        `Node` is shorter for several inputs of one node, and picks the augmentation
-        for each input by itself.
+        `Node` is the same as a `Chain` of `Number`, `Vector`, `Boolean` and `Menu`
+        with the full path of each input's value,
+        `'node_tree.nodes["Ferrous metal"].inputs["Rust strength"].default_value'`,
+        written once for the node. Its `actual` is keyed by input.
 
     Example:
-        An input takes one of three forms, and they can be mixed:
-
-        - an `Input`, which takes every argument, checked when it is built:
-          `Input((0.5, 1), p=0.2, otherwise=0)`;
-        - the main argument alone, short for an `Input` with only that: `(0, 1)` is
-          `Input((0, 1))`, and `None` is `Input()` (a menu: any option);
-        - a dict with the `Input` arguments as keys,
-          `{"value_range": (0.5, 1), "p": 0.2}`, checked only at the first call.
-
         ```python
         ferrous_metal = augmentations.Node(
             'bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]',
             {
-                "Texture ofset": (-100, 100),             # Vector: every axis
-                "Base metal type": None,                  # Menu: any option
-                "Surface effect": augmentations.Input(options=["Weathered", "Grinded"], weights=[3, 1]),
-                "Base metal color": ((0.3, 0.3, 0.3), (0.6, 0.6, 0.6)),  # Color, alpha kept
-                "Rust strength": (0, 1, 0.25),            # Float: 0, 0.25, ... 1
+                "Texture ofset": augmentations.Vector((-100, 100)),   # every axis
+                "Base metal type": augmentations.Menu(),              # any option
+                "Surface effect": augmentations.Menu(["Weathered", "Grinded"], weights=[3, 1]),
+                "Base metal color": augmentations.Vector(((0.3, 0.3, 0.3), (0.6, 0.6, 0.6))),  # alpha kept
+                "Rust strength": augmentations.Number((0, 1, 0.25)),  # 0, 0.25, ... 1
                 # rust in 20 % of the images, none in the others
-                "Rust spread": augmentations.Input((0.5, 1), p=0.2, otherwise=0),
-                "Paint Color": (0, 1),                    # Color: any color
+                "Rust spread": augmentations.Number((0.5, 1), p=0.2, otherwise=0),
+                "Paint Color": augmentations.Vector((0, 1)),          # any color
+                "Paint": augmentations.Boolean(p=0.3),                # painted in 30 %
             },
         )
         with state.restoring():
@@ -1593,7 +1614,8 @@ class Node(InputsAugmentation):
         ```python
         rocks = augmentations.Node(
             'bpy.data.node_groups["Scatter"].nodes["Rock generator"]',
-            {"Count": (10, 50), "Size": augmentations.Input((0.5, 2), p=0.5, otherwise=1)},
+            {"Count": augmentations.Number((10, 50)),
+             "Size": augmentations.Number((0.5, 2), p=0.5, otherwise=1)},
         )
         ```
     """
@@ -1610,20 +1632,26 @@ class Node(InputsAugmentation):
         """Writes the source of a `Node` that sets every input of a node, to paste into a
         script and edit.
 
-        Each input gets an `Input` with the widest range the node allows, so you narrow
-        the ranges you want and delete the inputs to leave alone:
+        Each input gets the augmentation that sets it, without a data path (the `Node`
+        gives it), with the widest range the node allows, so you narrow the ranges you
+        want and delete the inputs to leave alone:
 
         | Socket | Written as |
         | --- | --- |
-        | Float, Int, Vector | `(min, max)` of the socket: for a group node, Min and Max of the input in the group's interface; for other nodes, the socket type's (0 to 1 for a factor). Without one, `(v, v)` with the current value |
-        | Rotation | `(v, v)` with the current X, Y, Z angles in radians |
-        | Color | `(0.0, 1.0)`: any color, alpha kept |
-        | Boolean | `p=0.5` |
-        | Menu | every option: a Menu Switch's, or a group input's that leads to one. A built-in node's menu (e.g. Transform Geometry's Mode) is a `Warning!` comment, since Python can't list its options: add `Input(options=[...])` yourself |
+        | Float, Int | `Number((min, max))` |
+        | Vector | `Vector((min, max))` |
+        | Rotation | `Vector((v, v))` with the current X, Y, Z angles in radians |
+        | Color | `Vector((0.0, 1.0))`: any color, alpha kept |
+        | Boolean | `Boolean(p=0.5)` |
+        | Menu | `Menu([...])` with every option: a Menu Switch's, or a group input's that leads to one. A built-in node's menu (e.g. Transform Geometry's Mode) is a `Warning!` comment, since Python can't list its options: add `Menu([...])` yourself |
 
-        A comment after each input gives its type and current value. Connected inputs
-        and sockets `Node` can't set (shader, geometry, string, object...) are only
-        comments, and hidden ones (unavailable in the node's current mode) are left out.
+        The min and max of a Float, Int or Vector are those of the socket: for a group
+        node, Min and Max of the input in the group's interface; for other nodes, the
+        socket type's (0 to 1 for a factor). Without them, it is `(v, v)` with the
+        current value. A comment after each input gives its type and current value.
+        Connected inputs and sockets `Node` can't set (shader, geometry, string,
+        object...) are only comments, and hidden ones (unavailable in the node's current
+        mode) are left out.
         Inputs that share a name are keyed by index, with the name in the comment. The
         node's name and the input names are written exactly, trailing spaces included.
 
@@ -1646,7 +1674,7 @@ class Node(InputsAugmentation):
             node: the node, or its data path. A path is kept in the text as it is, so a
                 path relative to `obj` makes a relative template.
             obj: object a relative path starts from.
-            prefix: written before `Node` and `Input`, e.g. `"aug."` after
+            prefix: written before `Node`, `Number`, `Vector`, `Boolean` and `Menu`, e.g. `"aug."` after
                 `from blendmentation.augmentations import augmentations as aug`.
             relative: for a node, write its path relative to `obj`.
 
@@ -1672,10 +1700,10 @@ class Node(InputsAugmentation):
             # objects passed to the Compose, or called alone without one.
             augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
                 # "Texture Coordinate": connected
-                "Base metal color": augmentations.Input((0.0, 1.0)),   # color, now (0.1385, 0.1385, 0.1385, 1.0)
-                "Base metal type": augmentations.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
-                "Texture scale": augmentations.Input((-10000.0, 10000.0)),  # float, now 1.0
-                "Rust strength": augmentations.Input((0.0, 1.0)),      # float, now 0.0
+                "Base metal color": augmentations.Vector((0.0, 1.0)),  # color, now (0.1385, 0.1385, 0.1385, 1.0)
+                "Base metal type": augmentations.Menu(["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+                "Texture scale": augmentations.Number((-10000.0, 10000.0)),  # float, now 1.0
+                "Rust strength": augmentations.Number((0.0, 1.0)),     # float, now 0.0
                 ...
             })
             ```
@@ -1698,9 +1726,11 @@ class Modifier(InputsAugmentation):
 
     It works like [`Node`][blendmentation.augmentations.augmentations.Node], for the
     inputs shown on the modifier: `inputs` maps each input, by its name in the node
-    group (or its index among the group's inputs, Geometry included), to an
-    [`Input`][blendmentation.augmentations.augmentations.Input], or its main argument
-    alone (see the table in `Node`). A rotation is X, Y, Z angles in radians. An
+    group (or its index among the group's inputs, Geometry included), to a `Number`,
+    `Vector`, `Boolean` or `Menu` **without a data path**, as in `Node` (see its
+    table), or for short just the range or options. The `Modifier` gives each one the
+    path of its input, which depends on the Blender version, before each call. A
+    rotation is X, Y, Z angles in radians. An
     input set to be read from an attribute keeps reading it.
 
     The modifier is given by its data path, relative to the object (e.g.
@@ -1721,11 +1751,13 @@ class Modifier(InputsAugmentation):
 
     Raises:
         ValueError: `inputs` is empty, an input's key is not a name or index, or its
-            dict has other keys. At the first call: an input's arguments don't fit
-            its socket type, e.g. a Float without a range.
+            augmentation has a data path of its own. At the first call: a short value
+            doesn't fit its socket type, e.g. a Float without a range.
         KeyError: at a call, the modifier has no such input.
-        TypeError: at a call, the path is not a geometry nodes modifier, or an input
-            is not a number, vector, rotation, color, boolean or menu socket.
+        TypeError: an input is set with an augmentation other than `Number`,
+            `Vector`, `Boolean` or `Menu`. At a call: the path is not a geometry nodes
+            modifier, the augmentation doesn't match the socket, or the input is not a
+            number, vector, rotation, color, boolean or menu socket.
 
     Tip:
         Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
@@ -1739,10 +1771,10 @@ class Modifier(InputsAugmentation):
         ```python
         floor = bpy.data.objects["Floor"]
         scatter = augmentations.Modifier('modifiers["Scatter"]', {
-            "Density": augmentations.Input((5, 20)),
-            "Rock size": augmentations.Input((0.5, 2), p=0.5, otherwise=1),
-            "Mossy": augmentations.Input(p=0.3),          # Boolean: True 30 %
-            "Ground": augmentations.Input(options=["Sand", "Gravel"]),
+            "Density": augmentations.Number((5, 20)),
+            "Rock size": augmentations.Number((0.5, 2), p=0.5, otherwise=1),
+            "Mossy": augmentations.Boolean(p=0.3),          # True 30 %
+            "Ground": augmentations.Menu(["Sand", "Gravel"]),
         })
         with state.restoring():
             augmentations.Compose([scatter])([floor])

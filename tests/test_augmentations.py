@@ -229,14 +229,14 @@ def test_node(cube):
     obj = cube("Cube")
     material, node, has_menu = node_group_node(obj)
     inputs = {
-        "Rust": (0, 1, 0.25),
-        "Count": {"value_range": (2, 5)},
-        "Offset": ((-1, None, 0), (1, None, 0)),
-        "Paint": (0.2, 0.8),
-        "Flag": 1.0,
+        "Rust": A.Number((0, 1, 0.25)),
+        "Count": A.Number((2, 5)),
+        "Offset": A.Vector(((-1, None, 0), (1, None, 0))),
+        "Paint": A.Vector((0.2, 0.8)),
+        "Flag": A.Boolean(p=1.0),
     }
     if has_menu:
-        inputs["Finish"] = {"options": None, "weights": [0, 1]}
+        inputs["Finish"] = A.Menu(weights=[0, 1])  # every option: read from the Menu Switch
     path = 'bpy.data.materials["Mat"].node_tree.nodes["Smart"]'
     smart = A.Node(path, inputs)
     with state.restoring():
@@ -259,9 +259,9 @@ def test_node(cube):
 
     # per input p and otherwise; a relative path, through a Compose
     smart = A.Node('active_material.node_tree.nodes["Smart"]', {
-        "Rust": {"value_range": (0.5, 1), "p": 0, "otherwise": 0.1},
-        0: {"value_range": (0.5, 1), "p": 0},  # Rust by index, skipped without otherwise
-        "Paint": {"value_range": (0, 1), "p": 0, "otherwise": 1},
+        "Rust": A.Number((0.5, 1), p=0, otherwise=0.1),
+        0: A.Number((0.5, 1), p=0),  # Rust by index, skipped without otherwise
+        "Paint": A.Vector((0, 1), p=0, otherwise=1),
     })
     A.Compose([smart])([obj])
     assert node.inputs["Rust"].default_value == pytest.approx(0.1)
@@ -271,7 +271,7 @@ def test_node(cube):
 
     # its own p: no input changes, not even to otherwise
     node.inputs["Rust"].default_value = 0.3
-    A.Node(path, {"Rust": {"value_range": (0, 1), "otherwise": 0}}, p=0)()
+    A.Node(path, {"Rust": A.Number((0, 1), otherwise=0)}, p=0)()
     assert node.inputs["Rust"].default_value == pytest.approx(0.3)
 
 
@@ -294,16 +294,16 @@ def test_node_template(cube):
     assert lines[0] == """augmentations.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"""
     assert lines[-1] == "})" and text.endswith("\n")
     rows = {line.split(":")[0].strip(): line for line in lines[1:-1]}
-    assert "Input((0.25, 2.0))" in rows["0"] and '# "Rust", float, now 0.5' in rows["0"], "the group's min and max"
+    assert "Number((0.25, 2.0))" in rows["0"] and '# "Rust", float, now 0.5' in rows["0"], "the group's min and max"
     second = str(len(node.inputs) - 1)
-    assert "Input((0.0, 0.0))" in rows[second] and "no min/max" in rows[second], "no limits: its current value"
-    assert "Input((1, 20))" in rows['"Count"'] and "# int, now 0" in rows['"Count"']
-    assert "Input((0.0, 0.0))" in rows['"Offset"'], "a vector without limits: its current value"
+    assert "Number((0.0, 0.0))" in rows[second] and "no min/max" in rows[second], "no limits: its current value"
+    assert "Number((1, 20))" in rows['"Count"'] and "# int, now 0" in rows['"Count"']
+    assert "Vector((0.0, 0.0))" in rows['"Offset"'], "a vector without limits: its current value"
     assert rows['# "Paint"'].endswith("connected")
-    assert "Input(p=0.5)" in rows['"Flag"'] and "now False" in rows['"Flag"']
+    assert "Boolean(p=0.5)" in rows['"Flag"'] and "now False" in rows['"Flag"']
     assert rows['# "Linked"'].endswith("shader socket, not supported")
     if has_menu:
-        assert 'Input(options=["Rough", "Polished"])' in rows['"Finish"'] and 'now "Rough"' in rows['"Finish"']
+        assert 'Menu(["Rough", "Polished"])' in rows['"Finish"'] and 'now "Rough"' in rows['"Finish"']
     comments = [line.index("  #") for line in lines[1:-1]
                 if not line.lstrip().startswith("#") and line.index("  #") <= 4 + bpy_augmentations.TEMPLATE_ALIGN]
     assert len(set(comments)) == 1, "the comments are aligned, past longer lines too"
@@ -321,15 +321,15 @@ def test_node_template(cube):
     assert principled.startswith('# Relative paths: they start from the object it is called with, here "Cube".')
     assert 'compose([bpy.data.objects["Cube"]])' in principled.splitlines()[1]
     assert """\naug.Node('active_material.node_tree.nodes["Principled BSDF"]', {""" in principled
-    assert '"Metallic": aug.Input((0.0, 1.0)),' in principled, "a factor: 0 to 1"
-    assert '"Base Color": aug.Input((0.0, 1.0)),' in principled
+    assert '"Metallic": aug.Number((0.0, 1.0)),' in principled, "a factor: 0 to 1"
+    assert '"Base Color": aug.Vector((0.0, 1.0)),' in principled
     assert '# "Normal": no value on the node' in principled
     assert '"Weight"' not in principled, "unavailable inputs are left out"
     assert eval(principled, {"aug": A}).inputs
 
     # names are written exactly, quotes and trailing spaces included
     group.interface.items_tree["Count"].name = 'Count "n" '
-    assert """"Count \\"n\\" ": augmentations.Input((1, 20)),""" in A.Node.template(node)
+    assert """"Count \\"n\\" ": augmentations.Number((1, 20)),""" in A.Node.template(node)
 
     with pytest.raises(TypeError):
         A.Node.template(obj)
@@ -453,13 +453,13 @@ def test_node_input(cube):
     material, node, has_menu = node_group_node(obj)
     node.inputs["Flag"].default_value = True
     inputs = {
-        "Rust": A.Input((0.5, 1), p=0, otherwise=0.1),
-        "Count": A.Input((2, 6, 2)),
-        "Paint": A.Input((0, 1), p=0, otherwise=1),
-        "Flag": A.Input(p=0, otherwise=None),  # a boolean that keeps its value when skipped
+        "Rust": A.Number((0.5, 1), p=0, otherwise=0.1),
+        "Count": A.Number((2, 6, 2)),
+        "Paint": A.Vector((0, 1), p=0, otherwise=1),  # a color: alpha kept
+        "Flag": A.Boolean(p=0, otherwise=None),  # keeps its value when skipped
     }
     if has_menu:
-        inputs["Finish"] = A.Input(options=["Rough", "Polished"], weights=[0, 1])
+        inputs["Finish"] = A.Menu(["Rough", "Polished"], weights=[0, 1])
     smart = A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', inputs)
     smart()
     assert node.inputs["Rust"].default_value == pytest.approx(0.1)
@@ -469,18 +469,30 @@ def test_node_input(cube):
     if has_menu:
         assert node.inputs["Finish"].default_value == "Polished"
 
-    # left out, otherwise is the augmentation's default: False for a boolean
-    A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Flag": A.Input(p=0)})()
+    # the path comes from the Node for each call, and is taken back after it
+    rust = inputs["Rust"]
+    assert rust.data_path is None and rust.actual == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="no data path"):
+        rust()
+    assert smart.augmentations[0].augmentations == [rust], "Compose clears its results"
+
+    # the augmentation's own defaults: otherwise False for a boolean
+    A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Flag": A.Boolean(p=0)})()
     assert node.inputs["Flag"].default_value is False
-    assert repr(A.Input((0, 1), p=0.5)) == "Input(value_range=(0, 1), p=0.5)"
+
+    # short values: the augmentation picked by the socket type
+    with state.restoring():
+        A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Count": (3, 3), "Paint": (0.5, 0.5)})()
+        assert node.inputs["Count"].default_value == 3
+        assert tuple(node.inputs["Paint"].default_value) == pytest.approx((0.5, 0.5, 0.5, 0.25))
 
 
 def test_node_geometry_nodes(cube):
     obj, _ = geonode_cube(cube)
     transform = next(node for node in bpy.data.node_groups["GN"].nodes if node.bl_idname == "GeometryNodeTransform")
     node = A.Node(f'bpy.data.node_groups["GN"].nodes["{transform.name}"]', {
-        "Scale": A.Input(((1, 2, 3), (1, 2, 3))),
-        "Rotation": A.Input((0, 1), p=0, otherwise=0),
+        "Scale": A.Vector(((1, 2, 3), (1, 2, 3))),
+        "Rotation": A.Vector((0, 1), p=0, otherwise=0),
     })
     with state.restoring():
         node()
@@ -530,7 +542,7 @@ def modifier_cube(cube):
     group.links.new(switch.outputs[0], group_output.inputs["Geometry"])
     obj.modifiers["GN"].node_group = group  # refreshes the modifier's inputs (4.x id properties)
     bpy.context.view_layer.update()
-    A.Modifier('modifiers["GN"]', {"Menu": A.Input(options=["Sand"])})(obj)  # a new menu has no value in 5.x
+    A.Modifier('modifiers["GN"]', {"Menu": A.Menu(["Sand"])})(obj)  # a new menu has no value in 5.x
     return obj, path
 
 
@@ -549,13 +561,13 @@ def test_modifier(cube):
               for name in ("Height", "Count", "Flag", "Offset", "Color", "Rotation", "Menu")
               for v in [modifier_value(obj, name)]}
     modifier = A.Modifier('modifiers["GN"]', {
-        "Height": A.Input((3, 3)),
-        "Count": A.Input((2, 6, 2)),
-        "Flag": A.Input(p=1),
-        4: A.Input((0.5, 0.5)),  # Offset, by index: Geometry is 0
-        "Color": A.Input((0.2, 0.8)),
-        "Rotation": A.Input((1, 1)),
-        "Menu": A.Input(options=["Sand", "Gravel"], weights=[0, 1]),
+        "Height": A.Number((3, 3)),
+        "Count": A.Number((2, 6, 2)),
+        "Flag": A.Boolean(p=1),
+        4: A.Vector((0.5, 0.5)),  # Offset, by index: Geometry is 0
+        "Color": A.Vector((0.2, 0.8)),
+        "Rotation": A.Vector((1, 1)),
+        "Menu": A.Menu(["Sand", "Gravel"], weights=[0, 1]),
     })
     with state.restoring():
         A.Compose([modifier])([obj])
@@ -577,7 +589,7 @@ def test_modifier(cube):
         assert (tuple(current) if hasattr(current, "__len__") and not isinstance(current, str) else current) == value, name
 
     # an absolute path, no object
-    A.Modifier('bpy.data.objects["Cube"].modifiers["GN"]', {"Menu": A.Input(options=["Gravel"])})()
+    A.Modifier('bpy.data.objects["Cube"].modifiers["GN"]', {"Menu": A.Menu(["Gravel"])})()
     value = modifier_value(obj, "Menu")
     if isinstance(value, int):  # 4.x stores a modifier menu as the option's int
         menu = bpy_augmentations.id_property_menu(obj.modifiers["GN"], ("item", modifier_identifier(obj, "Menu")))
@@ -590,7 +602,7 @@ def test_modifier(cube):
     ('modifiers["GN"]', {"Nope": (0, 1)}, KeyError),
     ('modifiers["GN"]', {99: (0, 1)}, KeyError),
     ('modifiers["GN"]', {0: (0, 1)}, TypeError),  # Geometry
-    ('modifiers["GN"]', {"Height": A.Input(options=["A"])}, ValueError),
+    ('modifiers["GN"]', {"Height": A.Menu(["A"])}, TypeError),  # a float set with Menu
     ('modifiers["Bevel"]', {"Width": (0, 1)}, TypeError),
     ('modifiers["GN"]', {1.5: (0, 1)}, ValueError),
 ])
@@ -602,25 +614,39 @@ def test_modifier_errors(cube, modifier, inputs, error):
 
 
 @pytest.mark.parametrize("make", [
-    lambda: A.Input((0, 1), options=["A"]),
-    lambda: A.Input(5),
-    lambda: A.Input((0, 1, 2, 3)),
-    lambda: A.Input(p=2),
-    lambda: A.Input(options=["A", "B"], weights=[1]),
+    lambda: A.Number((0, 1, 2, 3)),
+    lambda: A.Number(),
+    lambda: A.Vector(5),
+    lambda: A.Vector(),
+    lambda: A.Boolean(p=2),
+    lambda: A.Menu(["A", "B"], weights=[1]),
 ])
-def test_input_errors(make):
+def test_pathless_errors(make):
     with pytest.raises(ValueError):
         make()
 
 
+def test_pathless_arguments():
+    # the first argument is the path when it is a string, otherwise the main argument
+    assert A.Number((0, 1)).value_range == (0, 1) and A.Number((0, 1)).data_path is None
+    assert A.Number("data.energy", (0, 1)).data_path == "data.energy"
+    assert A.Vector(((0, 0, 0), (1, 1, 1))).value_range == ((0, 0, 0), (1, 1, 1))
+    assert A.Boolean(0.3).p == 0.3 and A.Boolean().p == 0.5 and A.Boolean("hide_render").p == 0.5
+    assert A.Menu(["A"]).options == ["A"] and A.Menu().options is None
+    with pytest.raises(TypeError):
+        A.Number((0, 1), (0, 1))
+
+
 @pytest.mark.parametrize("inputs, error", [
     ({}, ValueError),
-    ({"Rust": {"range": (0, 1)}}, ValueError),
+    ({"Rust": {"value_range": (0, 1)}}, ValueError),
     ({"Rust": None}, ValueError),  # a float needs a range
     ({"Rust": (1, 0)}, ValueError),
-    ({"Flag": {"value_range": (0, 1)}}, ValueError),
-    ({"Flag": A.Input((0, 1))}, ValueError),
-    ({"Rust": A.Input(options=["A"])}, ValueError),
+    ({"Flag": A.Number((0, 1))}, TypeError),  # a boolean set with Number
+    ({"Rust": A.Menu(["A"])}, TypeError),
+    ({"Paint": A.Number((0, 1))}, TypeError),  # a color: Vector
+    ({"Rust": A.Number("data.energy", (0, 1))}, ValueError),  # its own path
+    ({"Rust": A.Rotation(z=1)}, TypeError),
     ({"Linked": (0, 1)}, TypeError),
     ({"Nope": (0, 1)}, KeyError),
     ({1.5: (0, 1)}, ValueError),

@@ -79,13 +79,13 @@ def test_restoring(scene, cube):
                 A.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.3, 0.7)),
                 A.MaterialSlot(["Other"]),
             ]),
-            A.Modifier('modifiers["GN"]', {"Density": A.Input((5, 10))}),
+            A.Modifier('modifiers["GN"]', {"Density": A.Number((5, 10))}),
             A.Visibility(p=0),
             A.KeepAbove(floor, margin=1),
         ])([obj])
         A.Compose([
             A.OneOf([A.Number("data.energy", value_range=(600, 1400))]),
-            A.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {"Roughness": A.Input((0, 1))}),
+            A.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {"Roughness": A.Number((0, 1))}),
             A.Vector("data.color", value_range=(0, 0.5)),
             A.Menu("data.type", options=["SPOT"]),
             A.Boolean("data.use_shadow", p=0, otherwise=False),

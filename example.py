@@ -97,9 +97,9 @@ lamp_transforms = augmentations.Compose(
 # print(augmentations.Node.template(world.node_tree.nodes["Background"], relative=True))
 world_transforms = augmentations.Compose([
     augmentations.Node('node_tree.nodes["Background"]', {
-        "Strength": augmentations.Input((0.5, 1.5, 0.25)),  # (low, high, step): 0.5, 0.75, ... 1.5
+        "Strength": augmentations.Number((0.5, 1.5, 0.25)),  # (low, high, step): 0.5, 0.75, ... 1.5
         # tinted in 30% of the datapoints, white in the others; alpha is kept
-        "Color": augmentations.Input((0.6, 1.0), p=0.3, otherwise=1.0),
+        "Color": augmentations.Vector((0.6, 1.0), p=0.3, otherwise=1.0),
     }),
 ])
 
@@ -109,7 +109,7 @@ scatter_seed = augmentations.Seed(scatter)
 # the inputs shown on the geometry nodes modifier, by name, in every Blender version
 floor_transforms = augmentations.Compose([
     augmentations.Modifier('modifiers["Scatter"]', {
-        "Density": augmentations.Input((5, 20)),  # more or fewer pebbles
+        "Density": augmentations.Number((5, 20)),  # more or fewer pebbles
     }),
 ])
 

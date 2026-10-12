@@ -144,9 +144,9 @@ objects_aug = augmentations.Compose([
     augmentations.Translation(x=0.5, y=0.5),              # number v: sampled from (-v, v), blender units
     augmentations.Rotation(z=180),                        # degrees, added
     augmentations.SimpleMaterial("CarPaint", hue=(0, 1), roughness=(0.1, 0.6)),  # changes the material
-    augmentations.Node('active_material.node_tree.nodes["Principled BSDF"]', {  # inputs of one node,
-        "Coat Roughness": augmentations.Input((0, 0.5, 0.1)),  # by socket type: Number (+ step), Vector, color,
-        "Coat Weight": augmentations.Input((0.5, 1), p=0.3, otherwise=0),  # Boolean, Menu
+    augmentations.Node('active_material.node_tree.nodes["Principled BSDF"]', {  # inputs of one node:
+        "Coat Roughness": augmentations.Number((0, 0.5, 0.1)),  # no data path, the Node gives it
+        "Coat Weight": augmentations.Number((0.5, 1), p=0.3, otherwise=0),  # Vector (also colors), Boolean, Menu
     }),
     keep_above,                                           # after the transforms: lifts out of the floor
 ])
@@ -170,7 +170,7 @@ world_aug = augmentations.Compose([                        # call it with [world
 ])
 floor_aug = augmentations.Compose([                        # the inputs shown on a geometry nodes modifier,
     augmentations.Modifier('modifiers["Scatter"]', {      # by name, in every Blender version
-        "Density": augmentations.Input((5, 20)),
+        "Density": augmentations.Number((5, 20)),
     }),
 ])
 camera_aug = augmentations.Compose([
@@ -318,8 +318,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`, `PlaceOnCurve`,
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
-  geometry nodes group node, not a modifier's inputs; `{input name: range or Input(value_range, options=, weights=, p=, otherwise=)}`,
-  the augmentation picked by socket type; a color range keeps alpha; `Node.template(node)`
+  geometry nodes group node, not a modifier's inputs; `{input name: Number((low, high)) / Vector(...) / Boolean(p=) / Menu([...])}`
+  written without a data path, which the `Node` gives each one (the input's `default_value`);
+  a `Vector` on a color input keeps alpha; the wrong class for a socket raises a `TypeError`; `Node.template(node)`
   writes one with every input of a node and its range, to start from), `Modifier` (the same
   for the inputs of a geometry nodes modifier, by name, in every version),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then

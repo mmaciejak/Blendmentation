@@ -49,9 +49,9 @@ A comment on top says which kind of path it has:
 # objects passed to the Compose, or called alone without one.
 augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
     # "Texture Coordinate": connected
-    "Base metal type": augmentations.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
-    "Rust strength": augmentations.Input((0.0, 1.0)),  # float, now 0.0
-    "Paint Color": augmentations.Input((0.0, 1.0)),    # color, now (0.0009, 0.0, 0.1729, 1.0)
+    "Base metal type": augmentations.Menu(["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+    "Rust strength": augmentations.Number((0.0, 1.0)),  # float, now 0.0
+    "Paint Color": augmentations.Vector((0.0, 1.0)),    # color, now (0.0009, 0.0, 0.1729, 1.0)
     ...
 })
 ```

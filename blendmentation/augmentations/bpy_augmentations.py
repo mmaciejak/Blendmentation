@@ -862,33 +862,35 @@ def template_header(relative_to, owner, collection):
 
 
 def template_input(socket):
-    """The Input arguments and the comment of one unlinked input socket in a Node
-    template, None for a socket type Node can't set. Numbers and vectors get the
-    socket's min and max, or the current value when it has none. A menu whose options
-    can't be found (a built-in node's menu, e.g. Transform Geometry's Mode: Python can't
-    list them) gets None arguments, so it is only a comment."""
+    """The augmentation (Number, Vector, Boolean or Menu), its arguments and the
+    comment of one unlinked input socket in a Node template, None for a socket type
+    Node can't set. Numbers and vectors get the socket's min and max, or the current
+    value when it has none. A menu whose options can't be found (a built-in node's
+    menu, e.g. Transform Geometry's Mode: Python can't list them) gets None for the
+    augmentation, so it is only a comment."""
     kind = socket.type
     if kind in ("VALUE", "INT", "VECTOR"):
         word = {"VALUE": "float", "INT": "int", "VECTOR": "vector"}[kind]
+        augmentation = "Vector" if kind == "VECTOR" else "Number"
         now = template_value(socket.default_value)
         limits = socket_limits(socket)
         if limits is None:
             bound = template_value(socket.default_value, short=True)
-            return f"({bound}, {bound})", f"{word}, now {now}, no min/max"
-        return f"({template_number(limits[0])}, {template_number(limits[1])})", f"{word}, now {now}"
+            return augmentation, f"({bound}, {bound})", f"{word}, now {now}, no min/max"
+        return augmentation, f"({template_number(limits[0])}, {template_number(limits[1])})", f"{word}, now {now}"
     if kind == "ROTATION":
         now = template_value(socket.default_value)
-        return f"({now}, {now})", f"rotation in radians, now {now}"
+        return "Vector", f"({now}, {now})", f"rotation in radians, now {now}"
     if kind == "RGBA":
-        return "(0.0, 1.0)", f"color, now {template_value(socket.default_value)}"
+        return "Vector", "(0.0, 1.0)", f"color, now {template_value(socket.default_value)}"
     if kind == "BOOLEAN":
-        return "p=0.5", f"boolean, now {socket.default_value}"
+        return "Boolean", "p=0.5", f"boolean, now {socket.default_value}"
     if kind == "MENU":
         options = socket_menu_options(socket)
         now = template_string(socket.default_value)
         if not options:
-            return None, f"Warning! menu, now {now}, options not readable: add Input(options=[...]) yourself"
-        return "options=[" + ", ".join(template_string(o) for o in options) + "]", f"menu, now {now}"
+            return None, None, f"Warning! menu, now {now}, options not readable: add Menu([...]) yourself"
+        return "Menu", "[" + ", ".join(template_string(o) for o in options) + "]", f"menu, now {now}"
     return None
 
 
@@ -900,7 +902,7 @@ def node_template(node, obj=None, prefix="augmentations.", relative=False):
         node (str | bpy.types.Node): the node, or its data path (absolute, or relative
             to obj), which is then kept in the text
         obj (bpy.types.Object): object a relative path starts from
-        prefix (str): written before Node and Input
+        prefix (str): written before Node and the input augmentations
         relative (bool): for a node, write its path relative to obj (a world's node:
             to the world)
     """
@@ -939,10 +941,10 @@ def node_template(node, obj=None, prefix="augmentations.", relative=False):
         elif entry is None:
             rows.append((None, f"{key}: {named}{socket.type.lower()} socket, not supported"))
         elif entry[0] is None:
-            rows.append((None, f"{key}: {named}{entry[1]}"))
+            rows.append((None, f"{key}: {named}{entry[2]}"))
         else:
-            arguments, comment = entry
-            rows.append((f"{key}: {prefix}Input({arguments}),", named + comment))
+            augmentation, arguments, comment = entry
+            rows.append((f"{key}: {prefix}{augmentation}({arguments}),", named + comment))
     # comments aligned, past longer lines (e.g. a menu with many options) only by two spaces
     width = max((len(code) for code, _ in rows if code and len(code) <= TEMPLATE_ALIGN), default=0)
     lines = template_header(obj if relative else None, owner, collection)

@@ -375,9 +375,11 @@ for _ in range(100):
 
 A smart material puts its settings on one group node, here a node of the group "Ferrous
 metal" in the material "Master material". `Node` sets many of its inputs in one
-augmentation: each input gets an `Input` with its range (or menu options), `p` and
-`otherwise`. Inputs are set like `Number`, `Vector`, `Boolean` or `Menu`, by their socket
-type, and a color range keeps alpha. Here the bare metal and each layer on top of it
+augmentation: each input gets the `Number`, `Vector`, `Boolean` or `Menu` that fits its
+socket, with its range (or menu options) and, if you like, `p` and `otherwise`. Leave
+their data path out: the `Node` gives each one the path of its input,
+`ferrous_metal + '.inputs["Rust strength"].default_value'`. A color input is set with
+`Vector`, and its range keeps alpha. Here the bare metal and each layer on top of it
 (rust, chipped paint, dust) are `Node`s of their own, so a `p` per call decides how often
 each layer appears. The menus here need Blender 5.
 
@@ -397,20 +399,20 @@ add-on, `print(aug.Node.template(ferrous_metal, prefix="aug."))` prints the same
 ```python
 aug.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferrous metal"]', {
     # "Texture Coordinate": connected
-    "Texture ofset": aug.Input(((75.9993, -93.0513, 48.2312), (75.9993, -93.0513, 48.2312))),  # vector, now (75.9993, -93.0513, 48.2312), no min/max
-    "Base metal color": aug.Input((0.0, 1.0)),         # color, now (0.1385, 0.1385, 0.1385, 1.0)
-    "Base metal type": aug.Input(options=["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
-    "Thin oxidation amount": aug.Input((0.0, 1.0)),    # float, now 0.4287
-    "Texture scale": aug.Input((-10000.0, 10000.0)),   # float, now 1.0
-    "Surface effect": aug.Input(options=["Dotted", "Brushed", "Hammered", "Grinded", "Weathered"]),  # menu, now "Dotted"
-    "Surface effect strenght": aug.Input((0.0, 1.0)),  # float, now 0.7976
-    "Rust strength": aug.Input((0.0, 1.0)),            # float, now 0.0
-    "Rust spread": aug.Input((0.0, 1.0)),              # float, now 0.0
-    "Paint spread": aug.Input((0.0, 1.0)),             # float, now 0.0
-    "Paint Color": aug.Input((0.0, 1.0)),              # color, now (0.0009, 0.0, 0.1729, 1.0)
-    "Paint disccoloration": aug.Input((0.0, 1.0)),     # float, now 0.0
-    "Paint surface spots": aug.Input((0.0, 1.0)),      # float, now 0.0
-    "Dust strength": aug.Input((0.0, 1.0)),            # float, now 0.0
+    "Texture ofset": aug.Vector(((75.9993, -93.0513, 48.2312), (75.9993, -93.0513, 48.2312))),  # vector, now (75.9993, -93.0513, 48.2312), no min/max
+    "Base metal color": aug.Vector((0.0, 1.0)),         # color, now (0.1385, 0.1385, 0.1385, 1.0)
+    "Base metal type": aug.Menu(["Shiny metal", "Cast metal"]),  # menu, now "Shiny metal"
+    "Thin oxidation amount": aug.Number((0.0, 1.0)),    # float, now 0.4287
+    "Texture scale": aug.Number((-10000.0, 10000.0)),   # float, now 1.0
+    "Surface effect": aug.Menu(["Dotted", "Brushed", "Hammered", "Grinded", "Weathered"]),  # menu, now "Dotted"
+    "Surface effect strenght": aug.Number((0.0, 1.0)),  # float, now 0.7976
+    "Rust strength": aug.Number((0.0, 1.0)),            # float, now 0.0
+    "Rust spread": aug.Number((0.0, 1.0)),              # float, now 0.0
+    "Paint spread": aug.Number((0.0, 1.0)),             # float, now 0.0
+    "Paint Color": aug.Vector((0.0, 1.0)),              # color, now (0.0009, 0.0, 0.1729, 1.0)
+    "Paint disccoloration": aug.Number((0.0, 1.0)),     # float, now 0.0
+    "Paint surface spots": aug.Number((0.0, 1.0)),      # float, now 0.0
+    "Dust strength": aug.Number((0.0, 1.0)),            # float, now 0.0
 })
 ```
 
@@ -423,29 +425,29 @@ ferrous_metal = 'bpy.data.materials["Master material"].node_tree.nodes["Ferrous 
 # the bare metal: in every image
 base_metal = aug.Node(ferrous_metal, {
     # moves the textures: a random offset on each axis
-    "Texture ofset": aug.Input((-100, 100)),
-    "Thin oxidation amount": aug.Input((0, 1)),
+    "Texture ofset": aug.Vector((-100, 100)),
+    "Thin oxidation amount": aug.Number((0, 1)),
     # a menu: some of its options, the first two more often
-    "Surface effect": aug.Input(
-        options=["Weathered", "Dotted", "Hammered"],
+    "Surface effect": aug.Menu(
+        ["Weathered", "Dotted", "Hammered"],
         weights=[3, 3, 1],
     ),
-    "Surface effect strenght": aug.Input((0.4, 1)),
+    "Surface effect strenght": aug.Number((0.4, 1)),
 })
 # each layer on top of it is a Node of its own, so it can be left out
 rust = aug.Node(ferrous_metal, {
-    "Rust strength": aug.Input((0.3, 1)),
-    "Rust spread": aug.Input((0.3, 1)),
+    "Rust strength": aug.Number((0.3, 1)),
+    "Rust spread": aug.Number((0.3, 1)),
 })
 chipped_paint = aug.Node(ferrous_metal, {
-    "Paint spread": aug.Input((0.375, 0.777)),
+    "Paint spread": aug.Number((0.375, 0.777)),
     # any color: red, green and blue from 0 to 1, alpha kept
-    "Paint Color": aug.Input((0, 1)),
-    "Paint disccoloration": aug.Input((0, 1)),
-    "Paint surface spots": aug.Input((0, 1)),
+    "Paint Color": aug.Vector((0, 1)),
+    "Paint disccoloration": aug.Number((0, 1)),
+    "Paint surface spots": aug.Number((0, 1)),
 })
 dust = aug.Node(ferrous_metal, {
-    "Dust strength": aug.Input((0, 0.7)),
+    "Dust strength": aug.Number((0, 0.7)),
 })
 
 generator = gen.Compose(
@@ -474,7 +476,7 @@ The inputs are named as in the group's interface (the node shows them shortened)
 `rust.actual` holds the value set to each, `None` when the layer was skipped. Here a
 skipped layer keeps what the scene has (no rust or dust; full paint, as in the second
 image); to set something else, give the inputs an `otherwise`, e.g.
-`aug.Input((0.3, 1), otherwise=0)`.
+`aug.Number((0.3, 1), otherwise=0)`.
 
 To give every object its own copy of the material a different look, use a path relative
 to the object, `'active_material.node_tree.nodes["Ferrous metal"]'`, in a `Compose`
@@ -575,7 +577,7 @@ for _ in range(100):
 ```
 
 To also change the inputs shown on the modifier, add
-`aug.Modifier('modifiers["GeometryNodes"]', {"Density": aug.Input((5, 20))})`. It finds
+`aug.Modifier('modifiers["GeometryNodes"]', {"Density": aug.Number((5, 20))})`. It finds
 them by name, in every Blender version.
 
 ![Three renders of milk cartons and boxes scattered on a displaced floor](images/scatter-renders.jpg){ .full-width }
@@ -760,9 +762,9 @@ objects_aug = aug.Compose([
         'active_material.node_tree.nodes["Principled BSDF"]',
         {
             # (low, high, step): 0, 0.1, ... 0.5
-            "Coat Roughness": aug.Input((0, 0.5, 0.1)),
+            "Coat Roughness": aug.Number((0, 0.5, 0.1)),
             # a clear coat on 30% of the cars, none on the others
-            "Coat Weight": aug.Input((0.5, 1), p=0.3, otherwise=0),
+            "Coat Weight": aug.Number((0.5, 1), p=0.3, otherwise=0),
         },
     ),
     # after the transforms: lifts the cars out of the floor
@@ -801,7 +803,7 @@ plant_aug = aug.Compose([
 floor_aug = aug.Compose([
     aug.Modifier(
         'modifiers["Scatter"]',
-        {"Density": aug.Input((5, 20))},
+        {"Density": aug.Number((5, 20))},
     ),
 ])
 # a new random value for every seed in the node group
