@@ -864,7 +864,9 @@ def template_header(relative_to, owner, collection):
 def template_input(socket):
     """The Input arguments and the comment of one unlinked input socket in a Node
     template, None for a socket type Node can't set. Numbers and vectors get the
-    socket's min and max, or the current value when it has none."""
+    socket's min and max, or the current value when it has none. A menu whose options
+    can't be found (a built-in node's menu, e.g. Transform Geometry's Mode: Python can't
+    list them) gets None arguments, so it is only a comment."""
     kind = socket.type
     if kind in ("VALUE", "INT", "VECTOR"):
         word = {"VALUE": "float", "INT": "int", "VECTOR": "vector"}[kind]
@@ -883,8 +885,10 @@ def template_input(socket):
         return "p=0.5", f"boolean, now {socket.default_value}"
     if kind == "MENU":
         options = socket_menu_options(socket)
-        arguments = "options=[" + ", ".join(template_string(o) for o in options) + "]" if options else ""
-        return arguments, f"menu, now {template_string(socket.default_value)}"
+        now = template_string(socket.default_value)
+        if not options:
+            return None, f"Warning! menu, now {now}, options not readable: add Input(options=[...]) yourself"
+        return "options=[" + ", ".join(template_string(o) for o in options) + "]", f"menu, now {now}"
     return None
 
 
@@ -934,6 +938,8 @@ def node_template(node, obj=None, prefix="augmentations.", relative=False):
             rows.append((None, f"{key}: {named}no value on the node"))
         elif entry is None:
             rows.append((None, f"{key}: {named}{socket.type.lower()} socket, not supported"))
+        elif entry[0] is None:
+            rows.append((None, f"{key}: {named}{entry[1]}"))
         else:
             arguments, comment = entry
             rows.append((f"{key}: {prefix}Input({arguments}),", named + comment))

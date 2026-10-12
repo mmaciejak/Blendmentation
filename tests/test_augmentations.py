@@ -435,6 +435,13 @@ def test_node_template_relative(cube):
 
     other = bpy.data.materials.new("Other")
     other.use_nodes = True
+    # a built-in node's menu: its options can't be listed, so only a comment, and it runs
+    transform = group.nodes.new("GeometryNodeTransform")
+    if "Mode" in transform.inputs and transform.inputs["Mode"].type == "MENU":
+        text = A.Node.template(transform, obj, relative=True)
+        assert '# "Mode": Warning! menu, now "Components", options not readable' in text
+        runs(text, obj)
+
     with pytest.raises(ValueError, match="no path relative"):
         A.Node.template(other.node_tree.nodes["Principled BSDF"], obj, relative=True)
     with pytest.raises(ValueError, match="needs the object"):

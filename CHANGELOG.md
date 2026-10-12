@@ -27,6 +27,13 @@ All notable changes to Blendmentation. The format follows
   with a comment that says whether the paths are relative or absolute, with the name of
   the object they start from or of what they change, and how to call the augmentation.
 
+### Fixed
+
+- `Node.template` (and the add-on's Copy Node Template) no longer writes an empty
+  `Input()` for a built-in node's menu input, e.g. Transform Geometry's Mode, whose
+  options Python can't list; the template failed when run. It is now a comment starting
+  with `Warning!`, with the current option, to add `Input(options=[...])` yourself.
+
 ## [0.8.2] - 2026-10-12
 
 ### Changed

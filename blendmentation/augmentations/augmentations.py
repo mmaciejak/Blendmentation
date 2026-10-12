@@ -1619,7 +1619,7 @@ class Node(InputsAugmentation):
         | Rotation | `(v, v)` with the current X, Y, Z angles in radians |
         | Color | `(0.0, 1.0)`: any color, alpha kept |
         | Boolean | `p=0.5` |
-        | Menu | every option, when they can be found |
+        | Menu | every option: a Menu Switch's, or a group input's that leads to one. A built-in node's menu (e.g. Transform Geometry's Mode) is a `Warning!` comment, since Python can't list its options: add `Input(options=[...])` yourself |
 
         A comment after each input gives its type and current value. Connected inputs
         and sockets `Node` can't set (shader, geometry, string, object...) are only
