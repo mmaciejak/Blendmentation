@@ -424,6 +424,41 @@ def set_file_format(image_settings, file_format):
     image_settings.file_format = file_format
 
 
+def save_render_result(scene, file_path, file_format, color_depth, color_mode=None):
+    """Saves the Render Result to file_path. The output settings it changes are set back
+    by generate."""
+    image_settings = scene.render.image_settings
+    set_file_format(image_settings, file_format)
+    if color_mode is not None:
+        image_settings.color_mode = color_mode
+    image_settings.color_depth = color_depth
+    bpy.data.images["Render Result"].save_render(file_path, scene=scene)
+
+
+def read_ids(file_path, encoded=False):
+    """(height, width) array of the group ids of an RGBA id render EXR: the red channel,
+    or with encoded the 8 bit steps of red and green of `render_ids`. Transparent pixels are 0."""
+    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
+    if encoded:
+        ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
+    else:
+        ids = np.rint(pixels[:, :, 0]).astype(np.int64)
+    ids[pixels[:, :, 3] < 0.5] = 0
+    return ids
+
+
+def object_index_ids(file_path, parts, view_layer):
+    """(height, width) array of the Object Index pass of a multilayer EXR, parts: the
+    channel names of each of its parts."""
+    layer = find_layer_in(file_path, parts, view_layer, PASSES["ObjectIndex"][1])
+    if layer is None:
+        raise RuntimeError("The Object Index pass is missing in the render result")
+    _, part, found = layer
+    pixels = oiio.ImageBuf(file_path, part, 0).get_pixels(oiio.FLOAT)
+    # not anti-aliased, the pass holds whole numbers
+    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
+
+
 def check_aovs(scene, view_layer, aovs, aov_format):
     """Raises if the AOVs cannot be rendered."""
     if aov_format not in AOV_FORMATS:
@@ -569,15 +604,8 @@ def render_ids(scene, groups, file_path, hide_others=False):
                 obj.color = color
 
         bpy.ops.render.render()
-        set_file_format(scene.render.image_settings, "OPEN_EXR")
-        scene.render.image_settings.color_mode = "RGBA"
-        scene.render.image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-
-    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
-    ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
-    ids[pixels[:, :, 3] < 0.5] = 0
-    return ids
+        save_render_result(scene, file_path, "OPEN_EXR", "32", "RGBA")
+    return read_ids(file_path, encoded=True)
 
 
 def render_index_ids(scene, view_layer, groups, file_path):
@@ -601,16 +629,8 @@ def render_index_ids(scene, view_layer, groups, file_path):
                 obj.pass_index = group_id
 
         bpy.ops.render.render()
-        set_file_format(scene.render.image_settings, "OPEN_EXR_MULTILAYER")
-        scene.render.image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-
-    layer = find_layer_in(file_path, read_multilayer(file_path), view_layer, PASSES["ObjectIndex"][1])
-    if layer is None:
-        raise RuntimeError("The Object Index pass is missing in the render result")
-    _, part, found = layer
-    pixels = oiio.ImageBuf(file_path, part, 0).get_pixels(oiio.FLOAT)
-    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
+        save_render_result(scene, file_path, "OPEN_EXR_MULTILAYER", "32")
+    return object_index_ids(file_path, read_multilayer(file_path), view_layer)
 
 
 def has_instances(groups):
@@ -769,15 +789,8 @@ def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False)
         changes.set_many(scene.view_settings, STANDARD_VIEW)
 
         bpy.ops.render.render()
-        set_file_format(scene.render.image_settings, "OPEN_EXR")
-        scene.render.image_settings.color_mode = "RGBA"
-        scene.render.image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(file_path, scene=scene)
-
-    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
-    ids = np.rint(pixels[:, :, 0]).astype(np.int64)
-    ids[pixels[:, :, 3] < 0.5] = 0
-    return ids
+        save_render_result(scene, file_path, "OPEN_EXR", "32", "RGBA")
+    return read_ids(file_path)
 
 
 def write_mask(path, file_name, mask):
@@ -959,11 +972,7 @@ class Frame:
         if self.beauty_rgba is None:
             self.beauty()
             file_path = os.path.join(self.temp_dir, "beauty.png")
-            image_settings = self.scene.render.image_settings
-            set_file_format(image_settings, "PNG")
-            image_settings.color_mode = "RGBA"
-            image_settings.color_depth = "8"
-            bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+            save_render_result(self.scene, file_path, "PNG", "8", "RGBA")
             # OpenImageIO premultiplies the colors by alpha when reading a PNG
             pixels = oiio.ImageBuf(file_path).get_pixels(oiio.UINT8)
             if self.background is not None:
@@ -975,11 +984,7 @@ class Frame:
         """Linear 32 bit float RGBA beauty render (premultiplied), as a (height, width, 4) array."""
         self.beauty()
         file_path = os.path.join(self.temp_dir, "beauty.exr")
-        image_settings = self.scene.render.image_settings
-        set_file_format(image_settings, "OPEN_EXR")
-        image_settings.color_mode = "RGBA"
-        image_settings.color_depth = "32"
-        bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+        save_render_result(self.scene, file_path, "OPEN_EXR", "32", "RGBA")
         return oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
 
     def replace_render(self):
@@ -1023,9 +1028,7 @@ class Frame:
         if self.multilayer_file is None:
             self.beauty()
             file_path = os.path.join(self.temp_dir, "render.exr")
-            set_file_format(self.scene.render.image_settings, "OPEN_EXR_MULTILAYER")
-            self.scene.render.image_settings.color_depth = "32"
-            bpy.data.images["Render Result"].save_render(file_path, scene=self.scene)
+            save_render_result(self.scene, file_path, "OPEN_EXR_MULTILAYER", "32")
             self.multilayer_file = (file_path, read_multilayer(file_path))
         return self.multilayer_file
 
@@ -1692,13 +1695,7 @@ def prepare_segmentation(frame, classes):
 
 def index_pass_ids(frame):
     """Id image of the instances from the Object Index pass of the beauty render, like `render_ids`."""
-    layer = find_layer(frame, PASSES["ObjectIndex"][1])
-    if layer is None:
-        raise RuntimeError("The Object Index pass is missing in the render result")
-    multilayer, part, found = layer
-    pixels = oiio.ImageBuf(multilayer, part, 0).get_pixels(oiio.FLOAT)
-    # not anti-aliased, the pass holds whole numbers
-    return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
+    return object_index_ids(*frame.multilayer(), frame.view_layer)
 
 
 # object types whose evaluated mesh bounds their silhouette, for packing full mask renders
