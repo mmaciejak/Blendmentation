@@ -834,9 +834,11 @@ classes = {
     "car": [car_1, car_2],
     # wins over the BBox argument
     "table": {"instances": [table], "max_truncation": 0.8},
-    # every pebble the floor's geometry nodes scatter
+    # every pebble the floor's geometry nodes scatter, overlapping,
+    # cut by the frame or hidden by the cars as they come
     "pebble": {
         "instances": [gen.Instances(floor, of=pebbles)],
+        "iou_deconflict": None,
         "max_truncation": None,
         "max_occlusion": None,
     },
