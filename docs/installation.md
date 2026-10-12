@@ -30,9 +30,9 @@ from blendmentation.state import state
 ```
 
 It also adds a tool for writing `Node` augmentations: select a node in a node editor (a
-smart material's group node, the Principled BSDF...), then Node menu > Copy
-Blendmentation Template, or right click > Copy Blendmentation Template, or search for
-it with F3. It copies a
+smart material's group node, the Principled BSDF...), then Sidebar (N) > Blendmentation >
+Copy Blendmentation Template, or Node menu > Copy Blendmentation Template, or right
+click > Copy Blendmentation Template, or search for it with F3. It copies a
 [`Node`][blendmentation.augmentations.augmentations.Node] with every input of the node and
 the widest range each allows to the clipboard, to paste into a script and narrow down:
 
@@ -46,10 +46,24 @@ augmentations.Node('bpy.data.materials["Master material"].node_tree.nodes["Ferro
 })
 ```
 
+In the 3D viewport, Sidebar (N) > Blendmentation > Copy Shape Keys Template does the
+same for the shape keys of the active object: a
+[`Chain`][blendmentation.augmentations.augmentations.Chain] with a `Number` for every
+shape key, over its slider range (0 to 1 by default). Muted and driven shape keys are
+comments.
+
+```python
+augmentations.Chain([  # shape keys of "Face"
+    augmentations.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),  # now 0.0
+    augmentations.Number('data.shape_keys.key_blocks["Blink"].value', (0.0, 1.0)),  # now 0.25
+])
+```
+
 If your scripts import the module under another name (`... import augmentations as aug`),
 set the prefix in the add-on's preferences, e.g. `aug.`. Without the add-on,
-[`Node.template`][blendmentation.augmentations.augmentations.Node.template] returns the
-same text.
+[`Node.template`][blendmentation.augmentations.augmentations.Node.template] and
+[`Chain.shape_keys_template`][blendmentation.augmentations.augmentations.Chain.shape_keys_template]
+return the same text.
 
 To update, install the new zip the same way and restart Blender.
 

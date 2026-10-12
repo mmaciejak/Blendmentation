@@ -882,3 +882,40 @@ def node_template(node, obj=None, prefix="augmentations."):
         lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
     lines.append("})")
     return "\n".join(lines) + "\n"
+
+
+def shape_keys_template(obj, prefix="augmentations."):
+    """Source text of a Chain with a Number for the value of every shape key of the
+    object, see augmentations.Chain.shape_keys_template.
+
+    Args:
+        obj (bpy.types.Object): object with shape keys (mesh, curve, lattice)
+        prefix (str): written before Chain and Number
+    """
+    key = getattr(getattr(obj, "data", None), "shape_keys", None)
+    name = getattr(obj, "name", repr(obj))
+    if key is None or len(key.key_blocks) < 2:
+        raise ValueError(f"'{name}' has no shape keys besides the basis")
+    if not key.use_relative:
+        raise ValueError(f"The shape keys of '{name}' are not relative: Evaluation Time sets them, not their values")
+    drivers = {curve.data_path for curve in key.animation_data.drivers} if key.animation_data else set()
+    rows = []  # (code, comment), code None for a key that is only a comment
+    for block in key.key_blocks:
+        if block == key.reference_key:
+            continue
+        path = f"data.shape_keys.key_blocks[{template_string(block.name)}].value"
+        now = template_number(block.value)
+        if block.path_from_id("value") in drivers:
+            rows.append((None, f"{path!r}: driven, now {now}"))
+        elif block.mute:
+            rows.append((None, f"{path!r}: muted, now {now}"))
+        else:
+            value_range = f"({template_number(block.slider_min)}, {template_number(block.slider_max)})"
+            rows.append((f"{prefix}Number({path!r}, {value_range}),", f"now {now}"))
+    # the lines differ only by the key names, so all comments are aligned
+    width = max((len(code) for code, _ in rows if code), default=0)
+    lines = [f"{prefix}Chain([  # shape keys of {template_string(name)}"]
+    for code, comment in rows:
+        lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
+    lines.append("])")
+    return "\n".join(lines) + "\n"

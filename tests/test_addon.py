@@ -31,6 +31,8 @@ def test_register():
         assert hasattr(bpy.ops.node, "blendmentation_copy_template")
         # no node editor here, so it can't run
         assert not bpy.ops.node.blendmentation_copy_template.poll()
+        assert hasattr(bpy.types, "NODE_PT_blendmentation") and hasattr(bpy.types, "VIEW3D_PT_blendmentation")
+        assert hasattr(bpy.ops.object, "blendmentation_copy_shape_keys_template")
         assert addon.template_prefix(bpy.context) == "augmentations.", "not enabled as an add-on: the default"
 
         material = bpy.data.materials.new("Mat")
@@ -38,6 +40,17 @@ def test_register():
         node = material.node_tree.nodes["Principled BSDF"]
         text = addon.copy_template(node, bpy.context.window_manager, prefix="aug.")
         assert text.startswith("""aug.Node('bpy.data.materials["Mat"].node_tree.nodes["Principled BSDF"]', {""")
+
+        bpy.ops.mesh.primitive_cube_add()
+        obj = bpy.context.active_object
+        assert not bpy.ops.object.blendmentation_copy_shape_keys_template.poll(), "no shape keys"
+        obj.shape_key_add(name="Basis")
+        obj.shape_key_add(name="Smile")
+        assert bpy.ops.object.blendmentation_copy_shape_keys_template.poll()
+        assert bpy.ops.object.blendmentation_copy_shape_keys_template() == {"FINISHED"}
+        text = addon.copy_shape_keys_template(obj, bpy.context.window_manager, prefix="aug.")
+        assert text.startswith('aug.Chain([  # shape keys of "Cube"')
     finally:
         blendmentation.unregister()
     assert not hasattr(bpy.types, "NODE_OT_blendmentation_copy_template")
+    assert not hasattr(bpy.types, "VIEW3D_PT_blendmentation")

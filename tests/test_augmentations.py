@@ -334,6 +334,50 @@ def test_node_template(cube):
         A.Node.template(material.node_tree.nodes.new("ShaderNodeTexCoord"))
 
 
+
+def test_shape_keys_template(cube):
+    obj = cube("Cube")
+    with pytest.raises(ValueError):
+        A.Chain.shape_keys_template(obj)
+    obj.shape_key_add(name="Basis")
+    with pytest.raises(ValueError, match="besides the basis"):
+        A.Chain.shape_keys_template(obj)
+    obj.shape_key_add(name="Smile").value = 0.25
+    wide = obj.shape_key_add(name='Wide "w"')
+    wide.slider_min, wide.slider_max, wide.value = -1, 2, 0.5
+    muted = obj.shape_key_add(name="Muted")
+    muted.mute, muted.value = True, 0
+    driven = obj.shape_key_add(name="Driven")
+    driven.value = 0
+    driven.driver_add("value")
+
+    text = A.Chain.shape_keys_template(obj, prefix="aug.")
+    lines = text.splitlines()
+    assert lines[0] == 'aug.Chain([  # shape keys of "Cube"'
+    assert lines[-1] == "])" and text.endswith("\n")
+    assert "Basis" not in text
+    assert """aug.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),""" in lines[1]
+    assert lines[1].endswith("  # now 0.25")
+    assert """aug.Number('data.shape_keys.key_blocks["Wide \\\\"w\\\\""].value', (-1.0, 2.0)),""" in lines[2], "the slider range"
+    assert lines[2].endswith("# now 0.5")
+    assert lines[1].index("  #") == lines[2].index("  #"), "the comments are aligned"
+    assert lines[3].strip() == """# 'data.shape_keys.key_blocks["Muted"].value': muted, now 0.0"""
+    assert lines[4].strip() == """# 'data.shape_keys.key_blocks["Driven"].value': driven, now 0.0"""
+
+    # the template runs as it is, relative to the object
+    chain = eval(text, {"aug": A})
+    blocks = obj.data.shape_keys.key_blocks
+    with state.restoring():
+        chain(obj)
+        assert 0 <= blocks["Smile"].value <= 1 and -1 <= blocks['Wide "w"'].value <= 2
+        assert len(chain.actual) == 2
+    assert blocks['Wide "w"'].value == 0.5
+
+    obj.data.shape_keys.use_relative = False
+    with pytest.raises(ValueError, match="not relative"):
+        A.Chain.shape_keys_template(obj)
+
+
 def test_node_input(cube):
     obj = cube("Cube")
     material, node, has_menu = node_group_node(obj)

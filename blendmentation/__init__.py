@@ -6,8 +6,8 @@ bl_info = {
     "author": "Maciej Maciejak",
     "version": (0, 8, 2),
     "blender": (4, 0, 0),
-    "location": "Node Editor > Node > Copy Blendmentation Template",
-    "description": "Synthetic datasets from Blender scenes. Copies a Node augmentation with the inputs of the active node",
+    "location": "Node Editor and 3D Viewport > Sidebar > Blendmentation",
+    "description": "Synthetic datasets from Blender scenes. Copies a Node augmentation with the inputs of the active node, or a Chain with the shape keys of the active object",
     "doc_url": "https://blendmentation.docs.csmx.eu/",
     "tracker_url": "https://github.com/mmaciejak/Blendmentation/issues",
     "category": "Node",
@@ -35,7 +35,7 @@ def require_bpy():
 
 
 def register():
-    """Registers the add-on's operator and menu entries; Blender calls it when the add-on
+    """Registers the add-on's operators, sidebar panels and menu entries; Blender calls it when the add-on
     is enabled."""
     from . import addon
 

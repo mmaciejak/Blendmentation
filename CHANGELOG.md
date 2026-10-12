@@ -6,6 +6,16 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.Chain.shape_keys_template(obj, prefix="augmentations.")` writes a
+  `Chain` with a `Number` for every shape key of an object, over its slider range (0 to 1
+  by default), with relative paths and the current value in a comment; muted and driven
+  shape keys are comments. The add-on copies it for the active object from the 3D
+  viewport's Sidebar (N) > Blendmentation > Copy Shape Keys Template.
+- The add-on's Copy Blendmentation Template is also in the node editor's Sidebar (N) >
+  Blendmentation.
+
 ## [0.8.2] - 2026-10-12
 
 ### Changed

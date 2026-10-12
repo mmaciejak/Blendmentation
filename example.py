@@ -59,6 +59,8 @@ mesh_transform = augmentations.Compose(
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
         augmentations.SimpleMaterial(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
+        # every shape key, one Number each: 3D viewport Sidebar > Blendmentation > Copy Shape
+        # Keys Template (the add-on), or print(augmentations.Chain.shape_keys_template(obj))
         augmentations.Number('data.shape_keys.key_blocks["Key 1"].value', value_range=(0.0, 1.0)),
         # after everything that moves or deforms the parts: lifts them out of the floor
         keep_above,
@@ -91,7 +93,7 @@ lamp_transforms = augmentations.Compose(
 # a world is augmented like an object, the path is relative to it. Node sets
 # several inputs of one node (e.g. a smart material's or a geometry nodes group node),
 # each its own way. To start from every input of a node with its range, select it and use
-# Node > Copy Blendmentation Template (the add-on), or
+# Sidebar > Blendmentation > Copy Blendmentation Template (the add-on), or
 # print(augmentations.Node.template('node_tree.nodes["Background"]', world))
 world_transforms = augmentations.Compose([
     augmentations.Node('node_tree.nodes["Background"]', {

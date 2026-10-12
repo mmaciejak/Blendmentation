@@ -99,7 +99,10 @@ Before writing a `Node`, print the node's template:
 It writes a `Node` with the node's exact path and every input by its exact name (group
 nodes show their group's name, not the node's; menus show their current option; names
 can end in a space), with its type, current value, widest range and menu options, and
-connected or unsupported inputs as comments. Narrow it down with the user.
+connected or unsupported inputs as comments. Narrow it down with the user. For shape
+keys, `print(augmentations.Chain.shape_keys_template(obj))` writes a `Chain` with a
+`Number` over each shape key's slider range (relative paths; muted and driven keys as
+comments).
 
 Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a
@@ -319,7 +322,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
-  `OneOf` option). Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
+  `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key). Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,

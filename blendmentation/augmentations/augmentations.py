@@ -12,7 +12,8 @@ last object; `results` holds the values for every object, by name. Augment insid
 geometry nodes setup), each with its own range, `p` and `otherwise`, given as an `Input`;
 `Modifier` does the same for the inputs of a geometry nodes modifier, by name.
 `Node.template` writes a `Node` with every input of a node and its range, to paste and
-edit; the Blender add-on copies it for the selected node.
+edit; the Blender add-on copies it for the selected node. `Chain.shape_keys_template`
+does the same for the shape keys of an object.
 `MaterialSlot` gives an object one of the materials in its own slots.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
@@ -395,6 +396,53 @@ class Chain(Augmentation):
         for augmentation in self.augmentations:
             augmentation(obj)
         self.actual = [getattr(augmentation, "actual", None) for augmentation in self.augmentations]
+
+    @staticmethod
+    def shape_keys_template(obj: Object, prefix: str = "augmentations.") -> str:
+        """Writes the source of a `Chain` that sets the value of every shape key of an
+        object, to paste into a script and edit.
+
+        Each shape key gets a `Number` with the range of its slider (Range Min and Max,
+        0 to 1 by default) and its current value in a comment. The paths are relative
+        (`data.shape_keys.key_blocks["Smile"].value`), so the `Chain` works in a
+        `Compose` for every object with shape keys of those names. The basis is left out,
+        and muted or driven shape keys are only comments, since their value has no
+        effect or a driver overwrites it. With the default `p=1` the `Chain` does the same
+        as its `Number`s listed one by one in a `Compose`; it keeps them together, e.g.
+        to give the whole `Chain` a `p` or to put it in a `OneOf`.
+
+        In the Blender app, the add-on does the same for the active object and copies it
+        to the clipboard: 3D Viewport sidebar (N) > Blendmentation > Copy Shape Keys
+        Template. See [Installation](installation.md#inside-blender-as-an-add-on).
+
+        Args:
+            obj: object with shape keys (a mesh, curve or lattice).
+            prefix: written before `Chain` and `Number`, e.g. `"aug."` after
+                `from blendmentation.augmentations import augmentations as aug`.
+
+        Returns:
+            The source of the `Chain`, ending in a newline.
+
+        Raises:
+            ValueError: the object has no shape keys besides the basis, or they are
+                not relative (Evaluation Time sets them).
+
+        Example:
+            ```python
+            print(augmentations.Chain.shape_keys_template(bpy.data.objects["Face"]))
+            ```
+
+            prints
+
+            ```python
+            augmentations.Chain([  # shape keys of "Face"
+                augmentations.Number('data.shape_keys.key_blocks["Smile"].value', (0.0, 1.0)),  # now 0.0
+                augmentations.Number('data.shape_keys.key_blocks["Blink"].value', (0.0, 1.0)),  # now 0.25
+                # 'data.shape_keys.key_blocks["Old"].value': muted, now 0.0
+            ])
+            ```
+        """
+        return bpy_a.shape_keys_template(obj, prefix)
 
 
 class AxisAugmentation(Augmentation):
@@ -1572,8 +1620,8 @@ class Node(InputsAugmentation):
         node's name and the input names are written exactly, trailing spaces included.
 
         In the Blender app, the add-on does the same for the active node in the node
-        editor and copies it to the clipboard: Node menu (or right click a node) > Copy
-        Blendmentation Template, or search for it with F3. See
+        editor and copies it to the clipboard: Sidebar (N) > Blendmentation, Node menu or
+        right click a node > Copy Blendmentation Template, or search for it with F3. See
         [Installation](installation.md#inside-blender-as-an-add-on).
 
         Args:
