@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-13
+
 ### Added
 
 - `DepthOfField(..., defocus=...)` moves the focus off the target by a random percent of
@@ -373,7 +375,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.1...dev
+[0.9.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.8.0...v0.8.1
