@@ -9,7 +9,7 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
-from .. import bpy_paths, bpy_undo
+from .. import bpy_camera, bpy_paths, bpy_undo
 from ..values import is_number, is_point
 from . import bpy_ids, bpy_images, bpy_instances, drawing
 # raises when OpenImageIO is missing
@@ -907,27 +907,12 @@ def camera_intrinsics(scene, camera_data, width, height):
     ]
 
 
-def focus_distance(camera):
-    """Distance from the camera to its focal plane, as Blender computes it: along the view
-    axis to the focus object (or its bone), otherwise the focus distance setting."""
-    dof = camera.data.dof
-    target = dof.focus_object
-    if target is None:
-        return dof.focus_distance
-    location = target.matrix_world.translation
-    bone = getattr(dof, "focus_subtarget", "")
-    if bone and target.pose and bone in target.pose.bones:
-        location = target.matrix_world @ target.pose.bones[bone].head
-    forward = camera.matrix_world.col[2].xyz.normalized()
-    return max(abs(forward.dot(camera.matrix_world.translation - location)), 1e-5)
-
-
 def depth_of_field(camera):
     dof = camera.data.dof
     return {
         "use_dof": dof.use_dof,
         "focus_object": to_json(dof.focus_object),
-        "focus_distance": focus_distance(camera),
+        "focus_distance": bpy_camera.focus_distance(camera),
         "f_stop": dof.aperture_fstop,
         "aperture_blades": dof.aperture_blades,
         "aperture_rotation": dof.aperture_rotation,

@@ -970,40 +970,59 @@ class FocalLength(Augmentation):
 
 
 class DepthOfField(Augmentation):
-    """Turns on depth of field, focused on a target, with a random f-stop.
+    """Turns on depth of field, focused on a target, with a random f-stop, and
+    optionally a little out of focus.
 
     Focus is measured along the view axis from where the camera is when this runs, so
     put it after `LookAt` / `FocalLength` in a `Compose`.
+
+    `defocus` moves the focus off that distance by a random percent, added like a
+    `Translation` offset: `defocus=10` focuses anywhere from 10 % nearer to 10 % farther,
+    `(0, 20)` only farther (behind the target). It works from the target's distance, or
+    without a target from the scene's focus (its Focus Distance, or the distance to its
+    Focus on Object, which is then replaced by the distance).
 
     Args:
         target: an object, a list of objects (the center of their bounding boxes), or a
             point `(x, y, z)` to focus on. None keeps the current focus.
         f_stop: aperture f-stop, a `(min, max)` range or an exact number, lower gives
             more blur. None keeps the current one.
+        defocus: percent added to the focus distance: a number `v` samples from
+            `(-v, v)`, `(low, high)` from that range, `(low, high, step)` one of low,
+            low + step, ... high. None (the default) focuses exactly. The distance
+            doesn't go below 0.
         p: probability of applying the augmentation.
         otherwise: what happens the rest of the time: False turns depth of field off,
             None leaves the depth of field settings unchanged.
 
     Attributes:
         actual (dict | bool | None): `{"f_stop", "focus_distance"}` set by the last
-            call, False when it turned depth of field off, None when it left it
-            unchanged.
+            call, with `"defocus"` (the percent added) when `defocus` is given, False
+            when it turned depth of field off, None when it left it unchanged.
+
+    Raises:
+        ValueError: `defocus` is not a number, `(low, high)` or `(low, high, step)`.
 
     Example:
         ```python
         # blurred in half of the images, sharp in the others
         augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False)
+        # focused up to 15 % in front of or behind the cars, so they are a little soft
+        augmentations.DepthOfField([car_1, car_2], f_stop=(1.4, 2.8), defocus=15)
+        # the focus set in the scene, moved up to 20 % farther
+        augmentations.DepthOfField(defocus=(0, 20))
         ```
     """
 
-    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None, p: float = 1.0,
-                 otherwise: Optional[bool] = None):
+    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None,
+                 defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None):
         super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"))
         self.target = target
         self.f_stop = f_stop
+        self.defocus = None if defocus is None else check_offset(defocus, "defocus")
 
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.depth_of_field(obj, self.target, self.f_stop)
+        self.actual = bpy_a.depth_of_field(obj, self.target, self.f_stop, self.defocus)
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
         return bpy_a.disable_depth_of_field(obj)

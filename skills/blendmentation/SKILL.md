@@ -187,7 +187,7 @@ camera_aug = augmentations.Compose([
         ]),
     ], weights=[2, 1]),
     augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True, size=(80, 120)),  # size: % of before
-    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),  # after LookAt/FocalLength; sharp otherwise
+    augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), defocus=10, p=0.5, otherwise=False),  # after LookAt/FocalLength; defocus: ±10 % focus; sharp otherwise
 ])
 
 scene = bpy.context.scene

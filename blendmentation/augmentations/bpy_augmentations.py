@@ -8,7 +8,7 @@ import bpy
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 
-from .. import bpy_paths, bpy_undo
+from .. import bpy_camera, bpy_paths, bpy_undo
 from ..values import is_number, is_point
 
 
@@ -372,27 +372,39 @@ def focal_length(obj, focal_length_range, target, keep_size, size=None):
     return applied
 
 
-def depth_of_field(obj, target, f_stop):
+def depth_of_field(obj, target, f_stop, defocus=None):
     """Enables depth of field, focused at the target with a random f-stop.
 
     Args:
         target: object, list of objects or point (x, y, z) to focus on, None keeps the focus
         f_stop (tuple): aperture f-stop, (min, max), an exact number, or None to keep it
+        defocus (float | tuple): percent added to the focus distance, sampled like a
+            Translation offset (v: (-v, v)); None focuses exactly
 
     Returns:
-        dict: f_stop and focus_distance
+        dict: f_stop, focus_distance, and defocus (the percent added) with defocus
     """
     check_camera(obj)
     dof = obj.data.dof
     bpy_undo.set_attr(dof, "use_dof", True)
+    distance = None
     if target is not None:
         # focus distance along the view axis to the target center, from where the camera is now
         forward = obj.matrix_world.to_3x3().normalized() @ Vector((0.0, 0.0, -1.0))
+        distance = max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0)
+    applied = {}
+    if defocus is not None:
+        if distance is None:
+            # the scene's focus, also when a focus object sets it
+            distance = bpy_camera.focus_distance(obj)
+        percent = sample(defocus)
+        distance = max(distance * (1.0 + percent / 100.0), 0.0)
+        applied["defocus"] = percent
+    if distance is not None:
         bpy_undo.set_attr(dof, "focus_object", None)
-        bpy_undo.set_attr(dof, "focus_distance",
-                          max((target_center(target) - obj.matrix_world.translation).dot(forward), 0.0))
+        bpy_undo.set_attr(dof, "focus_distance", distance)
     bpy_undo.set_attr(dof, "aperture_fstop", range_or_value(f_stop, dof.aperture_fstop))
-    return {"f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance}
+    return {"f_stop": dof.aperture_fstop, "focus_distance": dof.focus_distance, **applied}
 
 
 def disable_depth_of_field(obj):

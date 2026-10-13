@@ -1163,6 +1163,46 @@ def test_depth_of_field(scene, cube):
         A.DepthOfField(target)(bpy.data.objects.new("empty", None))
 
 
+def test_depth_of_field_defocus(scene, cube):
+    target = cube("Target")
+    camera = scene.camera  # 10 along the view axis from the target
+    dof = camera.data.dof
+
+    # from the target's distance, a percent added like a Translation offset
+    defocus = A.DepthOfField(target, defocus=10)
+    for _ in range(10):
+        defocus(camera)
+        percent = defocus.actual["defocus"]
+        assert -10 <= percent <= 10
+        assert dof.focus_distance == pytest.approx(10 * (1 + percent / 100), rel=1e-5)
+        assert defocus.actual["focus_distance"] == dof.focus_distance
+    A.DepthOfField(target, defocus=(20, 40, 20))(camera)
+    assert dof.focus_distance == pytest.approx(12, rel=1e-5) or dof.focus_distance == pytest.approx(14, rel=1e-5)
+    A.DepthOfField(target, defocus=(-300, -300))(camera)
+    assert dof.focus_distance == 0, "not below 0"
+    exact = A.DepthOfField(target)
+    exact(camera)
+    assert "defocus" not in exact.actual and dof.focus_distance == pytest.approx(10, rel=1e-5)
+
+    # without a target: from the scene's focus, also a focus object's distance, then replaced
+    dof.focus_distance = 4
+    A.DepthOfField(defocus=(50, 50))(camera)
+    assert dof.focus_distance == pytest.approx(6)
+    dof.focus_object = target
+    with state.restoring():
+        A.DepthOfField(defocus=(-50, -50))(camera)
+        assert dof.focus_object is None and dof.focus_distance == pytest.approx(5, rel=1e-5)
+    assert dof.focus_object == target and dof.focus_distance == pytest.approx(6)
+
+    # without target and defocus the focus is kept
+    A.DepthOfField(f_stop=2)(camera)
+    assert dof.focus_object == target
+
+    for bad in ("far", (10, 5), (0, 10, 0)):
+        with pytest.raises(ValueError):
+            A.DepthOfField(target, defocus=bad)
+
+
 def test_results(cube):
     objs = [cube(f"Cube.{i}") for i in range(3)]
     visibility = A.Visibility()

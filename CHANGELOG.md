@@ -8,6 +8,11 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `DepthOfField(..., defocus=...)` moves the focus off the target by a random percent of
+  its distance, added like a `Translation` offset: `defocus=10` focuses anywhere from 10 %
+  nearer to 10 % farther, `(0, 20)` only farther, `(low, high, step)` in steps. Without a
+  target it works from the scene's focus, also a Focus on Object's distance (which is then
+  replaced by the distance). `actual` holds the `defocus` percent.
 - `FocalLength(..., keep_size=True, size=(80, 120))`: with `keep_size`, the target gets a
   random size in the image instead of keeping it, in percent of its size before the call
   (the camera moves farther or closer). `size` takes a `(min, max)` range or an exact
