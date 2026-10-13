@@ -905,43 +905,65 @@ class FocalLength(Augmentation):
 
     With `keep_size`, the camera also moves along the line to the target by the same
     ratio as the lens, so the target keeps its size in the image while the perspective
-    changes. That is exact for parts at the target's depth when the target is in the
-    center of the view (e.g. after `LookAt`); an off-center target also moves in the
-    image. Perspective cameras only.
+    changes. With `size` as well, the target gets a random size instead, in percent of
+    its size in the image before the call: `size=(80, 120)` makes it up to 20 % smaller
+    or bigger (the camera moves farther or closer). That is exact for parts at the
+    target's depth when the target is in the center of the view (e.g. after `LookAt`);
+    an off-center target also moves in the image. Perspective cameras only.
 
     Args:
         focal_length: lens in mm, a `(min, max)` range or an exact number.
         target: an object, a list of objects (the center of their bounding boxes),
             or a point `(x, y, z)`. Needed for `keep_size`.
         keep_size: move the camera so the target keeps its size in the image.
+        size: with `keep_size`, the target's new size in the image in percent of its
+            size before the call, a `(min, max)` range or an exact number. None (the
+            default) keeps it exactly.
         p: probability of applying the augmentation.
         otherwise: lens in mm to set when it doesn't run, None keeps the lens. Not
             with `keep_size`.
 
+    Attributes:
+        actual (dict | None): `focal_length` set by the last call, and with
+            `keep_size` the new `distance` to the target and the `size` in percent
+            (100 without `size`), None when it was skipped without `otherwise`.
+
     Raises:
-        ValueError: `keep_size` without a `target`, or `otherwise` with `keep_size`.
+        ValueError: `keep_size` without a `target`, `otherwise` with `keep_size`,
+            `size` without `keep_size`, or a `size` that is not a number or
+            `(min, max)` above 0.
 
     Example:
         ```python
         augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True)
+        # the same, with the cars 80 to 120 % of the size they had before
+        augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True, size=(80, 120))
         # a random lens in 30 % of the images, otherwise 50 mm
         augmentations.FocalLength((24, 85), p=0.3, otherwise=50)
         ```
     """
 
     def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
-                 p: float = 1.0, otherwise: Optional[float] = None):
+                 size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None):
         super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"))
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
         if keep_size and otherwise is not None:
             raise ValueError("otherwise can't be used with keep_size")
+        if size is not None:
+            if not keep_size:
+                raise ValueError("size needs keep_size=True")
+            bounds: Any = [size] if is_number(size) else size
+            if (isinstance(bounds, str) or not isinstance(bounds, Sequence) or len(bounds) not in (1, 2)
+                    or not all(is_number(v) and v > 0 for v in bounds) or bounds[0] > bounds[-1]):
+                raise ValueError(f"size must be a percentage above 0 or a (min, max) range of them, got {size!r}")
         self.focal_length = focal_length
         self.target = target
         self.keep_size = keep_size
+        self.size = size
 
     def apply(self, obj: Optional[Object]) -> None:
-        self.actual = bpy_a.focal_length(obj, self.focal_length, self.target, self.keep_size)
+        self.actual = bpy_a.focal_length(obj, self.focal_length, self.target, self.keep_size, self.size)
 
     def set_otherwise(self, obj: Optional[Object]) -> dict[str, float]:
         return bpy_a.focal_length(obj, self.otherwise, None, False)

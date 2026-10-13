@@ -8,6 +8,11 @@ All notable changes to Blendmentation. The format follows
 
 ### Added
 
+- `FocalLength(..., keep_size=True, size=(80, 120))`: with `keep_size`, the target gets a
+  random size in the image instead of keeping it, in percent of its size before the call
+  (the camera moves farther or closer). `size` takes a `(min, max)` range or an exact
+  number; without it, `keep_size` keeps the size exactly as before. `actual` holds the
+  `size` set.
 - `augmentations.Modifier` sets the settings of any modifier, not only the inputs of a
   geometry nodes modifier: Subdivision Surface, Bevel, Array, Displace... by their Python
   name, e.g. `Modifier('modifiers["Subdivision"]', {"render_levels": Number((1, 3)),

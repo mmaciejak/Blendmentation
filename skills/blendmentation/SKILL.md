@@ -186,7 +186,7 @@ camera_aug = augmentations.Compose([
             augmentations.LookAt([car_1, car_2]),         # no distance/elevation/azimuth: only aims
         ]),
     ], weights=[2, 1]),
-    augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True),
+    augmentations.FocalLength((24, 85), target=[car_1, car_2], keep_size=True, size=(80, 120)),  # size: % of before
     augmentations.DepthOfField(car_1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),  # after LookAt/FocalLength; sharp otherwise
 ])
 

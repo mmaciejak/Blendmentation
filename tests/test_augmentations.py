@@ -1113,6 +1113,18 @@ def test_focal_length_keep_size(scene):
         assert focal.actual["distance"] == pytest.approx(10 * camera.data.lens / 50, rel=1e-5)
         assert_centered(scene, Vector((0, 0, 0)))
 
+    assert focal.actual["size"] == 100
+
+    # size: the target gets that percent of its size before the call
+    for size in ((80, 120), 150):
+        before = projected_width(scene, plane)
+        sized = A.FocalLength((20, 100), target=plane, keep_size=True, size=size)
+        sized(camera)
+        percent = sized.actual["size"]
+        assert (80 <= percent <= 120) if isinstance(size, tuple) else percent == 150
+        assert projected_width(scene, plane) == pytest.approx(before * percent / 100, rel=1e-3)
+        assert_centered(scene, Vector((0, 0, 0)))
+
     location = camera.location.copy()
     A.FocalLength(35)(camera)
     assert camera.data.lens == 35 and camera.location == location  # without keep_size the camera stays
@@ -1122,6 +1134,11 @@ def test_focal_length_errors(scene):
     light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
     with pytest.raises(ValueError, match="needs a target"):
         A.FocalLength(50, keep_size=True)
+    with pytest.raises(ValueError, match="needs keep_size"):
+        A.FocalLength(50, target=(0, 0, 0), size=(80, 120))
+    for size in (0, (120, 80), (-10, 50), "big", (80, 100, 120), True):
+        with pytest.raises(ValueError, match="size must be"):
+            A.FocalLength(50, target=(0, 0, 0), keep_size=True, size=size)
     with pytest.raises(TypeError):
         A.FocalLength(50)(light)
     scene.camera.data.type = "ORTHO"

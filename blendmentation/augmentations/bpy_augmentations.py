@@ -339,16 +339,21 @@ def check_camera(obj, perspective=False):
         raise TypeError(f"Camera '{obj.name}' is {obj.data.type}, focal length needs a perspective camera")
 
 
-def focal_length(obj, focal_length_range, target, keep_size):
+def focal_length(obj, focal_length_range, target, keep_size, size=None):
     """Sets the camera lens. With keep_size the camera moves along the line to the target
     by the same ratio as the lens, so the target keeps its size in the image (a dolly zoom).
+    A target's size in the image is about lens / distance, so with size the distance is
+    also divided by the size factor.
 
     Args:
         focal_length_range (tuple): lens in mm, (min, max) or an exact number
         target: object, list of objects or point (x, y, z), needed for keep_size
+        size (tuple): with keep_size, the target's new size in percent of its size
+            before, (min, max) or an exact number; None keeps it
 
     Returns:
-        dict: focal_length that was set, and the new distance to the target with keep_size
+        dict: focal_length that was set, and with keep_size the new distance to the
+        target and the size in percent
     """
     check_camera(obj, perspective=True)
     old_lens = obj.data.lens
@@ -356,12 +361,14 @@ def focal_length(obj, focal_length_range, target, keep_size):
     # blender stores it as 32 bit float, report and use what was stored
     applied = {"focal_length": obj.data.lens}
     if keep_size:
+        percent = range_or_value(size, 100.0)
         center = target_center(target)
         matrix = obj.matrix_world.copy()
-        matrix.translation = center + (matrix.translation - center) * (obj.data.lens / old_lens)
+        matrix.translation = center + (matrix.translation - center) * (obj.data.lens / old_lens) / (percent / 100)
         bpy_undo.record_transforms(obj)
         obj.matrix_world = matrix
         applied["distance"] = (matrix.translation - center).length
+        applied["size"] = percent
     return applied
 
 

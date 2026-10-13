@@ -149,7 +149,8 @@ camera_transforms = augmentations.Compose(
             ],
             weights=[2, 1],
         ),
-        augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True),
+        # a dolly zoom; size: the parts end up 80 to 120 % of the size they had before
+        augmentations.FocalLength((24, 85), target=[obj1, obj2], keep_size=True, size=(80, 120)),
         # blurred in half of the datapoints; otherwise=False turns it off in the others
         augmentations.DepthOfField(obj1, f_stop=(1.4, 5.6), p=0.5, otherwise=False),
     ]
