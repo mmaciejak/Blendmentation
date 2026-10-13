@@ -29,6 +29,11 @@ object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
 Path. Any other path is relative to the augmented object, e.g. `data.energy`.
+The augmentations that change an object (`Translation`, `Rotation`, `Scale`,
+`Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`, `FocalLength`,
+`DepthOfField`, `MaterialSlot`, `SimpleMaterial`) change the object they are called
+with, or with `data_path='bpy.data.objects["Camera"]'` always that object, so they can
+also be called alone, `aug()`.
 Geometry nodes inputs moved in Blender 5, so their path depends on the version:
 `modifiers["GeometryNodes"]["Socket_2"]` in 4.x,
 `modifiers["GeometryNodes"].properties.inputs.Socket_2.value` in 5.x. `Modifier`
@@ -280,6 +285,43 @@ class Augmentation:
         raise NotImplementedError
 
 
+def check_object_path(data_path: Optional[str]) -> Optional[str]:
+    """None, or an absolute data path (starting with `bpy.`)."""
+    if data_path is not None and (not isinstance(data_path, str) or not data_path.startswith(("bpy.", "bpy["))):
+        raise ValueError(f"data_path must be an absolute path to an object, e.g. "
+                         f"'bpy.data.objects[\"Camera\"]', got {data_path!r}")
+    return data_path
+
+
+class ObjectAugmentation(Augmentation):
+    """An augmentation that changes the object it is called with, or, with `data_path`,
+    always the object at that absolute path: then it ignores the objects of a `Compose`
+    (it runs once per object, on the same one) and can be called alone, `aug()`, like a
+    data-path augmentation with an absolute path. `results` is then stored under that
+    object's name."""
+
+    def __init__(self, p: float = 1.0, otherwise: Any = None, data_path: Optional[str] = None):
+        super().__init__(p, otherwise)
+        self.data_path = check_object_path(data_path)
+
+    def __call__(self, obj: Optional[Object] = None, p: Optional[float] = None) -> None:
+        """Applies the augmentation with probability `p` to the object, or to the object
+        at `data_path` when it has one, and records it in `results`.
+
+        Args:
+            obj: object to augment, not needed with `data_path`.
+            p: probability of applying it for this call only, instead of the `p` given
+                at construction.
+
+        Raises:
+            ValueError: if `p` is not between 0 and 1.
+            TypeError: `data_path` doesn't lead to an object.
+        """
+        if self.data_path is not None:
+            obj = bpy_a.object_at(self.data_path)
+        super().__call__(obj, p)
+
+
 class OneOf(Augmentation):
     """Applies one augmentation from a list, picked at random by weight.
 
@@ -457,7 +499,7 @@ class Chain(Augmentation):
         return bpy_a.shape_keys_template(obj, prefix, relative)
 
 
-class AxisAugmentation(Augmentation):
+class AxisAugmentation(ObjectAugmentation):
     """Base class of `Translation`, `Rotation` and `Scale`, sampled per axis.
 
     Each axis is a number `v`, sampled from `(-v, v)`, a pair `(low, high)`, or a
@@ -469,6 +511,9 @@ class AxisAugmentation(Augmentation):
         y: offset on the Y axis.
         z: offset on the Z axis.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Raises:
         ValueError: an axis is not a number, a pair or a triple, low is above high, or
@@ -482,8 +527,9 @@ class AxisAugmentation(Augmentation):
             each object, by name, None when skipped.
     """
 
-    def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0,
+                 data_path: Optional[str] = None):
+        super().__init__(p, data_path=data_path)
         self.x = check_offset(x, "x")
         self.y = check_offset(y, "y")
         self.z = check_offset(z, "z")
@@ -512,6 +558,9 @@ class Translation(AxisAugmentation):
         y: offset on Y in Blender units.
         z: offset on Z in Blender units.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Example:
         ```python
@@ -540,6 +589,9 @@ class Rotation(AxisAugmentation):
         y: angle around Y in degrees.
         z: angle around Z in degrees.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Example:
         ```python
@@ -566,6 +618,9 @@ class Scale(AxisAugmentation):
         y: change of the Y scale in percent.
         z: change of the Z scale in percent.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Example:
         ```python
@@ -577,7 +632,7 @@ class Scale(AxisAugmentation):
         self.actual_x, self.actual_y, self.actual_z = bpy_a.scale(obj, self.x, self.y, self.z)
 
 
-class Visibility(Augmentation):
+class Visibility(ObjectAugmentation):
     """Shows the object in the render with probability `p`, otherwise hides it.
 
     It sets the object's render visibility (`hide_render`) both ways: an object hidden
@@ -594,6 +649,9 @@ class Visibility(Augmentation):
         p: probability that the object is visible.
         otherwise: what happens the rest of the time: False hides the object, None
             leaves its visibility unchanged.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (bool | None): whether the last call made the object visible, None when
@@ -612,8 +670,8 @@ class Visibility(Augmentation):
         ```
     """
 
-    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False):
-        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
+    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False, data_path: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.visibility(obj, True)
@@ -622,7 +680,7 @@ class Visibility(Augmentation):
         return bpy_a.visibility(obj, self.otherwise)
 
 
-class KeepAbove(Augmentation):
+class KeepAbove(ObjectAugmentation):
     """Moves the object up, if needed, so it stays above a surface, e.g. a floor or terrain.
 
     It checks whether the object's lowest point is at least `margin` above the top of
@@ -644,6 +702,9 @@ class KeepAbove(Augmentation):
         margin: minimum gap between the surface and the object's lowest point, in
             Blender units.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (float | None): how far the last call moved the object up, 0 when it
@@ -665,8 +726,8 @@ class KeepAbove(Augmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None):
+        super().__init__(p, data_path=data_path)
         self.surface = surface
         self.margin = margin
 
@@ -674,7 +735,7 @@ class KeepAbove(Augmentation):
         self.actual = bpy_a.keep_above(obj, self.surface, self.margin)
 
 
-class PlaceOn(Augmentation):
+class PlaceOn(ObjectAugmentation):
     """Moves the object up or down so it rests on a surface, e.g. a floor or table.
 
     Like `KeepAbove`, but it also moves the object down: its lowest point ends up
@@ -699,6 +760,9 @@ class PlaceOn(Augmentation):
         margin: gap between the surface and the object's lowest point, in Blender
             units.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (float | None): how far the last call moved the object, positive up and
@@ -720,8 +784,8 @@ class PlaceOn(Augmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None):
+        super().__init__(p, data_path=data_path)
         self.surface = surface
         self.margin = margin
 
@@ -781,7 +845,7 @@ class Seed(Augmentation):
         return bpy_a.seeds(self.node_group, self.otherwise)
 
 
-class LookAt(Augmentation):
+class LookAt(ObjectAugmentation):
     """Moves a camera (or a light, or any object) on a sphere around a target and points it
     at the target, upright.
 
@@ -799,6 +863,9 @@ class LookAt(Augmentation):
         roll: rotation around the camera's view axis in degrees. None = upright.
         focal_length: camera lens in mm, cameras only.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (dict | None): the distance, elevation, azimuth, roll and focal length
@@ -823,8 +890,9 @@ class LookAt(Augmentation):
         roll: Optional[RangeOrValue] = None,
         focal_length: Optional[RangeOrValue] = None,
         p: float = 1.0,
+        data_path: Optional[str] = None,
     ):
-        super().__init__(p)
+        super().__init__(p, data_path=data_path)
         self.target = target
         self.distance = distance
         self.elevation = elevation
@@ -838,7 +906,7 @@ class LookAt(Augmentation):
         )
 
 
-class PlaceOnCurve(Augmentation):
+class PlaceOnCurve(ObjectAugmentation):
     """Moves a camera (or any object) to a random point on a curve, e.g. a camera path.
 
     The point is picked uniformly along the curve's length (a curve with several splines
@@ -867,6 +935,9 @@ class PlaceOnCurve(Augmentation):
         position: where on the curve, as a fraction of its length from its start, a
             `(min, max)` range (the default is all of it) or an exact number, 0-1.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (dict | None): the `position` (fraction of the length) and the world
@@ -889,8 +960,9 @@ class PlaceOnCurve(Augmentation):
         ```
     """
 
-    def __init__(self, curve: Object, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, curve: Object, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0,
+                 data_path: Optional[str] = None):
+        super().__init__(p, data_path=data_path)
         bpy_a.check_curve(curve)
         self.curve = curve
         self.align = align
@@ -900,7 +972,7 @@ class PlaceOnCurve(Augmentation):
         self.actual = bpy_a.place_on_curve(obj, self.curve, self.align, self.position)
 
 
-class FocalLength(Augmentation):
+class FocalLength(ObjectAugmentation):
     """Sets a random camera lens, optionally as a dolly zoom.
 
     With `keep_size`, the camera also moves along the line to the target by the same
@@ -922,6 +994,9 @@ class FocalLength(Augmentation):
         p: probability of applying the augmentation.
         otherwise: lens in mm to set when it doesn't run, None keeps the lens. Not
             with `keep_size`.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (dict | None): `focal_length` set by the last call, and with
@@ -944,8 +1019,9 @@ class FocalLength(Augmentation):
     """
 
     def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
-                 size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None):
-        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"))
+                 size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None,
+                 data_path: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"), data_path)
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
         if keep_size and otherwise is not None:
@@ -969,7 +1045,7 @@ class FocalLength(Augmentation):
         return bpy_a.focal_length(obj, self.otherwise, None, False)
 
 
-class DepthOfField(Augmentation):
+class DepthOfField(ObjectAugmentation):
     """Turns on depth of field, focused on a target, with a random f-stop, and
     optionally a little out of focus.
 
@@ -994,6 +1070,9 @@ class DepthOfField(Augmentation):
         p: probability of applying the augmentation.
         otherwise: what happens the rest of the time: False turns depth of field off,
             None leaves the depth of field settings unchanged.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (dict | bool | None): `{"f_stop", "focus_distance"}` set by the last
@@ -1015,8 +1094,9 @@ class DepthOfField(Augmentation):
     """
 
     def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None,
-                 defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None):
-        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"))
+                 defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None,
+                 data_path: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"), data_path)
         self.target = target
         self.f_stop = f_stop
         self.defocus = None if defocus is None else check_offset(defocus, "defocus")
@@ -1028,7 +1108,7 @@ class DepthOfField(Augmentation):
         return bpy_a.disable_depth_of_field(obj)
 
 
-class MaterialSlot(Augmentation):
+class MaterialSlot(ObjectAugmentation):
     """Gives the object one of the materials in its own material slots, picked at random.
 
     Add the materials to pick from to the object's slots in Blender (Material
@@ -1049,6 +1129,9 @@ class MaterialSlot(Augmentation):
         p: probability of applying the augmentation.
         otherwise: slot to use when it doesn't run, by index or material name. None
             keeps the faces' slots.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Attributes:
         actual (str | None): name of the picked slot's material (None for an empty
@@ -1099,9 +1182,9 @@ class MaterialSlot(Augmentation):
     """
 
     def __init__(self, slots: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
-                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None):
+                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
-        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"))
+        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path)
         if slots is not None and weights is not None and len(slots) != len(weights):
             raise ValueError("Give one weight per slot")
         self.slots = slots
@@ -1114,7 +1197,7 @@ class MaterialSlot(Augmentation):
         return bpy_a.material_slot(obj, [self.otherwise], None)
 
 
-class SimpleMaterial(Augmentation):
+class SimpleMaterial(ObjectAugmentation):
     """Sets random Principled BSDF base color, roughness and metallic values.
 
     Each parameter is an absolute `(min, max)` range, 0-1, or an exact value, and None
@@ -1131,6 +1214,9 @@ class SimpleMaterial(Augmentation):
         roughness: range of the roughness.
         metallic: range of the metallic.
         p: probability of applying the augmentation.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
 
     Tip:
         Use `SimpleMaterial` for negative data, secondary objects, or to make a model
@@ -1155,8 +1241,9 @@ class SimpleMaterial(Augmentation):
         roughness: Optional[RangeOrValue] = None,
         metallic: Optional[RangeOrValue] = None,
         p: float = 1.0,
+        data_path: Optional[str] = None,
     ):
-        super().__init__(p)
+        super().__init__(p, data_path=data_path)
         self.material_id = material_id
         self.hue = hue
         self.saturation = saturation

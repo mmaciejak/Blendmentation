@@ -107,6 +107,10 @@ world_transforms = augmentations.Compose([
 # a new random seed for every seed in the node group, so the pebbles move every time
 scatter_seed = augmentations.Seed(scatter)
 
+# with data_path an object augmentation changes that object, whatever it is called with,
+# so it can also run alone: the light moves a little on top of lamp_transforms
+lamp_shift = augmentations.Translation(x=0.3, y=0.3, data_path='bpy.data.objects["Light"]')
+
 # the inputs shown on the geometry nodes modifier, by name, in every Blender version. To
 # start from every input with its range: Sidebar > Blendmentation > Copy Modifier Template
 # (the add-on), or print(augmentations.Modifier.template(floor.modifiers["Scatter"]))
@@ -202,6 +206,7 @@ def pipeline():
         world_transforms([world])
         floor_transforms([floor])
         scatter_seed(p=0.9)  # an augmentation call can take p too: new pebbles 90% of the time
+        lamp_shift()  # data_path: no object needed
         # results holds the value for every object, by name (actual only the last one)
         image_generator({"lift": keep_above.results})
 

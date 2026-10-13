@@ -331,7 +331,11 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
-  `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key). Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
+  `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key).
+  The object augmentations (transforms, `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`,
+  `PlaceOnCurve`, `FocalLength`, `DepthOfField`, `MaterialSlot`, `SimpleMaterial`) take
+  `data_path='bpy.data.objects["Camera"]'` to always change that object instead of the
+  one they are called with, so they also run alone: `aug()`. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,

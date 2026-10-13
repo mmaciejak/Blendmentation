@@ -35,6 +35,14 @@ def percent_factor(value_range):
     return 1.0 + sample(value_range) / 100.0
 
 
+def object_at(data_path):
+    """The object at an absolute data path, e.g. bpy.data.objects["Camera"]."""
+    obj = bpy_paths.get_value(data_path)
+    if not isinstance(obj, bpy.types.Object):
+        raise TypeError(f"'{data_path}' is not an object, it is {obj!r}")
+    return obj
+
+
 def get_material(obj, material_id):
     """Returns the material of given name from the object's material slots."""
     for slot in obj.material_slots:

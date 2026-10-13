@@ -818,6 +818,9 @@ floor_aug = aug.Compose([
 ])
 # a new random value for every seed in the node group
 scatter_seed = aug.Seed(scatter)
+# with data_path an object augmentation always changes that object, so it also runs
+# alone: the light moves a little on top of lamp_aug
+lamp_shift = aug.Translation(x=0.3, y=0.3, data_path='bpy.data.objects["Light"]')
 camera_aug = aug.Compose([
     # around the cars, or a third of the time on the path
     aug.OneOf(
@@ -910,6 +913,8 @@ for _ in range(1000):
         floor_aug([floor])
         # a call can take p: new pebbles 90% of the time
         scatter_seed(p=0.9)
+        # data_path: no object needed
+        lamp_shift()
         # extra label key: how far each car was lifted
         generator({"lift": keep_above.results})
 

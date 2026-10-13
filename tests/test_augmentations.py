@@ -1490,3 +1490,67 @@ def test_seed(scene):
         A.Seed(bpy.data.node_groups.new("Empty", "GeometryNodeTree"))
     with pytest.raises(ValueError):
         A.Seed(group, otherwise=1.5)
+
+
+def test_object_data_path(scene, cube):
+    """With data_path, an object augmentation changes that object, whatever it is called
+    with, and runs alone."""
+    target = cube("Target")
+    other = cube("Other", location=(3, 0, 0))
+    floor = cube("Floor", location=(0, 0, -3))
+    for obj in (target, other):
+        new_material(obj, f"{obj.name} paint")
+        new_material(obj, f"{obj.name} metal")
+    curve = bpy.data.objects.new("Path", bpy.data.curves.new("Path", "CURVE"))
+    curve.data.splines.new("POLY").points.add(1)
+    curve.data.splines[0].points[1].co = (4, 0, 0, 1)
+    scene.collection.objects.link(curve)
+    camera = scene.camera
+    camera_path = f'bpy.data.objects["{camera.name}"]'
+    path = 'bpy.data.objects["Target"]'
+
+    def state_of(obj):
+        material = obj.material_slots[0].material
+        return (tuple(tuple(row) for row in obj.matrix_world), obj.hide_render, obj.active_material_index,
+                tuple(polygon.material_index for polygon in obj.data.polygons),
+                material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value)
+
+    def camera_state():
+        return tuple(tuple(row) for row in camera.matrix_world), camera.data.lens, camera.data.dof.use_dof
+
+    on_target = [
+        A.Translation(x=(1, 1), data_path=path),
+        A.Rotation(z=(30, 30), data_path=path),
+        A.Scale(x=(50, 50), data_path=path),
+        A.Visibility(p=0, data_path=path),
+        A.KeepAbove(floor, margin=5, data_path=path),
+        A.PlaceOn(floor, data_path=path),
+        A.MaterialSlot([1], data_path=path),
+        A.SimpleMaterial("Target paint", roughness=(0.9, 0.9), data_path=path),
+        A.PlaceOnCurve(curve, position=(0.5, 0.5), data_path=path),
+    ]
+    on_camera = [
+        A.LookAt(target, distance=(5, 5), elevation=(20, 20), azimuth=(0, 0), data_path=camera_path),
+        A.FocalLength((30, 30), data_path=camera_path),
+        A.DepthOfField(target, f_stop=2, data_path=camera_path),
+    ]
+    for augmentation in on_target + on_camera:
+        target_before, other_before, camera_before = state_of(target), state_of(other), camera_state()
+        with state.restoring():
+            A.Compose([augmentation])([other])  # the Compose's object is ignored
+            bpy.context.view_layer.update()
+            changed = camera_state() != camera_before if augmentation in on_camera else state_of(target) != target_before
+            assert changed, type(augmentation).__name__
+            assert state_of(other) == other_before, type(augmentation).__name__
+            assert list(augmentation.results) == ([camera.name] if augmentation in on_camera else ["Target"])
+        with state.restoring():
+            augmentation()  # alone, no object
+        bpy.context.view_layer.update()
+        assert state_of(target) == target_before and camera_state() == camera_before
+
+    with pytest.raises(ValueError, match="absolute"):
+        A.Translation(x=1, data_path='objects["Target"]')
+    with pytest.raises(TypeError, match="not an object"):
+        A.Translation(x=1, data_path='bpy.data.materials["Target paint"]')()
+    with pytest.raises(KeyError):
+        A.Translation(x=1, data_path='bpy.data.objects["Nope"]')()

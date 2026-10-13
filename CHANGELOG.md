@@ -6,6 +6,15 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The augmentations that change an object (`Translation`, `Rotation`, `Scale`,
+  `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`, `FocalLength`,
+  `DepthOfField`, `MaterialSlot`, `SimpleMaterial`) take an optional `data_path`, an
+  absolute path to an object, e.g. `Translation(x=0.3, data_path='bpy.data.objects["Light"]')`.
+  They then change that object instead of the one they are called with, ignore the
+  objects of a `Compose`, and can be called alone: `lamp_shift()`.
+
 ## [0.9.1] - 2026-10-13
 
 ### Added
