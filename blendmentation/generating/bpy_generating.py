@@ -3,6 +3,7 @@ import os
 import random
 import re
 import tempfile
+from typing import Optional
 
 import bpy
 import numpy as np
@@ -387,7 +388,8 @@ class Frame:
         self.temp_dir = temp_dir
         self.label = {"resolution": [width, height]}
         self.rendered = False
-        self.multilayer_file = None
+        # (path, channel names of each part) of the multilayer EXR, once saved
+        self.multilayer_file: Optional[tuple[str, list]] = None
         # set by steps that draw on the beauty render after Segmentation replaced it
         self.keep_beauty = False
         self.beauty_rgba = None
@@ -420,7 +422,7 @@ class Frame:
         tops = sorted(self.instances[parent].items())
         groups = [members for _, (members, found) in tops if sources is None or found & sources]
         unknown = sum(None in found for _, (_, found) in tops)
-        if not groups and unknown:
+        if not groups and unknown and sources is not None:  # with sources None, every instance is in groups
             raise ValueError(
                 f"Instances of '{parent.name}': none is of {sorted(obj.name for obj in sources)}, and {unknown} of its "
                 "instances are meshes that no object uses: geometry nodes changed them after Instance on Points, so "
@@ -744,7 +746,7 @@ def cover_image(file_path, width, height, rng):
     scale = max(width / spec.width, height / spec.height)
     cover_width, cover_height = max(width, round(spec.width * scale)), max(height, round(spec.height * scale))
     resized = oiio.ImageBufAlgo.resize(source, roi=oiio.ROI(0, cover_width, 0, cover_height, 0, 1, 0, 3))
-    pixels = resized.get_pixels(oiio.UINT8)
+    pixels = bpy_images.get_pixels(resized, oiio.UINT8, f"background image {file_path}")
     top = int(rng.integers(0, cover_height - height + 1))
     left = int(rng.integers(0, cover_width - width + 1))
     return pixels[top:top + height, left:left + width]
@@ -870,7 +872,8 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
     for entry in entries:
         # a mask skipped by skip_empty has no pixels to draw
         if entry["per"] == per and entry["mask"] is not None:
-            mask = oiio.ImageBuf(os.path.join(frame.path, entry["mask"])).get_pixels(oiio.UINT8)[:, :, 0] > 127
+            mask_path = os.path.join(frame.path, entry["mask"])
+            mask = bpy_images.get_pixels(oiio.ImageBuf(mask_path), oiio.UINT8, f"mask {mask_path}")[:, :, 0] > 127
             masks.append((drawing.class_color(class_names, entry["class"]), mask, entry["class"]))
 
     rgb = pixels[:, :, :3].astype(np.float64)
@@ -1076,7 +1079,8 @@ def prepare_segmentation(frame, classes):
 
 def index_pass_ids(frame):
     """Id image of the instances from the Object Index pass of the beauty render, like `render_ids`."""
-    return bpy_images.object_index_ids(*frame.multilayer(), frame.view_layer)
+    file_path, parts = frame.multilayer()
+    return bpy_images.object_index_ids(file_path, parts, frame.view_layer)
 
 
 # object types whose evaluated mesh bounds their silhouette, for packing full mask renders

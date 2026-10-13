@@ -39,6 +39,15 @@ def set_file_format(image_settings, file_format):
     image_settings.file_format = file_format
 
 
+def get_pixels(buffer, pixel_type, what):
+    """The pixels of an OpenImageIO ImageBuf as a numpy array, or a RuntimeError naming
+    what was read when OpenImageIO couldn't read them (get_pixels returns None)."""
+    pixels = buffer.get_pixels(pixel_type)
+    if pixels is None:
+        raise RuntimeError(f"Cannot read {what}: {buffer.geterror()}")
+    return pixels
+
+
 def save_render_result(scene, file_path, file_format, color_depth, color_mode=None):
     """Saves the Render Result to file_path. The output settings it changes are set back
     by generate."""
@@ -53,7 +62,7 @@ def save_render_result(scene, file_path, file_format, color_depth, color_mode=No
 def read_ids(file_path, encoded=False):
     """(height, width) array of the group ids of an RGBA id render EXR: the red channel,
     or with encoded the 8 bit steps of red and green of `render_ids`. Transparent pixels are 0."""
-    pixels = oiio.ImageBuf(file_path).get_pixels(oiio.FLOAT)
+    pixels = get_pixels(oiio.ImageBuf(file_path), oiio.FLOAT, f"id render {file_path}")
     if encoded:
         ids = np.rint(pixels[:, :, 0] * 255).astype(np.int64) + np.rint(pixels[:, :, 1] * 255).astype(np.int64) * 256
     else:
@@ -69,7 +78,7 @@ def object_index_ids(file_path, parts, view_layer):
     if layer is None:
         raise RuntimeError("The Object Index pass is missing in the render result")
     _, part, found = layer
-    pixels = oiio.ImageBuf(file_path, part, 0).get_pixels(oiio.FLOAT)
+    pixels = get_pixels(oiio.ImageBuf(file_path, part, 0), oiio.FLOAT, f"Object Index pass of {file_path}")
     # not anti-aliased, the pass holds whole numbers
     return np.rint(pixels[:, :, found[0][0]]).astype(np.int64)
 
