@@ -105,7 +105,11 @@ material, data or geometry nodes modifier; a world's node to the world), for a `
 over that object and others set up the same way. For shape keys,
 `print(augmentations.Chain.shape_keys_template(obj))` writes a `Chain` with a `Number`
 over each shape key's slider range (relative paths, `relative=False` for absolute; muted
-and driven keys as comments). Both start with a comment saying which kind of path.
+and driven keys as comments). For a modifier,
+`print(augmentations.Modifier.template(obj.modifiers["Scatter"]))` writes a `Modifier`
+with every geometry nodes input by name and its interface Min/Max, or every setting of
+another modifier by Python name and its slider range (relative paths by default). All
+three start with a comment saying which kind of path.
 
 Then agree with the user on, before generating anything:
 - **classes**: which objects are labeled, and as what. An instance is one object, or a
@@ -322,7 +326,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   written without a data path, which the `Node` gives each one (the input's `default_value`);
   a `Vector` on a color input keeps alpha; the wrong class for a socket raises a `TypeError`; `Node.template(node)`
   writes one with every input of a node and its range, to start from), `Modifier` (the same
-  for the inputs of a geometry nodes modifier, by name, in every version),
+  for the inputs of a geometry nodes modifier, by name, in every version, or for any
+  modifier's settings by Python name, e.g. `{"render_levels": Number((1, 3))}`; `Modifier.template(modifier)`),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a

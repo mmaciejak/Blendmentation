@@ -719,27 +719,77 @@ def socket_type(obj, data_path):
     return owner.type
 
 
+# modifier properties about the modifier's UI, not its result, and show_render (a hint
+# in the template instead): not written as rows of Modifier templates
+MODIFIER_UI = ("name", "type", "rna_type", "show_expanded", "show_in_editmode", "show_on_cage", "show_viewport",
+               "show_render",
+               "is_active", "use_pin_to_last", "is_override_data", "use_apply_on_spline", "persistent_uid",
+               "execution_time")
+
+
+def property_kind(prop):
+    """Kind of an RNA property, named like a node socket type: VALUE, INT, VECTOR (a
+    number array), RGBA (a 4 component color), BOOLEAN, MENU (a single choice enum), or
+    the property type itself (POINTER, STRING...) for the others."""
+    length = getattr(prop, "array_length", 0)
+    if prop.type in ("FLOAT", "INT"):
+        if length:
+            return "RGBA" if length == 4 and prop.subtype in ("COLOR", "COLOR_GAMMA") else "VECTOR"
+        return "VALUE" if prop.type == "FLOAT" else "INT"
+    if prop.type == "BOOLEAN" and not length:
+        return "BOOLEAN"
+    if prop.type == "ENUM" and not prop.is_enum_flag:
+        return "MENU"
+    return prop.type
+
+
+def modifier_properties(modifier):
+    """The settings of a modifier a Modifier can set: (identifier, property, kind) for
+    every writable number, vector, boolean and menu property, in the order Blender lists
+    them, without those about its UI (MODIFIER_UI, open_... panels)."""
+    settings = []
+    for prop in modifier.bl_rna.properties:
+        if prop.is_readonly or prop.identifier in MODIFIER_UI or prop.identifier.startswith("open_"):
+            continue
+        kind = property_kind(prop)
+        if kind in INPUT_KINDS:
+            settings.append((prop.identifier, prop, kind))
+    return settings
+
+
 def modifier_input(obj, modifier_path, key):
-    """The data path of a geometry nodes modifier input's value, and its kind (VALUE,
-    INT, VECTOR, ... as bpy_paths.interface_kind).
+    """The data path of a modifier input's value, and its kind (VALUE, INT, VECTOR, ...
+    as bpy_paths.interface_kind).
 
     Args:
         modifier_path (str): data path of the modifier, absolute or relative to obj
-        key (str | int): input name, or index among the inputs (Geometry included)
+        key (str | int): for a geometry nodes modifier, an input name, or index among
+            the inputs (Geometry included); for any modifier, a property name, e.g.
+            levels (a geometry nodes input of that name comes first)
     """
     modifier = bpy_paths.get_value(modifier_path, obj)
-    inputs = bpy_paths.modifier_inputs(modifier)
-    if isinstance(key, int):
-        if not -len(inputs) <= key < len(inputs):
-            raise KeyError(f"Modifier '{modifier.name}' has {len(inputs)} inputs, no input {key}")
-        _, identifier, kind = inputs[key]
-    else:
+    if not isinstance(modifier, bpy.types.Modifier):
+        raise TypeError(f"'{modifier_path}' is not a modifier")
+    if modifier.type == "NODES":
+        inputs = bpy_paths.modifier_inputs(modifier)
+        if isinstance(key, int):
+            if not -len(inputs) <= key < len(inputs):
+                raise KeyError(f"Modifier '{modifier.name}' has {len(inputs)} inputs, no input {key}")
+            _, identifier, kind = inputs[key]
+            return modifier_path + bpy_paths.modifier_input_path(modifier, identifier), kind
         matches = [(identifier, kind) for name, identifier, kind in inputs if name == key]
-        if not matches:
-            raise KeyError(f"Modifier '{modifier.name}' has no input '{key}', "
-                           f"its inputs are {[name for name, _, _ in inputs]}")
-        identifier, kind = matches[0]
-    return modifier_path + bpy_paths.modifier_input_path(modifier, identifier), kind
+        if matches:
+            identifier, kind = matches[0]
+            return modifier_path + bpy_paths.modifier_input_path(modifier, identifier), kind
+    prop = modifier.bl_rna.properties.get(key) if isinstance(key, str) else None
+    if prop is None or prop.is_readonly or key in ("name", "type", "rna_type"):
+        names = [identifier for identifier, _, _ in modifier_properties(modifier)]
+        if modifier.type == "NODES":
+            raise KeyError(f"Modifier '{modifier.name}' has no input or setting {key!r}, its inputs are "
+                           f"{[name for name, _, _ in bpy_paths.modifier_inputs(modifier)]}")
+        raise KeyError(f"Modifier '{modifier.name}' has no setting {key!r}: give a setting by its "
+                       f"Python name, its settings are {names}")
+    return f"{modifier_path}.{key}", property_kind(prop)
 
 
 # a socket limit this far from 0 is the "no limit" default (about 3.4e38 for floats, 2**31 for ints)
@@ -861,6 +911,48 @@ def template_header(relative_to, owner, collection):
             "# objects passed to the Compose, or called alone without one."]
 
 
+def template_text(header, opening, rows, closing, align_all=False):
+    """A template: the header comments, the opening line, one indented line per row
+    (code, comment), code None for a row that is only a comment, and the closing line.
+    Comments are aligned after the code, past lines longer than TEMPLATE_ALIGN only by
+    two spaces unless align_all."""
+    width = max((len(code) for code, _ in rows if code and (align_all or len(code) <= TEMPLATE_ALIGN)), default=0)
+    lines = [*header, opening]
+    for code, comment in rows:
+        lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
+    lines.append(closing)
+    return "\n".join(lines) + "\n"
+
+
+def template_entry(kind, value, limits, options):
+    """The augmentation (Number, Vector, Boolean or Menu), its arguments and the comment
+    of one input in a Node or Modifier template, from its kind (VALUE, INT, VECTOR...),
+    current value, (min, max) limits (None: none) and menu options (None: not
+    readable). None for a kind that can't be set; None for the augmentation when a menu's
+    options can't be read, so it is only a comment."""
+    if kind in ("VALUE", "INT", "VECTOR"):
+        word = {"VALUE": "float", "INT": "int", "VECTOR": "vector"}[kind]
+        augmentation = "Vector" if kind == "VECTOR" else "Number"
+        now = template_value(value)
+        if limits is None:
+            bound = template_value(value, short=True)
+            return augmentation, f"({bound}, {bound})", f"{word}, now {now}, no min/max"
+        return augmentation, f"({template_number(limits[0])}, {template_number(limits[1])})", f"{word}, now {now}"
+    if kind == "ROTATION":
+        now = template_value(value)
+        return "Vector", f"({now}, {now})", f"rotation in radians, now {now}"
+    if kind == "RGBA":
+        return "Vector", "(0.0, 1.0)", f"color, now {template_value(value)}"
+    if kind == "BOOLEAN":
+        return "Boolean", "p=0.5", f"boolean, now {bool(value)}"
+    if kind == "MENU":
+        now = template_string(value)
+        if not options:
+            return None, None, f"Warning! menu, now {now}, options not readable: add Menu([...]) yourself"
+        return "Menu", "[" + ", ".join(template_string(o) for o in options) + "]", f"menu, now {now}"
+    return None
+
+
 def template_input(socket):
     """The augmentation (Number, Vector, Boolean or Menu), its arguments and the
     comment of one unlinked input socket in a Node template, None for a socket type
@@ -869,29 +961,11 @@ def template_input(socket):
     menu, e.g. Transform Geometry's Mode: Python can't list them) gets None for the
     augmentation, so it is only a comment."""
     kind = socket.type
-    if kind in ("VALUE", "INT", "VECTOR"):
-        word = {"VALUE": "float", "INT": "int", "VECTOR": "vector"}[kind]
-        augmentation = "Vector" if kind == "VECTOR" else "Number"
-        now = template_value(socket.default_value)
-        limits = socket_limits(socket)
-        if limits is None:
-            bound = template_value(socket.default_value, short=True)
-            return augmentation, f"({bound}, {bound})", f"{word}, now {now}, no min/max"
-        return augmentation, f"({template_number(limits[0])}, {template_number(limits[1])})", f"{word}, now {now}"
-    if kind == "ROTATION":
-        now = template_value(socket.default_value)
-        return "Vector", f"({now}, {now})", f"rotation in radians, now {now}"
-    if kind == "RGBA":
-        return "Vector", "(0.0, 1.0)", f"color, now {template_value(socket.default_value)}"
-    if kind == "BOOLEAN":
-        return "Boolean", "p=0.5", f"boolean, now {socket.default_value}"
-    if kind == "MENU":
-        options = socket_menu_options(socket)
-        now = template_string(socket.default_value)
-        if not options:
-            return None, None, f"Warning! menu, now {now}, options not readable: add Menu([...]) yourself"
-        return "Menu", "[" + ", ".join(template_string(o) for o in options) + "]", f"menu, now {now}"
-    return None
+    if kind not in INPUT_KINDS:
+        return None
+    limits = socket_limits(socket) if kind in ("VALUE", "INT", "VECTOR") else None
+    options = socket_menu_options(socket) if kind == "MENU" else None
+    return template_entry(kind, socket.default_value, limits, options)
 
 
 def node_template(node, obj=None, prefix="augmentations.", relative=False):
@@ -945,14 +1019,8 @@ def node_template(node, obj=None, prefix="augmentations.", relative=False):
         else:
             augmentation, arguments, comment = entry
             rows.append((f"{key}: {prefix}{augmentation}({arguments}),", named + comment))
-    # comments aligned, past longer lines (e.g. a menu with many options) only by two spaces
-    width = max((len(code) for code, _ in rows if code and len(code) <= TEMPLATE_ALIGN), default=0)
-    lines = template_header(obj if relative else None, owner, collection)
-    lines.append(f"{prefix}Node({path!r}, {{")
-    for code, comment in rows:
-        lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
-    lines.append("})")
-    return "\n".join(lines) + "\n"
+    return template_text(template_header(obj if relative else None, owner, collection),
+                         f"{prefix}Node({path!r}, {{", rows, "})")
 
 
 def shape_keys_template(obj, prefix="augmentations.", relative=True):
@@ -987,10 +1055,132 @@ def shape_keys_template(obj, prefix="augmentations.", relative=True):
             value_range = f"({template_number(block.slider_min)}, {template_number(block.slider_max)})"
             rows.append((f"{prefix}Number({path!r}, {value_range}),", f"now {now}"))
     # the lines differ only by the key names, so all comments are aligned
-    width = max((len(code) for code, _ in rows if code), default=0)
-    lines = template_header(obj if relative else None, obj, "objects")
-    lines.append(f"{prefix}Chain([")
-    for code, comment in rows:
-        lines.append(f"    # {comment}" if code is None else f"    {code.ljust(width)}  # {comment}")
-    lines.append("])")
-    return "\n".join(lines) + "\n"
+    return template_text(template_header(obj if relative else None, obj, "objects"),
+                         f"{prefix}Chain([", rows, "])", align_all=True)
+
+
+def modifier_input_used_attribute(modifier, identifier):
+    """The attribute name a geometry nodes modifier input reads, None when it uses its
+    value."""
+    if hasattr(modifier, "properties"):
+        item = getattr(modifier.properties.inputs, identifier)
+        return item.attribute_name if item.type == "ATTRIBUTE" else None
+    if modifier.get(f"{identifier}_use_attribute"):
+        return modifier.get(f"{identifier}_attribute_name", "")
+    return None
+
+
+def interface_limits(item):
+    """(min, max) of a node group interface input, None without finite ones."""
+    if not hasattr(item, "min_value"):
+        return None
+    low, high = item.min_value, item.max_value
+    if abs(low) >= UNBOUNDED or abs(high) >= UNBOUNDED:
+        return None
+    return low, high
+
+
+def modifier_template(modifier, obj=None, prefix="augmentations.", relative=True):
+    """Source text of a Modifier augmentation that sets every input of a geometry
+    nodes modifier, or every setting of another modifier, see
+    augmentations.Modifier.template.
+
+    Args:
+        modifier (str | bpy.types.Modifier): the modifier, or its data path (absolute,
+            or relative to obj), which is then kept in the text
+        obj (bpy.types.Object): object a relative path starts from
+        prefix (str): written before Modifier and the input augmentations
+        relative (bool): for a modifier, write its path relative to its object
+    """
+    if isinstance(modifier, str):
+        path, modifier = modifier, bpy_paths.get_value(modifier, obj)
+        relative = not bpy_paths.is_absolute(path)
+    else:
+        path = None
+    if not isinstance(modifier, bpy.types.Modifier):
+        raise TypeError(f"{modifier!r} is not a modifier")
+    owner = modifier.id_data
+    if path is None:
+        path = f"modifiers[{template_string(modifier.name)}]" if relative else node_path(modifier)
+    if relative and obj is None:
+        obj = owner
+    rows = node_modifier_rows(modifier, prefix) if modifier.type == "NODES" else modifier_property_rows(modifier, prefix)
+    if not rows:
+        raise ValueError(f"Modifier '{modifier.name}' has no inputs or settings to set")
+    # the modifier on and off: a hint, randomizing it in every template would be a surprise
+    rows.append((None, f'"show_render": {prefix}Boolean(p=...) turns the modifier on and off in the render, '
+                       f"now {modifier.show_render}"))
+    return template_text(template_header(obj if relative else None, owner, "objects"),
+                         f"{prefix}Modifier({path!r}, {{", rows, "})")
+
+
+def template_row(key, named, entry, kind, prefix):
+    """One row (code, comment) of a template from template_entry's result."""
+    if entry is None:
+        word = kind.removeprefix("NodeSocket").lower()
+        return None, f"{key}: {named}{word} socket, not supported"
+    if entry[0] is None:
+        return None, f"{key}: {named}{entry[2]}"
+    augmentation, arguments, comment = entry
+    return f"{key}: {prefix}{augmentation}({arguments}),", named + comment
+
+
+def modifier_property_rows(modifier, prefix):
+    """Template rows for the settings of a modifier other than geometry nodes, by their
+    Python name, with the name shown in the UI in the comment. Numbers get the soft
+    (slider) min and max."""
+    rows = []
+    for identifier, prop, kind in modifier_properties(modifier):
+        value = getattr(modifier, identifier)
+        limits = None
+        if kind in ("VALUE", "INT", "VECTOR") and abs(prop.soft_min) < UNBOUNDED and abs(prop.soft_max) < UNBOUNDED:
+            limits = prop.soft_min, prop.soft_max
+        options = [item.identifier for item in prop.enum_items] if kind == "MENU" else None
+        entry = template_entry(kind, value, limits, options)
+        rows.append(template_row(template_string(identifier), f"{template_string(prop.name)}, ", entry, kind, prefix))
+    return rows
+
+
+def node_modifier_rows(modifier, prefix):
+    """Template rows for the inputs of a geometry nodes modifier, by name. Numbers get
+    the Min and Max of the input in the node group's interface."""
+    inputs = bpy_paths.modifier_inputs(modifier)
+    items = {item.identifier: item for item in modifier.node_group.interface.items_tree
+             if item.item_type == "SOCKET" and item.in_out == "INPUT"}
+    names = Counter(name for name, _, _ in inputs)
+    rows = []
+    for index, (name, identifier, kind) in enumerate(inputs):
+        if names[name] == 1:
+            key, named = template_string(name), ""
+        else:
+            key, named = str(index), f"{template_string(name)}, "
+        if kind == "GEOMETRY" or kind.startswith("NodeSocketGeometry"):
+            continue  # the modifier's geometry, not an input to set
+        value_path = bpy_paths.modifier_input_path(modifier, identifier)
+        attribute = modifier_input_used_attribute(modifier, identifier) if kind in INPUT_KINDS else None
+        if attribute is not None:
+            rows.append((None, f"{key}: {named}reads the attribute {template_string(attribute)}"))
+            continue
+        entry = None
+        if kind in INPUT_KINDS:
+            value = bpy_paths.get_value(value_path, modifier)
+            options = None
+            if kind == "MENU":
+                owner_struct, token = bpy_paths.resolve(value_path, modifier)
+                values = id_property_menu(owner_struct, token)
+                if values:  # 4.x: an int per option
+                    options = list(values)
+                    value = next((name for name, number in values.items() if number == value), value)
+                else:
+                    try:
+                        options = menu_options(owner_struct, token, value_path)
+                    except ValueError:
+                        options = None
+            limits = interface_limits(items[identifier]) if kind in ("VALUE", "INT", "VECTOR") else None
+            entry = template_entry(kind, value, limits, options)
+        rows.append(template_row(key, named, entry, kind, prefix))
+    return rows
+
+
+# the kinds of inputs Number, Vector, Boolean and Menu set
+INPUT_KINDS = ("VALUE", "INT", "VECTOR", "ROTATION", "RGBA", "BOOLEAN", "MENU")

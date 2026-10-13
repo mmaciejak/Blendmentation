@@ -7,7 +7,7 @@ bl_info = {
     "version": (0, 9, 0),
     "blender": (4, 0, 0),
     "location": "Node Editor and 3D Viewport > Sidebar > Blendmentation",
-    "description": "Synthetic datasets from Blender scenes. Copies a Node augmentation with the inputs of the active node, or a Chain with the shape keys of the active object",
+    "description": "Synthetic datasets from Blender scenes. Copies a Node augmentation with the inputs of the active node, a Modifier with the inputs or settings of the active modifier, or a Chain with the shape keys of the active object",
     "doc_url": "https://blendmentation.docs.csmx.eu/",
     "tracker_url": "https://github.com/mmaciejak/Blendmentation/issues",
     "category": "Node",

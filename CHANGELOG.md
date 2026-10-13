@@ -6,6 +6,25 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.Modifier` sets the settings of any modifier, not only the inputs of a
+  geometry nodes modifier: Subdivision Surface, Bevel, Array, Displace... by their Python
+  name, e.g. `Modifier('modifiers["Subdivision"]', {"render_levels": Number((1, 3)),
+  "subdivision_type": Menu(["CATMULL_CLARK", "SIMPLE"])})`. On a geometry nodes modifier,
+  a key that is no input's name sets that setting, e.g. `"show_render"` to turn it on and
+  off.
+- `augmentations.Modifier.template(modifier, obj=None, prefix="augmentations.",
+  relative=True)` writes a `Modifier` for a modifier: every input of a geometry nodes
+  modifier by name, with the Min and Max of the input in the node group's interface, or
+  every setting of another modifier by its Python name, with the name shown in the UI and
+  the slider's range; `Boolean(p=0.5)`, `Menu` with every option, and the type and
+  current value in a comment. Inputs set to read an attribute are comments, and a last
+  comment shows how to turn the modifier on and off (`"show_render"`). The path is
+  relative to the object by default, or absolute with `relative=False`. The add-on copies
+  it for the active modifier of the active object from the 3D viewport's Sidebar (N) >
+  Blendmentation > Copy Modifier Template > Relative or Absolute.
+
 ## [0.9.0] - 2026-10-12
 
 ### Added

@@ -71,9 +71,40 @@ augmentations.Chain([
 ])
 ```
 
+Below it, Copy Modifier Template > Relative or Absolute does the same for the active
+modifier of the active object (the one highlighted in the Modifier Properties): a
+[`Modifier`][blendmentation.augmentations.augmentations.Modifier]. For a geometry nodes
+modifier, it has every input by name, with the Min and Max of the input in the node
+group's interface; inputs set to read an attribute are comments. For any other modifier
+(Subdivision Surface, Bevel, Array...), every setting by its Python name, with the name
+shown in the UI and the slider's range in the comment:
+
+```python
+augmentations.Modifier('modifiers["Subdivision"]', {
+    "subdivision_type": augmentations.Menu(["CATMULL_CLARK", "SIMPLE"]),  # "Subdivision Type", menu, now "CATMULL_CLARK"
+    "levels": augmentations.Number((0, 6)),                      # "Levels", int, now 1
+    "render_levels": augmentations.Number((0, 6)),               # "Render Levels", int, now 2
+    ...
+    # "show_render": augmentations.Boolean(p=...) turns the modifier on and off in the render, now True
+})
+```
+
+A geometry nodes modifier's template looks like this:
+
+```python
+# Relative paths: they start from the object it is called with, here "Floor".
+# Pass that object to the Compose, compose([bpy.data.objects["Floor"]]), or one set up the same way.
+augmentations.Modifier('modifiers["Scatter"]', {
+    "Density": augmentations.Number((0.0, 50.0)),      # float, now 10.0
+    "Mossy": augmentations.Boolean(p=0.5),             # boolean, now False
+    "Ground": augmentations.Menu(["Sand", "Gravel"]),  # menu, now "Sand"
+})
+```
+
 If your scripts import the module under another name (`... import augmentations as aug`),
 set the prefix in the add-on's preferences, e.g. `aug.`. Without the add-on,
-[`Node.template`][blendmentation.augmentations.augmentations.Node.template] and
+[`Node.template`][blendmentation.augmentations.augmentations.Node.template],
+[`Modifier.template`][blendmentation.augmentations.augmentations.Modifier.template] and
 [`Chain.shape_keys_template`][blendmentation.augmentations.augmentations.Chain.shape_keys_template]
 return the same text.
 

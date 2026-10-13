@@ -11,10 +11,12 @@ last object; `results` holds the values for every object, by name. Augment insid
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
 geometry nodes setup), each with its own `Number`, `Vector`, `Boolean` or `Menu`
 written without a data path: the `Node` gives each the path of its input;
-`Modifier` does the same for the inputs of a geometry nodes modifier, by name.
+`Modifier` does the same for the inputs of a geometry nodes modifier, by name, or the
+settings of any other modifier (Subdivision Surface, Bevel...).
 `Node.template` writes a `Node` with every input of a node and its range, to paste and
-edit; the Blender add-on copies it for the selected node. `Chain.shape_keys_template`
-does the same for the shape keys of an object.
+edit; the Blender add-on copies it for the selected node. `Modifier.template` and
+`Chain.shape_keys_template` do the same for a modifier and for the shape keys of an
+object.
 `MaterialSlot` gives an object one of the materials in its own slots.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
@@ -43,7 +45,7 @@ from ..values import is_number
 from . import bpy_augmentations as bpy_a
 
 if TYPE_CHECKING:
-    from bpy.types import Node as BpyNode, NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import Modifier as BpyModifier, Node as BpyNode, NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
 
 #: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
 #: (low, high, step) picks one of low, low + step, ... up to high
@@ -1479,8 +1481,9 @@ class NodeInput(InputAugmentation):
 
 
 class ModifierInput(InputAugmentation):
-    """One input of a `Modifier`. Its data path depends on the Blender version and the
-    node group's socket identifier, so it is found on every call."""
+    """One input or setting of a `Modifier`. A geometry nodes input's data path depends
+    on the Blender version and the node group's socket identifier, so it is found on
+    every call."""
 
     def __init__(self, key: Union[str, int], modifier: str, spec: Any):
         input_key(key)
@@ -1721,27 +1724,37 @@ def input_key(key: Union[str, int]) -> str:
 
 
 class Modifier(InputsAugmentation):
-    """Sets the inputs of a geometry nodes modifier to random values, each with its own
-    range, probability and `otherwise`.
+    """Sets the settings of a modifier to random values, each with its own range,
+    probability and `otherwise`: the inputs shown on a geometry nodes modifier, or the
+    settings of any other modifier (Subdivision Surface, Bevel, Array, Displace...).
 
-    It works like [`Node`][blendmentation.augmentations.augmentations.Node], for the
-    inputs shown on the modifier: `inputs` maps each input, by its name in the node
-    group (or its index among the group's inputs, Geometry included), to a `Number`,
-    `Vector`, `Boolean` or `Menu` **without a data path**, as in `Node` (see its
-    table), or for short just the range or options. The `Modifier` gives each one the
-    path of its input, which depends on the Blender version, before each call. A
-    rotation is X, Y, Z angles in radians. An
-    input set to be read from an attribute keeps reading it.
+    It works like [`Node`][blendmentation.augmentations.augmentations.Node]: `inputs`
+    maps each one to a `Number`, `Vector`, `Boolean` or `Menu` **without a data path**,
+    as in `Node` (see its table), or for short just the range or options. The
+    `Modifier` gives each one the path of its value before each call. The keys are:
+
+    - for a geometry nodes modifier, the input's name in the node group (or its index
+      among the group's inputs, Geometry included). The path depends on the Blender
+      version, and `Modifier` builds it. A rotation is X, Y, Z angles in radians. An
+      input set to be read from an attribute keeps reading it.
+    - for any modifier, a setting by its Python name, e.g. `"levels"` for Subdivision
+      Surface's Levels Viewport, `"width"` for Bevel's Amount: hover over the setting
+      with Python tooltips on (Preferences > Interface), or use
+      [`Modifier.template`][blendmentation.augmentations.augmentations.Modifier.template].
+      A menu's options are Blender's identifiers, e.g. `"CATMULL_CLARK"`. On a geometry
+      nodes modifier this also works, e.g. `"show_render"` to turn it on and off, when
+      no input has that name.
 
     The modifier is given by its data path, relative to the object (e.g.
     `modifiers["Scatter"]`, to augment that modifier on every object in a `Compose`),
     or absolute (`bpy.data.objects["Floor"].modifiers["Scatter"]`). It changes the
-    modifier only, not its node group, so objects with the same group keep their
-    own values.
+    modifier only, not a geometry nodes modifier's node group, so objects with the same
+    group keep their own values.
 
     Args:
         modifier: data path of the modifier.
-        inputs: what to set each input to, by input name or index.
+        inputs: what to set each input or setting to, by input name or index (geometry
+            nodes), or setting name.
         p: probability of applying the augmentation.
 
     Attributes:
@@ -1753,11 +1766,11 @@ class Modifier(InputsAugmentation):
         ValueError: `inputs` is empty, an input's key is not a name or index, or its
             augmentation has a data path of its own. At the first call: a short value
             doesn't fit its socket type, e.g. a Float without a range.
-        KeyError: at a call, the modifier has no such input.
+        KeyError: at a call, the modifier has no such input or setting.
         TypeError: an input is set with an augmentation other than `Number`,
-            `Vector`, `Boolean` or `Menu`. At a call: the path is not a geometry nodes
-            modifier, the augmentation doesn't match the socket, or the input is not a
-            number, vector, rotation, color, boolean or menu socket.
+            `Vector`, `Boolean` or `Menu`. At a call: the path is not a modifier, the
+            augmentation doesn't match the input, or the input is not a number,
+            vector, rotation, color, boolean or menu.
 
     Tip:
         Each input can also be set on its own, with `Number`, `Vector`, `Boolean` or
@@ -1781,9 +1794,97 @@ class Modifier(InputsAugmentation):
             scatter.actual   # e.g. {"Density": 12.7, "Rock size": 1, "Mossy": False, "Ground": "Sand"}
             generator()
         ```
+
+        Any other modifier, by its settings' Python names:
+
+        ```python
+        smoothing = augmentations.Modifier('modifiers["Subdivision"]', {
+            "render_levels": augmentations.Number((1, 3)),
+            "subdivision_type": augmentations.Menu(["CATMULL_CLARK", "SIMPLE"]),
+        })
+        bevel = augmentations.Modifier('modifiers["Bevel"]', {
+            "width": augmentations.Number((0.01, 0.05)),
+            "segments": augmentations.Number((1, 4)),
+            "show_render": augmentations.Boolean(p=0.7),   # beveled edges in 70 %
+        })
+        ```
     """
 
     def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
         super().__init__(inputs, p)
         self.modifier = modifier
         self.augmentations = [ModifierInput(key, modifier, spec) for key, spec in inputs.items()]
+
+    @staticmethod
+    def template(modifier: Union[str, BpyModifier], obj: Optional[Object] = None, prefix: str = "augmentations.",
+                 relative: bool = True) -> str:
+        """Writes the source of a `Modifier` that sets every input of a geometry nodes
+        modifier, or every setting of another modifier, to paste into a script and edit.
+
+        Each input gets the augmentation that sets it, without a data path (the
+        `Modifier` gives it), as in [`Node.template`][blendmentation.augmentations.augmentations.Node.template]:
+        `Number((min, max))` and `Vector((min, max))`, `Vector((0.0, 1.0))` for a color,
+        `Vector((v, v))` for a rotation, `Boolean(p=0.5)` and `Menu([...])` with every
+        option. A comment after each gives its type and current value.
+
+        - A geometry nodes modifier: its inputs by name, the min and max from the input
+          in the node group's interface (`(v, v)` with the current value without them).
+          The Geometry input is left out; inputs set to read an attribute, and sockets
+          `Modifier` can't set (object, material, string...) are only comments. Inputs
+          that share a name are keyed by index.
+        - Any other modifier: its settings by their Python name, with the name shown in
+          the UI in the comment, the min and max of the setting's slider. Settings
+          about the modifier's UI (Show in Edit Mode...) and settings `Modifier` can't
+          set (objects, vertex groups, textures...) are left out.
+
+        A last comment says how to turn the modifier on and off in the render
+        (`"show_render"`); it is not set by default.
+
+        The path is relative by default (`modifiers["Scatter"]`): pass the object to
+        the `Compose`, and the `Modifier` also works for other objects with a modifier
+        of that name. With `relative=False` it is absolute
+        (`bpy.data.objects["Floor"].modifiers["Scatter"]`) and always changes that
+        modifier. A comment on top says which, with the object's name.
+
+        In the Blender app, the add-on does the same for the active modifier of the
+        active object (the one highlighted in the Modifier Properties) and copies it to
+        the clipboard: 3D Viewport sidebar (N) >
+        Blendmentation > Copy Modifier Template, Relative or Absolute. See
+        [Installation](installation.md#inside-blender-as-an-add-on).
+
+        Args:
+            modifier: the modifier, or its data path. A path is kept in the text as it
+                is, so a path relative to `obj` makes a relative template.
+            obj: object a relative path starts from.
+            prefix: written before `Modifier`, `Number`, `Vector`, `Boolean` and
+                `Menu`, e.g. `"aug."` after
+                `from blendmentation.augmentations import augmentations as aug`.
+            relative: for a modifier, write its path relative to its object; False:
+                absolute.
+
+        Returns:
+            The source of the `Modifier`, ending in a newline.
+
+        Raises:
+            TypeError: `modifier` is not a modifier.
+            ValueError: a geometry nodes modifier has no node group, or the modifier
+                has no inputs or settings to set.
+
+        Example:
+            ```python
+            print(augmentations.Modifier.template(bpy.data.objects["Floor"].modifiers["Scatter"]))
+            ```
+
+            prints
+
+            ```python
+            # Relative paths: they start from the object it is called with, here "Floor".
+            # Pass that object to the Compose, compose([bpy.data.objects["Floor"]]), or one set up the same way.
+            augmentations.Modifier('modifiers["Scatter"]', {
+                "Density": augmentations.Number((0.0, 50.0)),      # float, now 10.0
+                "Mossy": augmentations.Boolean(p=0.5),             # boolean, now False
+                "Ground": augmentations.Menu(["Sand", "Gravel"]),  # menu, now "Sand"
+            })
+            ```
+        """
+        return bpy_a.modifier_template(modifier, obj, prefix, relative)

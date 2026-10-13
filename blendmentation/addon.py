@@ -1,6 +1,6 @@
 """The Blender add-on: operators that copy a Node template of the active node (node
-editor) or a shape keys Chain template of the active object (3D viewport) to the
-clipboard, in a Blendmentation tab in the sidebar of both. Only imported by register(),
+editor), or a shape keys Chain template of the active object or a Modifier template of
+its active modifier (3D viewport) to the clipboard, in a Blendmentation tab in the sidebar of both. Only imported by register(),
 so importing the package doesn't register anything."""
 
 import bpy
@@ -15,7 +15,7 @@ class BlendmentationPreferences(bpy.types.AddonPreferences):
 
     prefix: bpy.props.StringProperty(  # type: ignore[valid-type]
         name="Prefix",
-        description="Written before Node, Chain, Number, Vector, Boolean and Menu in the templates, e.g. aug. for "
+        description="Written before Node, Modifier, Chain, Number, Vector, Boolean and Menu in the templates, e.g. aug. for "
                     "'from blendmentation.augmentations import augmentations as aug'",
         default=DEFAULT_PREFIX,
     )
@@ -119,6 +119,51 @@ def draw_buttons(layout, label, idname):
     row.operator(idname, text="Absolute").relative = False
 
 
+def copy_modifier_template(modifier, window_manager, prefix=DEFAULT_PREFIX, relative=True):
+    """Copies the Modifier template of the modifier to the clipboard and returns it."""
+    text = augmentations.Modifier.template(modifier, prefix=prefix, relative=relative)
+    window_manager.clipboard = text
+    return text
+
+
+def active_modifier(context):
+    """The active modifier of the active object, the one highlighted in the Modifier
+    Properties."""
+    obj = context.active_object
+    return obj.modifiers.active if obj is not None else None
+
+
+class OBJECT_OT_blendmentation_copy_modifier_template(bpy.types.Operator):
+    """Copy an augmentations.Modifier(...) with every input or setting of the active modifier and its range, to paste into a script"""
+
+    bl_idname = "object.blendmentation_copy_modifier_template"
+    bl_label = "Copy Modifier Template"
+
+    relative: bpy.props.BoolProperty(  # type: ignore[valid-type]
+        name="Relative",
+        description="Path relative to the object the Modifier is called with, instead of an absolute "
+                    "path through the active object",
+        default=True,
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return active_modifier(context) is not None
+
+    def execute(self, context):  # pyright: ignore[reportIncompatibleMethodOverride]  (the stubs want literal sets)
+        modifier = active_modifier(context)
+        if modifier is None:
+            return {"CANCELLED"}
+        try:
+            copy_modifier_template(modifier, context.window_manager, template_prefix(context), self.relative)
+        except (TypeError, ValueError) as error:
+            self.report({"WARNING"}, str(error))
+            return {"CANCELLED"}
+        kind = "relative" if self.relative else "absolute"
+        self.report({"INFO"}, f"Copied the Modifier template of '{modifier.name}', {kind}")
+        return {"FINISHED"}
+
+
 class NODE_PT_blendmentation(bpy.types.Panel):
     bl_label = "Blendmentation"
     bl_space_type = "NODE_EDITOR"
@@ -137,6 +182,8 @@ class VIEW3D_PT_blendmentation(bpy.types.Panel):
 
     def draw(self, context):
         draw_buttons(self.layout, "Copy Shape Keys Template", OBJECT_OT_blendmentation_copy_shape_keys_template.bl_idname)
+        draw_buttons(self.layout, "Copy Modifier Template (active modifier)",
+                     OBJECT_OT_blendmentation_copy_modifier_template.bl_idname)
 
 
 def draw_menu(self, context):
@@ -147,7 +194,8 @@ def draw_menu(self, context):
 
 
 CLASSES = (BlendmentationPreferences, NODE_OT_blendmentation_copy_template,
-           OBJECT_OT_blendmentation_copy_shape_keys_template, NODE_PT_blendmentation, VIEW3D_PT_blendmentation)
+           OBJECT_OT_blendmentation_copy_shape_keys_template, OBJECT_OT_blendmentation_copy_modifier_template,
+           NODE_PT_blendmentation, VIEW3D_PT_blendmentation)
 # the Node menu in the header makes it searchable with F3, the context menu is a right click
 MENUS = ("NODE_MT_node", "NODE_MT_context_menu")
 

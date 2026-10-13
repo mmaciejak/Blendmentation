@@ -578,7 +578,11 @@ for _ in range(100):
 
 To also change the inputs shown on the modifier, add
 `aug.Modifier('modifiers["GeometryNodes"]', {"Density": aug.Number((5, 20))})`. It finds
-them by name, in every Blender version.
+them by name, in every Blender version. `Modifier` also sets the settings of any other
+modifier by their Python name, e.g.
+`aug.Modifier('modifiers["Subdivision"]', {"render_levels": aug.Number((1, 3))})`. To
+start from every input or setting with its range, select the modifier and use the
+add-on's 3D viewport Sidebar (N) > Blendmentation > Copy Modifier Template, or `print(aug.Modifier.template(floor.modifiers["GeometryNodes"], prefix="aug."))`.
 
 ![Three renders of milk cartons and boxes scattered on a displaced floor](images/scatter-renders.jpg){ .full-width }
 
@@ -721,7 +725,7 @@ For the masks and visible fractions, add
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
-class and may hide them (with a few materials in its slots), a floor "Floor" with pebbles scattered on it by a geometry nodes group
+class and may hide them (with a few materials in its slots and a Subdivision Surface modifier "Subdivision"), a floor "Floor" with pebbles scattered on it by a geometry nodes group
 "Scatter" in a modifier "Scatter" on the floor (instances of the objects of a collection "Pebbles", from a
 Collection Info node, without random scale; a float input "Density" sets how many), a point light, a camera and a curve
 "CameraPath" around the cars for the camera to ride on (e.g. a Bezier circle). The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
@@ -798,8 +802,14 @@ plant_aug = aug.Compose([
     aug.Scale(x=10, y=10, z=10, p=0.5),
     # one of 8 headings, 45 degrees apart: (low, high, step)
     aug.Rotation(z=(0, 315, 45)),
+    # any modifier's settings, by their Python name: rounded or blocky leaves
+    aug.Modifier('modifiers["Subdivision"]', {
+        "subdivision_type": aug.Menu(["CATMULL_CLARK", "SIMPLE"]),
+    }),
 ])
-# the inputs shown on the floor's geometry nodes modifier, by name
+# the inputs shown on the floor's geometry nodes modifier, by name; to start from every
+# input: Sidebar > Blendmentation > Copy Modifier Template, or
+# print(aug.Modifier.template(floor.modifiers["Scatter"], prefix="aug."))
 floor_aug = aug.Compose([
     aug.Modifier(
         'modifiers["Scatter"]',

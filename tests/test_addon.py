@@ -51,6 +51,17 @@ def test_register():
         text = addon.copy_shape_keys_template(obj, bpy.context.window_manager, prefix="aug.")
         assert 'here "Cube"' in text and "\naug.Chain([" in text
         assert bpy.ops.object.blendmentation_copy_shape_keys_template(relative=False) == {"FINISHED"}
+
+        assert not bpy.ops.object.blendmentation_copy_modifier_template.poll(), "no modifier"
+        obj.modifiers.new("Bevel", "BEVEL")
+        assert bpy.ops.object.blendmentation_copy_modifier_template.poll(), "any modifier"
+        group = bpy.data.node_groups.new("GN", "GeometryNodeTree")
+        group.interface.new_socket("Height", in_out="INPUT", socket_type="NodeSocketFloat")
+        obj.modifiers.new("GN", "NODES").node_group = group
+        assert bpy.ops.object.blendmentation_copy_modifier_template.poll()
+        assert bpy.ops.object.blendmentation_copy_modifier_template(relative=False) == {"FINISHED"}
+        text = addon.copy_modifier_template(obj.modifiers["GN"], bpy.context.window_manager, prefix="aug.")
+        assert """\naug.Modifier('modifiers["GN"]', {""" in text
     finally:
         blendmentation.unregister()
     assert not hasattr(bpy.types, "NODE_OT_blendmentation_copy_template")

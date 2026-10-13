@@ -5,7 +5,8 @@ The scene needs:
   (Principled BSDF), both with a shape key "Key 1"
 - a mesh object "Clutter" that is in no class and can hide the parts, it is in the
   render in 60% of the datapoints and is set down on the floor. It has several
-  materials in its slots (Material Properties, +), one is picked per datapoint
+  materials in its slots (Material Properties, +), one is picked per datapoint, and a
+  Subdivision Surface modifier "Subdivision"
 - a mesh object "Floor" under the parts, they are kept above it
 - a geometry nodes group "Scatter" in a modifier "Scatter" on "Floor", with a Distribute
   Points on Faces node, scattering pebbles on the floor: instances of the objects of a
@@ -106,7 +107,9 @@ world_transforms = augmentations.Compose([
 # a new random seed for every seed in the node group, so the pebbles move every time
 scatter_seed = augmentations.Seed(scatter)
 
-# the inputs shown on the geometry nodes modifier, by name, in every Blender version
+# the inputs shown on the geometry nodes modifier, by name, in every Blender version. To
+# start from every input with its range: Sidebar > Blendmentation > Copy Modifier Template
+# (the add-on), or print(augmentations.Modifier.template(floor.modifiers["Scatter"]))
 floor_transforms = augmentations.Compose([
     augmentations.Modifier('modifiers["Scatter"]', {
         "Density": augmentations.Number((5, 20)),  # more or fewer pebbles
@@ -120,6 +123,11 @@ clutter_transforms = augmentations.Compose([
     augmentations.MaterialSlot(),  # one of the materials in its slots, all faces
     augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs
     augmentations.Rotation(z=(0, 270, 90)),  # (low, high, step): turned by 0, 90, 180 or 270 degrees
+    # any modifier's settings, by their Python name: rounded or boxy. To start from every
+    # setting: Sidebar > Blendmentation > Copy Modifier Template (the add-on)
+    augmentations.Modifier('modifiers["Subdivision"]', {
+        "subdivision_type": augmentations.Menu(["CATMULL_CLARK", "SIMPLE"]),
+    }),
     augmentations.PlaceOn(floor),  # after the transforms: up or down until it rests on the floor
 ])
 

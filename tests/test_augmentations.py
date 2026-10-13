@@ -598,12 +598,104 @@ def test_modifier(cube):
         assert value == "Gravel"
 
 
+def test_modifier_template(cube):
+    obj, _ = modifier_cube(cube)
+    group = bpy.data.node_groups["GN"]
+    group.interface.items_tree["Height"].min_value = 0
+    group.interface.items_tree["Height"].max_value = 4
+    modifier = obj.modifiers["GN"]
+
+    text = A.Modifier.template(modifier, prefix="aug.")
+    lines = text.splitlines()
+    assert lines[0] == '# Relative paths: they start from the object it is called with, here "Cube".'
+    assert lines[2] == """aug.Modifier('modifiers["GN"]', {""" and lines[-1] == "})"
+    rows = {line.split(":")[0].strip(): line for line in lines[3:-1]}
+    assert "Geometry" not in text, "the modifier's geometry is left out"
+    assert "aug.Number((0.0, 4.0))" in rows['"Height"'], "the interface's min and max"
+    assert "aug.Number((0, 0))" in rows['"Count"'] and "no min/max" in rows['"Count"']
+    assert "aug.Boolean(p=0.5)" in rows['"Flag"']
+    assert "aug.Vector((0.0, 0.0))" in rows['"Offset"']
+    assert "aug.Vector((0.0, 1.0))" in rows['"Color"'] and "# color" in rows['"Color"']
+    assert "rotation in radians" in rows['"Rotation"']
+    assert 'aug.Menu(["Sand", "Gravel"])' in rows['"Menu"'] and 'now "Sand"' in rows['"Menu"'], "4.x: names, not ints"
+
+    # it runs, relative and absolute, and changes only what it covers
+    with state.restoring():
+        eval(text, {"aug": A})(obj)
+        assert 0 <= modifier_value(obj, "Height") <= 4
+    absolute = A.Modifier.template(modifier, relative=False)
+    assert """augmentations.Modifier('bpy.data.objects["Cube"].modifiers["GN"]', {""" in absolute
+    assert absolute.startswith('# Absolute paths: they always change the object "Cube"')
+    with state.restoring():
+        eval(absolute, {"augmentations": A})()
+    # a path is kept as given
+    assert """augmentations.Modifier('modifiers["GN"]', {""" in A.Modifier.template('modifiers["GN"]', obj)
+
+    # an input that reads an attribute is a comment
+    identifier = modifier_identifier(obj, "Height")
+    if hasattr(modifier, "properties"):
+        item = getattr(modifier.properties.inputs, identifier)
+        item.type, item.attribute_name = "ATTRIBUTE", "height"
+    else:
+        modifier[f"{identifier}_use_attribute"], modifier[f"{identifier}_attribute_name"] = True, "height"
+    assert '# "Height": reads the attribute "height"' in A.Modifier.template(modifier)
+
+    with pytest.raises(TypeError):
+        A.Modifier.template(obj)
+
+
+def test_modifier_settings(cube):
+    obj = cube("Cube")
+    subsurf = obj.modifiers.new("Subdivision", "SUBSURF")
+    array = obj.modifiers.new("Array", "ARRAY")
+    before = (subsurf.levels, subsurf.subdivision_type, subsurf.show_render, tuple(array.relative_offset_displace))
+    modifier = A.Modifier('modifiers["Subdivision"]', {
+        "levels": A.Number((3, 3)),
+        "subdivision_type": A.Menu(["SIMPLE"]),
+        "show_render": A.Boolean(p=0),
+    })
+    offset = A.Modifier('bpy.data.objects["Cube"].modifiers["Array"]', {"relative_offset_displace": (2, 2)})
+    with state.restoring():
+        A.Compose([modifier])([obj])
+        offset()
+        assert (subsurf.levels, subsurf.subdivision_type, subsurf.show_render) == (3, "SIMPLE", False)
+        assert tuple(array.relative_offset_displace) == (2, 2, 2)
+        assert modifier.actual == {"levels": 3, "subdivision_type": "SIMPLE", "show_render": False}
+        assert len(obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).data.vertices) > 8, "it reached the mesh"
+    assert (subsurf.levels, subsurf.subdivision_type, subsurf.show_render,
+            tuple(array.relative_offset_displace)) == before
+
+    # the template: settings by Python name, the UI name and the slider range in the comment
+    text = A.Modifier.template(subsurf)
+    assert """augmentations.Modifier('modifiers["Subdivision"]', {""" in text
+    assert '"levels": augmentations.Number((0, 6)),' in text and '# "Levels", int, now 1' in text
+    assert 'augmentations.Menu(["CATMULL_CLARK", "SIMPLE"])' in text
+    assert "show_in_editmode" not in text and "open_" not in text and "show_viewport" not in text
+    assert text.splitlines()[-2].strip().startswith('# "show_render": augmentations.Boolean(p=...)')
+    with state.restoring():
+        eval(text, {"augmentations": A})(obj)
+    bevel = A.Modifier.template(obj.modifiers.new("Bevel", "BEVEL"))
+    assert '"width": augmentations.Number(' in bevel and '"vertex_group"' not in bevel, "strings are left out"
+    with state.restoring():
+        eval(bevel, {"augmentations": A})(obj)
+
+    # a geometry nodes modifier's own settings, when no input has that name
+    geo, _ = geonode_cube(lambda name: obj)
+    with state.restoring():
+        A.Modifier('modifiers["GN"]', {"show_render": A.Boolean(p=0)})(geo)
+        assert geo.modifiers["GN"].show_render is False
+    assert geo.modifiers["GN"].show_render is True
+
+
 @pytest.mark.parametrize("modifier, inputs, error", [
     ('modifiers["GN"]', {"Nope": (0, 1)}, KeyError),
     ('modifiers["GN"]', {99: (0, 1)}, KeyError),
     ('modifiers["GN"]', {0: (0, 1)}, TypeError),  # Geometry
     ('modifiers["GN"]', {"Height": A.Menu(["A"])}, TypeError),  # a float set with Menu
-    ('modifiers["Bevel"]', {"Width": (0, 1)}, TypeError),
+    ('modifiers["Bevel"]', {"Width": (0, 1)}, KeyError),  # a setting by its Python name: width
+    ('modifiers["Bevel"]', {0: (0, 1)}, KeyError),
+    ('modifiers["Bevel"]', {"segments": A.Boolean()}, TypeError),
+    ('modifiers["Bevel"]', {"vertex_group": ("A", "B")}, TypeError),  # a string
     ('modifiers["GN"]', {1.5: (0, 1)}, ValueError),
 ])
 def test_modifier_errors(cube, modifier, inputs, error):
