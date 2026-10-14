@@ -298,3 +298,17 @@ def test_allow_empty_ignores_instances_out_of_view(scene, cube, out):
     scene.camera.rotation_euler.z += np.pi
     assert G.Compose([G.BBox(classes, allow_empty=True)], out, (64, 48))()
     assert all(b["bbox"] is None for b in label(out, 1)["bboxes"])
+
+
+def test_parent_without_own_geometry_never_skips(scene, cube, out):
+    """A parent whose geometry nodes output only instances (e.g. a Menu Switch between its
+    own mesh and instances) has no geometry of its own: like hidden, not truncated."""
+    perfect, clutter = cube("perfect", size=0.5), cube("clutter", size=0.5)
+    hidden_collection("perfect", [perfect])
+    for sources in (bpy.data.collections["perfect"], hidden_collection("clutter", [clutter])):
+        parent = scatter("bottle", sources, points=[(0, 0)])
+        classes = {"bottle": {"instances": [parent, G.Instances(parent, of=[perfect])], "max_truncation": 0.2}}
+        assert G.Compose([G.BBox(classes)], out, (64, 48))()
+        bpy.data.objects.remove(parent)
+    boxes = [[b["bbox"] is not None for b in label(out, index)["bboxes"]] for index in (0, 1)]
+    assert boxes == [[False, True], [False]]

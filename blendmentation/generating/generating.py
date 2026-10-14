@@ -199,7 +199,9 @@ class BBox(Step):
     `export.yolo`, `export.voc`). An instance out of frame gets
     None. Objects hidden in the render (e.g. by `Visibility`, or in a collection excluded
     from the view layer or disabled in renders) are left out of the box,
-    and an instance with all its objects hidden gets None and never skips the datapoint.
+    and an instance with all its objects hidden gets None and never skips the datapoint,
+    as does one with no geometry (e.g. an object whose geometry nodes output only
+    instances: label those with `Instances`).
 
     In the label JSON: `"bboxes": [{"class", "objects", "bbox"}]`.
 

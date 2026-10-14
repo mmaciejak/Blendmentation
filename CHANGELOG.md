@@ -12,6 +12,10 @@ All notable changes to Blendmentation. The format follows
   only when all of them are. Before, a datapoint with some instances in frame and others
   out of it (e.g. a geometry nodes scatter) was still skipped by `max_truncation`, and an
   instance partly behind the camera counted as in frame even when it couldn't be seen.
+- `generating.BBox` no longer skips a datapoint for an instance with no geometry, such as
+  an object whose geometry nodes output only instances (e.g. a Menu Switch between its own
+  mesh and instances). It gets bbox None and never skips, like a hidden one; before,
+  `max_truncation` counted it as fully out of frame.
 
 ## [0.9.5] - 2026-10-15
 

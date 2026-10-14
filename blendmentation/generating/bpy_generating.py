@@ -606,7 +606,8 @@ def bboxes(frame, classes, settings, allow_empty=False):
         bool: False if two bboxes overlap over iou_deconflict, an instance is more than
             max_truncation out of frame or more than max_occlusion covered by objects in no
             class, and the datapoint should be skipped. Objects hidden in the render are left
-            out, an instance with all of them hidden has bbox None and never skips.
+            out, an instance with all of them hidden, or with no geometry, has bbox None and
+            never skips.
     """
     settings = class_settings(classes, settings)
     instances = to_instances(classes, frame)
@@ -619,6 +620,9 @@ def bboxes(frame, classes, settings, allow_empty=False):
         if not rendered:
             continue
         bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
+        # no vertices at all (e.g. a parent whose geometry nodes output only instances): like hidden
+        if bounds is None and not behind:
+            continue
         limit = settings[class_name]["max_truncation"]
         if limit is not None and truncation(bounds, behind) > limit:
             # with allow_empty, an instance out of view is absent, not truncated
