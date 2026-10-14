@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-15
+
 ### Fixed
 
 - `generating.BBox(..., allow_empty=True)` now ignores every instance out of view, not
@@ -424,7 +426,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.5...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.6...dev
+[0.9.6]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.2...v0.9.3
