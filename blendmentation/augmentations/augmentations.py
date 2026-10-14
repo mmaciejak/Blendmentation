@@ -1202,7 +1202,8 @@ class UVMap(ObjectAugmentation):
     """Makes one of the object's UV maps, picked at random, the one it renders with.
 
     Add the UV maps to the mesh in Blender (Object Data Properties > UV Maps, `+`), e.g.
-    the same texture laid out at different scales or rotations. On every call it makes
+    the same texture laid out at different scales or rotations; Blender allows at most 8
+    UV maps per mesh. On every call it makes
     the picked UV map the render one (the camera icon in the list) and the active one.
     Textures without a UV Map node, and the UV output of a Texture Coordinate node, use
     it. `state.restoring()` sets both back.

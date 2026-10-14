@@ -331,7 +331,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   modifier's settings by Python name, e.g. `{"render_levels": Number((1, 3))}`; `Modifier.template(modifier)`),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
   `active_material...` paths reach it), `UVMap` (one of the mesh's UV maps becomes the
-  render and active one), `OneOf` to pick
+  render and active one; at most 8 per mesh), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
   `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key).
   The object augmentations (transforms, `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`,
