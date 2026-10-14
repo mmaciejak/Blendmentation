@@ -192,8 +192,8 @@ camera_aug = augmentations.Compose([
 ])
 
 scene = bpy.context.scene
-scene.render.film_transparent = True                      # Background needs a transparent RGBA render;
-scene.render.image_settings.color_mode = "RGBA"           # these change the scene, tell the user
+scene.render.film_transparent = True                      # Background shows where the render is transparent,
+scene.render.image_settings.color_mode = "RGBA"           # needs RGBA output; these change the scene, tell the user
 
 classes = {"car": [car_1, car_2]}   # scattered by geometry nodes: [generating.Instances(floor, of=rocks)]
 generator = generating.Compose(
@@ -313,7 +313,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   instance; label names `<parent>/<index>/<object>`. Boxes, poses and all skip settings
   work; masks and `max_occlusion` use one Cycles render with a material override (no
   alpha, no displacement), whatever the engine, and need geometry nodes on `parent`.
-- **`Background`** needs Film > Transparent and RGBA output, or it raises. `weights` is
+- **`Background`** needs RGBA output, or it raises; it shows only where the render is
+  transparent (Film > Transparent), an opaque render hides it. `weights` is
   `{"color", "white_noise", "color_noise", "image": weight}` (left out = never);
   `images_path` (a folder) is only needed when `"image"` has a weight above 0; with
   `"image": 0` or `"image"` left out, leave it None. Labels, AOVs and

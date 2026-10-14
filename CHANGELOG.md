@@ -6,6 +6,12 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `generating.Background` no longer requires Render Properties > Film > Transparent, only
+  RGBA output. The background shows where the render is transparent and an opaque
+  render hides it, so a pipeline can have transparent and opaque datapoints.
+
 ## [0.9.3] - 2026-10-14
 
 ### Added

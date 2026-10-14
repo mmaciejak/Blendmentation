@@ -686,10 +686,7 @@ def render_image(frame, file_format):
 
 def check_background(weights, noise_size, images_path):
     """Raises if the background can't be used."""
-    render = bpy.context.scene.render
-    if not render.film_transparent:
-        raise ValueError("Background needs a transparent render, enable Render Properties > Film > Transparent")
-    if render.image_settings.color_mode != "RGBA":
+    if bpy.context.scene.render.image_settings.color_mode != "RGBA":
         raise ValueError("Background needs RGBA output, set Output Properties > Output > Color to RGBA")
     if not (isinstance(noise_size, (list, tuple)) and len(noise_size) == 2
             and all(is_number(v) for v in noise_size)

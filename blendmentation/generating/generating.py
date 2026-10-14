@@ -454,9 +454,10 @@ class Background(Step):
     - `"image"`: a random image from `images_path` (and its subfolders; PNG, JPEG, BMP,
       TIFF or TGA), scaled to cover the frame and cropped at a random position.
 
-    The render must be transparent: Render Properties > Film > Transparent on, and the
-    output color RGBA. The background is composited over the render's alpha, so the
-    labels (masks, boxes), AOVs and passes don't change. The image is then saved
+    The output color must be RGBA. The background is composited over the render's
+    alpha, so it shows where the render is transparent (Render Properties > Film >
+    Transparent, or alpha from the compositor) and an opaque render hides it: a
+    pipeline can switch transparency per datapoint. The labels (masks, boxes), AOVs and passes don't change. The image is then saved
     opaque as RGB: 8-bit for PNG and JPEG, 32-bit float for EXR (the background
     converted from sRGB to linear). The backgrounds come from Python's `random`, so
     `random.seed()` makes them reproducible.
@@ -476,7 +477,7 @@ class Background(Step):
             paths are relative to the .blend file.
 
     Raises:
-        ValueError: when generating, if the render isn't transparent RGBA, a weight or
+        ValueError: when generating, if the output color isn't RGBA, a weight or
             `noise_size` is invalid, or the image mode has no images.
 
     Example:

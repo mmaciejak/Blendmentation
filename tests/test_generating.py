@@ -814,8 +814,22 @@ def test_background_exr_jpeg_and_seed(scene, cube, out):
     assert label(out, 2)["background"]["mode"] == "color_noise"
 
 
+def test_background_opaque_render(scene, cube, out):
+    """An opaque render is allowed and hides the background."""
+    transparent(scene)
+    scene.render.film_transparent = False
+    scene.world = bpy.data.worlds.new("World")  # without a world, the render is transparent anyway
+    cube("car")
+    G.Compose([G.Render()], out, (32, 24))()
+    assert read_image(os.path.join(out, "000000.png"), 3).min() >= 254 / 255  # 254 in 4.x Workbench
+    assert G.Compose([G.Background({"color": 1}), G.Render()], out, (32, 24))()
+    assert label(out, 1)["background"]["mode"] == "color"
+    plain = read_image(os.path.join(out, "000000.png"))
+    image = read_image(os.path.join(out, "000001.png"))
+    assert image == pytest.approx(plain[..., :3], abs=2 / 255)
+
+
 @pytest.mark.parametrize("setup, background, match", [
-    (lambda scene: setattr(scene.render, "film_transparent", False), G.Background(), "Transparent"),
     (lambda scene: setattr(scene.render.image_settings, "color_mode", "RGB"), G.Background(), "RGBA"),
     (None, G.Background({"sky": 1}), "Unknown background modes"),
     (None, G.Background({"color": 0}), "all 0"),
