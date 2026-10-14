@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-14
+
 ### Changed
 
 - `generating.Background` no longer requires Render Properties > Film > Transparent, only
@@ -402,7 +404,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.3...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.4...dev
+[0.9.4]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.0...v0.9.1
