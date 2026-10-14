@@ -395,6 +395,26 @@ def test_max_truncation_skips_before_render(scene, cube, out, renders):
         G.Compose([G.BBox({"x": [inside]}, max_truncation=2)], out, (64, 48))()
 
 
+def test_allow_empty_keeps_negatives(scene, cube, out):
+    inside = cube("inside", (-1, 0, 0), 0.5)
+    edge = cube("edge", (3.6, 0, 0), 2)
+    away = cube("away", (30, 0, 0), 1)
+    behind = cube("behind", (0, -20, 0), 1)
+
+    def generate(*instances, allow_empty=True):
+        step = G.BBox({"x": list(instances)}, max_truncation=0, allow_empty=allow_empty)
+        return G.Compose([step], out, (64, 48))()
+
+    # nothing in frame: skipped by default, kept with allow_empty
+    assert generate(away, behind, allow_empty=False) is False
+    assert generate(away, behind)
+    assert [entry["bbox"] for entry in label(out)["bboxes"]] == [None, None]
+    # an instance in frame (partly or fully) still makes the others count
+    assert generate(away, edge) is False
+    assert generate(away, inside) is False
+    assert generate(inside)
+
+
 def test_class_settings_win_over_bbox_arguments():
     classes = {
         "plain": ["a"],

@@ -554,12 +554,13 @@ def occlusions(frame, groups):
     return [max(0.0, 1.0 - float(visible[i] / alone[i])) if alone[i] else 0.0 for i in range(len(groups))]
 
 
-def bboxes(frame, classes, settings):
+def bboxes(frame, classes, settings, allow_empty=False):
     """Adds {"class", "objects", "bbox"} of every instance to the labels under "bboxes".
 
     Args:
         settings (dict): the BBox arguments iou_deconflict, max_truncation and max_occlusion,
             the defaults for the classes
+        allow_empty (bool): max_truncation doesn't skip a datapoint with no instance in frame
 
     Returns:
         bool: False if two bboxes overlap over iou_deconflict, an instance is more than
@@ -570,6 +571,7 @@ def bboxes(frame, classes, settings):
     settings = class_settings(classes, settings)
     instances = to_instances(classes, frame)
     entries, boxes, limits = [], [], []
+    truncated = in_frame = False
     for class_name, group in instances:
         entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
         entries.append(entry)
@@ -580,11 +582,16 @@ def bboxes(frame, classes, settings):
         bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
         limit = settings[class_name]["max_truncation"]
         if limit is not None and truncation(bounds, behind) > limit:
-            return False
+            truncated = True
+        # partly behind the camera, its edges may still cross the frame
+        if bounds is not None and (behind or clip_bounds(bounds) is not None):
+            in_frame = True
         box = entry["bbox"] = to_pixels(bounds, frame.width, frame.height)
         if box is not None:
             boxes.append(box)
             limits.append(settings[class_name]["iou_deconflict"])
+    if truncated and (in_frame or not allow_empty):
+        return False
     if iou_conflict(boxes, limits):
         return False
     # last, it needs two workbench renders

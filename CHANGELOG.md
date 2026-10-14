@@ -6,6 +6,13 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `generating.BBox(..., allow_empty=True)` keeps datapoints with no instance in frame
+  (negative samples), which `max_truncation` used to skip because an instance out of
+  frame counts as fully truncated. `max_truncation` still skips when any instance is in
+  frame.
+
 ## [0.9.4] - 2026-10-14
 
 ### Changed

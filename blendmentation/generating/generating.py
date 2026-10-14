@@ -223,6 +223,10 @@ class BBox(Step):
             Class objects covering each other don't count (that is `iou_deconflict`),
             and an instance with no pixels even then (out of frame, or behind another
             class object) counts as 0. None = never skip.
+        allow_empty: keep datapoints with no instance in frame (negative samples, with
+            every `bbox` None), which `max_truncation` would skip, since each instance
+            counts as 1. It then only skips when some instance is in frame. An instance
+            partly behind the camera counts as in frame.
 
     Note:
         The `BBox` arguments are the defaults for every class. A setting a class sets
@@ -243,6 +247,8 @@ class BBox(Step):
             "table": {"instances": [[top, legs]], "max_truncation": 0.8},  # may be cut more
         }
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5)
+        # also keep images with no car or table in them
+        generating.BBox(classes, max_truncation=0.3, allow_empty=True)
         ```
     """
 
@@ -254,11 +260,13 @@ class BBox(Step):
         iou_deconflict: Optional[float] = None,
         max_truncation: Optional[float] = None,
         max_occlusion: Optional[float] = None,
+        allow_empty: bool = False,
     ):
         self.classes = classes
         self.iou_deconflict = iou_deconflict
         self.max_truncation = max_truncation
         self.max_occlusion = max_occlusion
+        self.allow_empty = allow_empty
 
     def _settings(self):
         return {
@@ -271,7 +279,7 @@ class BBox(Step):
         bpy_g.check_bboxes(self.classes, self._settings())
 
     def __call__(self, frame):
-        return bpy_g.bboxes(frame, self.classes, self._settings())
+        return bpy_g.bboxes(frame, self.classes, self._settings(), self.allow_empty)
 
 
 class RotationMatrix(Step):
