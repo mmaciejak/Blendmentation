@@ -6,6 +6,14 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.UVMap(uv_maps=None, weights=None, p=1.0, otherwise=None, data_path=None)`
+  makes one of a mesh's UV maps, picked at random (by index or name, optionally
+  weighted), the one it renders with (and the active one), e.g. to lay a texture out at
+  different scales or angles. `actual` holds the UV map's name, and `state.restoring()`
+  sets the previous one back.
+
 ## [0.9.2] - 2026-10-14
 
 ### Added

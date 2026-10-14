@@ -821,6 +821,60 @@ def test_material_slot_errors(cube, make, error):
         make(obj)
 
 
+def uv_cube(cube):
+    """Cube with the UV maps UVMap (active and render), B and C."""
+    obj = cube("Cube")
+    for name in ("B", "C"):
+        obj.data.uv_layers.new(name=name)
+    return obj
+
+
+def uv_flags(obj):
+    return tuple(layer.name for layer in obj.data.uv_layers if layer.active_render), obj.data.uv_layers.active.name
+
+
+def test_uv_map(cube):
+    obj = uv_cube(cube)
+    with state.restoring():
+        uv = A.UVMap(["B", 2], weights=[1, 0])
+        A.Compose([uv])([obj])
+        assert uv.actual == "B" and uv_flags(obj) == (("B",), "B")
+
+        seen = set()
+        for _ in range(30):
+            A.UVMap()(obj)
+            seen.add(uv_flags(obj))
+        assert seen == {(("UVMap",), "UVMap"), (("B",), "B"), (("C",), "C")}
+
+        A.UVMap(p=0, otherwise="C")(obj)
+        assert uv_flags(obj) == (("C",), "C")
+        A.UVMap(p=0)(obj)
+        assert uv_flags(obj) == (("C",), "C"), "without otherwise a skip keeps the UV map"
+
+    assert uv_flags(obj) == (("UVMap",), "UVMap")
+
+
+def no_uv_maps(obj):
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    A.UVMap()(obj)
+
+
+@pytest.mark.parametrize("make, error", [
+    (lambda obj: A.UVMap(["B"], weights=[1, 2]), ValueError),
+    (lambda obj: A.UVMap(otherwise=1.5), ValueError),
+    (lambda obj: A.UVMap(["Nope"])(obj), KeyError),
+    (lambda obj: A.UVMap([3])(obj), KeyError),
+    (lambda obj: A.UVMap(weights=[1, 2])(obj), ValueError),
+    (lambda obj: A.UVMap()(bpy.data.objects.new("Empty", None)), TypeError),
+    (lambda obj: no_uv_maps(obj), ValueError),
+])
+def test_uv_map_errors(cube, make, error):
+    obj = uv_cube(cube)
+    with pytest.raises(error):
+        make(obj)
+
+
 def test_chain(cube):
     obj = cube("Cube")
     move = A.Translation(x=(1, 1))
@@ -1501,6 +1555,7 @@ def test_object_data_path(scene, cube):
     for obj in (target, other):
         new_material(obj, f"{obj.name} paint")
         new_material(obj, f"{obj.name} metal")
+        obj.data.uv_layers.new(name="Second")
     curve = bpy.data.objects.new("Path", bpy.data.curves.new("Path", "CURVE"))
     curve.data.splines.new("POLY").points.add(1)
     curve.data.splines[0].points[1].co = (4, 0, 0, 1)
@@ -1513,6 +1568,7 @@ def test_object_data_path(scene, cube):
         material = obj.material_slots[0].material
         return (tuple(tuple(row) for row in obj.matrix_world), obj.hide_render, obj.active_material_index,
                 tuple(polygon.material_index for polygon in obj.data.polygons),
+                tuple(layer.active_render for layer in obj.data.uv_layers),
                 material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value)
 
     def camera_state():
@@ -1526,6 +1582,7 @@ def test_object_data_path(scene, cube):
         A.KeepAbove(floor, margin=5, data_path=path),
         A.PlaceOn(floor, data_path=path),
         A.MaterialSlot([1], data_path=path),
+        A.UVMap([1], data_path=path),
         A.SimpleMaterial("Target paint", roughness=(0.9, 0.9), data_path=path),
         A.PlaceOnCurve(curve, position=(0.5, 0.5), data_path=path),
     ]

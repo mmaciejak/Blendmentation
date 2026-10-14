@@ -201,6 +201,49 @@ def material_slot(obj, slots, weights):
     return None if material is None else material.name
 
 
+def uv_map_index(obj, uv_map):
+    """Index of a UV map of a mesh object given by index or by name."""
+    layers = obj.data.uv_layers
+    if isinstance(uv_map, int):
+        if not -len(layers) <= uv_map < len(layers):
+            raise KeyError(f"Object '{obj.name}' has {len(layers)} UV maps, no UV map {uv_map}")
+        return uv_map % len(layers)
+    index = layers.find(uv_map)
+    if index < 0:
+        raise KeyError(f"Object '{obj.name}' has no UV map '{uv_map}', it has {list(layers.keys())}")
+    return index
+
+
+def uv_map(obj, uv_maps, weights):
+    """Makes one of the mesh's UV maps, picked at random, the one used for rendering and
+    the active one.
+
+    Args:
+        uv_maps (list | None): UV maps to pick from, by index or name, None = all
+        weights (list | None): relative probability of each UV map, None = equal
+
+    Returns:
+        str: name of the picked UV map
+    """
+    if obj is None or obj.type != "MESH":
+        raise TypeError(f"{obj!r} is not a mesh object")
+    layers = obj.data.uv_layers
+    if not layers:
+        raise ValueError(f"Object '{obj.name}' has no UV maps")
+    indices = list(range(len(layers))) if uv_maps is None else [uv_map_index(obj, layer) for layer in uv_maps]
+    if weights is not None and len(weights) != len(indices):
+        raise ValueError(f"Object '{obj.name}' has {len(indices)} UV maps to pick from, got {len(weights)} weights")
+    picked = layers[random.choices(indices, weights=weights)[0]]
+    # setting a flag to False does nothing, so the old maps are recorded as True first:
+    # restoring sets them back last, which clears the picked map's flags
+    for name in ("active_render", "active"):
+        for layer in layers:
+            if getattr(layer, name):
+                bpy_undo.set_attr(layer, name, True)
+        bpy_undo.set_attr(picked, name, True)
+    return picked.name
+
+
 def target_center(target):
     """World location of a look-at target: an object or a list of objects (the center
     of their bounding boxes), or a point (x, y, z)."""

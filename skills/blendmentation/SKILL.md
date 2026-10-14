@@ -166,6 +166,7 @@ lamp_aug = augmentations.Compose([
 plant_aug = augmentations.Compose([
     augmentations.Visibility(p=0.7),      # in the render 70% of the time, else hidden; labels follow
     augmentations.MaterialSlot(),         # one of the materials in its own slots (no copies: shared stays shared)
+    augmentations.UVMap(),                # renders with one of its UV maps
     augmentations.Scale(x=10, y=10, z=10, p=0.5),         # percent; p = probability it runs
     augmentations.Rotation(z=(0, 315, 45)),               # (low, high, step): one of 8 headings
 ])                                        # (not on posed objects: BOP has one model size per class)
@@ -329,16 +330,17 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   for the inputs of a geometry nodes modifier, by name, in every version, or for any
   modifier's settings by Python name, e.g. `{"render_levels": Number((1, 3))}`; `Modifier.template(modifier)`),
   `MaterialSlot` (one of the materials in the object's own slots, every face; then
-  `active_material...` paths reach it), `OneOf` to pick
+  `active_material...` paths reach it), `UVMap` (one of the mesh's UV maps becomes the
+  render and active one), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
   `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key).
   The object augmentations (transforms, `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`,
-  `PlaceOnCurve`, `FocalLength`, `DepthOfField`, `MaterialSlot`, `SimpleMaterial`) take
+  `PlaceOnCurve`, `FocalLength`, `DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) take
   `data_path='bpy.data.objects["Camera"]'` to always change that object instead of the
   one they are called with, so they also run alone: `aug()`. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
-- **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
+- **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
   `FocalLength`, `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
   `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `DepthOfField(car, p=0.5, otherwise=False)`
   (sharp in the other half). None keeps the value; `Boolean` and `Visibility` default to

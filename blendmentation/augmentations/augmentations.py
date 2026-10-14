@@ -4,7 +4,7 @@
 augmentation takes `p`, the probability that it runs, drawn per object; a call can
 override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
-it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `Visibility`,
+it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
 `FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
 last object; `results` holds the values for every object, by name. Augment inside
 `with state.restoring():`, which sets everything back when the datapoint is done.
@@ -17,7 +17,8 @@ settings of any other modifier (Subdivision Surface, Bevel...).
 edit; the Blender add-on copies it for the selected node. `Modifier.template` and
 `Chain.shape_keys_template` do the same for a modifier and for the shape keys of an
 object.
-`MaterialSlot` gives an object one of the materials in its own slots.
+`MaterialSlot` gives an object one of the materials in its own slots, and `UVMap` one
+of its UV maps.
 `Visibility` shows or hides objects in the render, and the labels follow it.
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
@@ -31,7 +32,7 @@ starting with `bpy.` is absolute: right click a value in Blender > Copy Full Dat
 Path. Any other path is relative to the augmented object, e.g. `data.energy`.
 The augmentations that change an object (`Translation`, `Rotation`, `Scale`,
 `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`, `FocalLength`,
-`DepthOfField`, `MaterialSlot`, `SimpleMaterial`) change the object they are called
+`DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) change the object they are called
 with, or with `data_path='bpy.data.objects["Camera"]'` always that object, so they can
 also be called alone, `aug()`.
 Geometry nodes inputs moved in Blender 5, so their path depends on the version:
@@ -197,7 +198,7 @@ class Augmentation:
     It runs with probability `p`, drawn on every call, so once per object in a
     `Compose`. A skipped augmentation leaves the object unchanged, unless it has an
     `otherwise` value: then it sets that. `Number`, `Vector`, `Boolean`, `Menu`,
-    `MaterialSlot`, `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
+    `MaterialSlot`, `UVMap`, `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
     the value) by default, except for `Boolean` (False) and `Visibility` (hidden).
     A `Compose` skipped by its own `p` runs none of its augmentations, so their
     `otherwise` isn't set either.
@@ -1195,6 +1196,67 @@ class MaterialSlot(ObjectAugmentation):
 
     def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
         return bpy_a.material_slot(obj, [self.otherwise], None)
+
+
+class UVMap(ObjectAugmentation):
+    """Makes one of the object's UV maps, picked at random, the one it renders with.
+
+    Add the UV maps to the mesh in Blender (Object Data Properties > UV Maps, `+`), e.g.
+    the same texture laid out at different scales or rotations. On every call it makes
+    the picked UV map the render one (the camera icon in the list) and the active one.
+    Textures without a UV Map node, and the UV output of a Texture Coordinate node, use
+    it. `state.restoring()` sets both back.
+
+    The UV maps belong to the mesh, so objects sharing the mesh share the pick.
+
+    Args:
+        uv_maps: UV maps to pick from, by index or name. None = all of them.
+        weights: relative probability of each UV map. None = equal.
+        p: probability of applying the augmentation.
+        otherwise: UV map to use when it doesn't run, by index or name. None keeps the
+            current one.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Crate"]'`; then it can also be called
+            alone, `aug()`. None (the default): the object it is called with.
+
+    Attributes:
+        actual (str | None): name of the picked UV map (None when skipped without
+            `otherwise`).
+
+    Raises:
+        ValueError: the number of weights and UV maps differ, or `otherwise` is not an
+            index or a name. At a call: the object has no UV maps.
+        TypeError: at a call, the object is not a mesh.
+        KeyError: at a call, a UV map in `uv_maps` doesn't exist.
+
+    Note:
+        A UV Map or Attribute node that names its UV map, and a geometry nodes modifier
+        that replaces the UV maps, don't follow the pick.
+
+    Example:
+        ```python
+        # the crate's UV maps: "UVMap", "Rotated", "Scaled"
+        crate_aug = augmentations.Compose([
+            augmentations.UVMap(weights=[2, 1, 1]),
+        ])
+        crate_aug([crate])
+        ```
+    """
+
+    def __init__(self, uv_maps: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
+                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
+        valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
+        super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path)
+        if uv_maps is not None and weights is not None and len(uv_maps) != len(weights):
+            raise ValueError("Give one weight per UV map")
+        self.uv_maps = uv_maps
+        self.weights = weights
+
+    def apply(self, obj: Optional[Object]) -> None:
+        self.actual = bpy_a.uv_map(obj, self.uv_maps, self.weights)
+
+    def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
+        return bpy_a.uv_map(obj, [self.otherwise], None)
 
 
 class SimpleMaterial(ObjectAugmentation):

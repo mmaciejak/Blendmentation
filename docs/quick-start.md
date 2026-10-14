@@ -725,7 +725,7 @@ For the masks and visible fractions, add
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
-class and may hide them (with a few materials in its slots and a Subdivision Surface modifier "Subdivision"), a floor "Floor" with pebbles scattered on it by a geometry nodes group
+class and may hide them (with a few materials in its slots, a few UV maps and a Subdivision Surface modifier "Subdivision"), a floor "Floor" with pebbles scattered on it by a geometry nodes group
 "Scatter" in a modifier "Scatter" on the floor (instances of the objects of a collection "Pebbles", from a
 Collection Info node, without random scale; a float input "Density" sets how many), a point light, a camera and a curve
 "CameraPath" around the cars for the camera to ride on (e.g. a Bezier circle). The cars use the material "CarPaint". The engine is Cycles or EEVEE, with a
@@ -798,6 +798,8 @@ plant_aug = aug.Compose([
     aug.Visibility(p=0.7),
     # one of the materials in its slots
     aug.MaterialSlot(),
+    # textures laid out by one of its UV maps
+    aug.UVMap(),
     # only half of the time; BOP needs fixed-size cars
     aug.Scale(x=10, y=10, z=10, p=0.5),
     # one of 8 headings, 45 degrees apart: (low, high, step)
