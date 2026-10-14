@@ -96,27 +96,20 @@ def next_index(path):
     return max(taken, default=-1) + 1
 
 
-def camera_view_coords(scene, camera, obj, depsgraph):
-    """Projects the evaluated object's (or InstanceMember's) vertices to normalized camera
-    view coordinates.
-
-    Returns:
-        tuple: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the
-            camera, and whether any vertex is behind it
-    """
+def camera_coords(camera, obj, depsgraph):
+    """(n, 3) array of the evaluated object's (or InstanceMember's) vertices in the camera's
+    space, where it looks down -z."""
     if isinstance(obj, bpy_instances.InstanceMember):
         coords, matrix_world = obj.coords, obj.matrix_world
     else:
         obj_eval = obj.evaluated_get(depsgraph)
         coords, matrix_world = bpy_instances.mesh_coords(obj_eval), obj_eval.matrix_world
-
     to_camera = np.array(camera.matrix_world.inverted() @ matrix_world)
-    coords = coords @ to_camera[:3, :3].T + to_camera[:3, 3]
-    # the camera looks down its -z axis, drop everything behind it
-    in_front = coords[:, 2] < 0
-    behind = not in_front.all()
-    coords = coords[in_front]
+    return coords @ to_camera[:3, :3].T + to_camera[:3, 3]
 
+
+def project(scene, camera, coords):
+    """(n, 2) array of x, y in 0-1 (bottom-left origin) of camera space points in front of it."""
     frame = camera.data.view_frame(scene=scene)
     frame_min_x, frame_max_x = min(v.x for v in frame), max(v.x for v in frame)
     frame_min_y, frame_max_y = min(v.y for v in frame), max(v.y for v in frame)
@@ -129,7 +122,54 @@ def camera_view_coords(scene, camera, obj, depsgraph):
 
     x = (coords[:, 0] - frame_min_x * scale) / ((frame_max_x - frame_min_x) * scale)
     y = (coords[:, 1] - frame_min_y * scale) / ((frame_max_y - frame_min_y) * scale)
-    return np.stack([x, y], axis=1), behind
+    return np.stack([x, y], axis=1)
+
+
+def camera_view_coords(scene, camera, obj, depsgraph):
+    """Projects the evaluated object's (or InstanceMember's) vertices to normalized camera
+    view coordinates.
+
+    Returns:
+        tuple: (n, 2) array of x, y in 0-1 (bottom-left origin) of vertices in front of the
+            camera, and whether any vertex is behind it
+    """
+    coords = camera_coords(camera, obj, depsgraph)
+    # the camera looks down its -z axis, drop everything behind it
+    in_front = coords[:, 2] < 0
+    return project(scene, camera, coords[in_front]), not in_front.all()
+
+
+#: the 12 edges of a box, by corner index (bit 0: x, 1: y, 2: z)
+BOX_EDGES = [(a, a | bit) for a in range(8) for bit in (1, 2, 4) if not a & bit]
+
+
+def in_view(scene, camera, group, depsgraph, bounds, behind):
+    """Whether any of the list of objects may be in the frame. Bounds (from view_bounds)
+    clipped to the frame say so, unless some vertex is behind the camera: then the bounding
+    box of each object, cut at the camera's near clip plane, is checked, since the faces
+    reaching behind the camera can cross the frame. Conservative: a box corner counts."""
+    if clip_bounds(bounds) is not None:
+        return True
+    if not behind:
+        return False
+    near = -max(camera.data.clip_start, 1e-6)
+    points = []
+    for obj in group:
+        coords = camera_coords(camera, obj, depsgraph)
+        if len(coords) == 0:
+            continue
+        low, high = coords.min(axis=0), coords.max(axis=0)
+        corners = np.array([[(high if i & bit else low)[axis] for axis, bit in enumerate((1, 2, 4))]
+                            for i in range(8)])
+        points.extend(corner for corner in corners if corner[2] <= near)
+        for a, b in BOX_EDGES:
+            za, zb = corners[a][2], corners[b][2]
+            if (za <= near) != (zb <= near):
+                points.append(corners[a] + (near - za) / (zb - za) * (corners[b] - corners[a]))
+    if not points:
+        return False
+    view = project(scene, camera, np.array(points))
+    return clip_bounds([view[:, 0].min(), view[:, 1].min(), view[:, 0].max(), view[:, 1].max()]) is not None
 
 
 def view_bounds(scene, camera, group, depsgraph):
@@ -560,7 +600,7 @@ def bboxes(frame, classes, settings, allow_empty=False):
     Args:
         settings (dict): the BBox arguments iou_deconflict, max_truncation and max_occlusion,
             the defaults for the classes
-        allow_empty (bool): max_truncation doesn't skip a datapoint with no instance in frame
+        allow_empty (bool): max_truncation ignores instances out of view
 
     Returns:
         bool: False if two bboxes overlap over iou_deconflict, an instance is more than
@@ -571,7 +611,6 @@ def bboxes(frame, classes, settings, allow_empty=False):
     settings = class_settings(classes, settings)
     instances = to_instances(classes, frame)
     entries, boxes, limits = [], [], []
-    truncated = in_frame = False
     for class_name, group in instances:
         entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
         entries.append(entry)
@@ -582,16 +621,13 @@ def bboxes(frame, classes, settings, allow_empty=False):
         bounds, behind = view_bounds(frame.scene, frame.camera, rendered, frame.depsgraph)
         limit = settings[class_name]["max_truncation"]
         if limit is not None and truncation(bounds, behind) > limit:
-            truncated = True
-        # partly behind the camera, its edges may still cross the frame
-        if bounds is not None and (behind or clip_bounds(bounds) is not None):
-            in_frame = True
+            # with allow_empty, an instance out of view is absent, not truncated
+            if not allow_empty or in_view(frame.scene, frame.camera, rendered, frame.depsgraph, bounds, behind):
+                return False
         box = entry["bbox"] = to_pixels(bounds, frame.width, frame.height)
         if box is not None:
             boxes.append(box)
             limits.append(settings[class_name]["iou_deconflict"])
-    if truncated and (in_frame or not allow_empty):
-        return False
     if iou_conflict(boxes, limits):
         return False
     # last, it needs two workbench renders

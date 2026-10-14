@@ -395,24 +395,29 @@ def test_max_truncation_skips_before_render(scene, cube, out, renders):
         G.Compose([G.BBox({"x": [inside]}, max_truncation=2)], out, (64, 48))()
 
 
-def test_allow_empty_keeps_negatives(scene, cube, out):
+def test_allow_empty_ignores_instances_out_of_view(scene, cube, out):
     inside = cube("inside", (-1, 0, 0), 0.5)
     edge = cube("edge", (3.6, 0, 0), 2)
     away = cube("away", (30, 0, 0), 1)
     behind = cube("behind", (0, -20, 0), 1)
+    # partly behind the camera, off to the side / around it
+    beside = cube("beside", (8, -10, 0), 2)
+    around = cube("around", (0, -10, 0), 2)
 
     def generate(*instances, allow_empty=True):
         step = G.BBox({"x": list(instances)}, max_truncation=0, allow_empty=allow_empty)
         return G.Compose([step], out, (64, 48))()
 
-    # nothing in frame: skipped by default, kept with allow_empty
-    assert generate(away, behind, allow_empty=False) is False
-    assert generate(away, behind)
-    assert [entry["bbox"] for entry in label(out)["bboxes"]] == [None, None]
-    # an instance in frame (partly or fully) still makes the others count
-    assert generate(away, edge) is False
-    assert generate(away, inside) is False
-    assert generate(inside)
+    # nothing in view: skipped by default, kept with allow_empty
+    assert generate(away, behind, beside, allow_empty=False) is False
+    assert generate(away, behind, beside)
+    assert [entry["bbox"] for entry in label(out)["bboxes"]] == [None, None, None]
+    # instances out of view are absent, the ones in view still count
+    assert generate(inside, away, beside)
+    assert generate(inside, away, allow_empty=False) is False
+    assert generate(edge, away) is False
+    # reaching the frame from behind the camera is in view
+    assert generate(inside, around) is False
 
 
 def test_class_settings_win_over_bbox_arguments():

@@ -884,7 +884,7 @@ steps = [
         iou_deconflict=0.5,
         max_truncation=0.3,
         max_occlusion=0.5,
-        allow_empty=True,  # keep images with no instance in them
+        allow_empty=True,  # instances out of view don't count
     ),
     # copy of the image with the boxes drawn, to check them
     gen.BBoxImage(),

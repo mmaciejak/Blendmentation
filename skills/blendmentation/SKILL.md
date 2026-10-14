@@ -201,7 +201,7 @@ generator = generating.Compose(
         generating.Render(),
         generating.Background(weights={"color": 1, "color_noise": 1}),  # + "image": w with images_path=folder
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3,
-                        allow_empty=True),      # keep images with no car in them
+                        allow_empty=True),      # cars out of view don't count
         generating.BBoxImage(),                 # preview copy with the boxes drawn
         generating.Segmentation(classes, per="both", skip_empty=True,   # no file for empty masks
                                 full_masks=True),               # + masks ignoring occlusion (BOP)
@@ -293,7 +293,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 |---|---|
 | `Render(file_format="PNG")` | `<index>.png` |
 | `Background(weights=None, noise_size=(1, 8), images_path=None)` | random color, white/color noise or image behind the render and previews; `background` |
-| `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None, allow_empty=False)` | `bboxes`; the three settings skip the datapoint, `allow_empty` keeps ones with no instance in frame |
+| `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None, allow_empty=False)` | `bboxes`; the three settings skip the datapoint, `allow_empty` ignores instances out of view |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
 | `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False, full_masks=False)` | mask PNGs, `masks`; `full_masks`: unoccluded masks, `full_masks` |
 | `AOVToImage(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |

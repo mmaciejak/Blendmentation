@@ -280,3 +280,21 @@ def test_meshes_made_in_geometry_nodes(scene, cube, out):
         G.Compose([G.BBox({"car": [G.Instances(parent, of=car)]})], out, (320, 240))()
     assert G.Compose([G.BBox({"cube": [G.Instances(parent)]})], out, (320, 240))()
     assert len(label(out)["bboxes"]) == 4
+
+
+def test_allow_empty_ignores_instances_out_of_view(scene, cube, out):
+    car = cube("car", size=0.5)
+    sources = hidden_collection("sources", [car])
+    # one in frame, one far out of it
+    parent = scatter("Scatter", sources, points=[(0, 0), (40, 0)])
+    # the parent itself has no geometry of its own, only the instances
+    classes = {"car": {"instances": [parent, G.Instances(parent, of=car)], "max_truncation": 0.2}}
+    assert G.Compose([G.BBox(classes)], out, (64, 48))() is False
+    assert G.Compose([G.BBox(classes, allow_empty=True)], out, (64, 48))()
+    boxes = {tuple(b["objects"]): b["bbox"] for b in label(out)["bboxes"]}
+    assert boxes[("Scatter",)] is None and boxes[("Scatter/1/car",)] is None
+    assert boxes[("Scatter/0/car",)] is not None
+    # all out of frame: a negative sample
+    scene.camera.rotation_euler.z += np.pi
+    assert G.Compose([G.BBox(classes, allow_empty=True)], out, (64, 48))()
+    assert all(b["bbox"] is None for b in label(out, 1)["bboxes"])

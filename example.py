@@ -178,7 +178,7 @@ image_generator = generating.Compose(
         generating.AOVToImage(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5,  # Clutter may hide half a part
-                        allow_empty=True),  # keep images with no part in them
+                        allow_empty=True),  # parts out of view don't count
         generating.BBoxImage(),  # extra image with the bboxes drawn on it, the main image stays clean
         # no file for empty masks; full_masks adds masks that ignore occlusion (for BOP)
         generating.Segmentation(classes, per="both", skip_empty=True, full_masks=True),

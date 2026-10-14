@@ -6,6 +6,13 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `generating.BBox(..., allow_empty=True)` now ignores every instance out of view, not
+  only when all of them are. Before, a datapoint with some instances in frame and others
+  out of it (e.g. a geometry nodes scatter) was still skipped by `max_truncation`, and an
+  instance partly behind the camera counted as in frame even when it couldn't be seen.
+
 ## [0.9.5] - 2026-10-15
 
 ### Added

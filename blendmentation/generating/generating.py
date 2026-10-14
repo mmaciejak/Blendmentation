@@ -223,10 +223,11 @@ class BBox(Step):
             Class objects covering each other don't count (that is `iou_deconflict`),
             and an instance with no pixels even then (out of frame, or behind another
             class object) counts as 0. None = never skip.
-        allow_empty: keep datapoints with no instance in frame (negative samples, with
-            every `bbox` None), which `max_truncation` would skip, since each instance
-            counts as 1. It then only skips when some instance is in frame. An instance
-            partly behind the camera counts as in frame.
+        allow_empty: `max_truncation` ignores instances out of view (their `bbox` is
+            None), which otherwise count as 1. Datapoints with only some instances in
+            frame, or none (negative samples), are then kept, and only the instances in
+            frame are checked. An instance partly behind the camera is in view when its
+            bounding box reaches the frame.
 
     Note:
         The `BBox` arguments are the defaults for every class. A setting a class sets
@@ -247,7 +248,7 @@ class BBox(Step):
             "table": {"instances": [[top, legs]], "max_truncation": 0.8},  # may be cut more
         }
         generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5)
-        # also keep images with no car or table in them
+        # also keep images without some or all of them
         generating.BBox(classes, max_truncation=0.3, allow_empty=True)
         ```
     """
