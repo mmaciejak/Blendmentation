@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-15
+
 ### Changed
 
 - The "skips" bar of `export.augmentation_report` reads like a number line: more images
@@ -502,7 +504,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.1...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.2...dev
+[0.10.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/mmaciejak/Blendmentation/compare/v0.9.5...v0.9.6
