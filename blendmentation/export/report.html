@@ -120,7 +120,7 @@ body.preview .report-only, body:not(.preview) .preview-only, body:not(.skips) .s
   <span>⑂ a fork: picks one branch, by weight</span>
   <span class="report-only"><i style="background: var(--bar)"></i>observed (dataset)</span>
   <span class="report-only"><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
-  <span class="skips-only"><i style="background: var(--more)"></i><i style="background: var(--fewer); margin-left: -5px"></i>skips: more (red) or fewer (green) images skipped when it runs, middle = no effect</span>
+  <span class="skips-only"><i style="background: var(--more)"></i><i style="background: var(--fewer); margin-left: -5px"></i>skips: − left, red: more images skipped when it runs; + right, green: fewer; middle: no effect</span>
   <span class="preview-only"><i style="background: var(--bar)"></i>probability it runs, per object of a call</span>
   <span><i style="background: var(--edge); height: 2px"></i>line width: how often it is reached</span>
   <span class="report-only"><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
@@ -175,8 +175,9 @@ function skipRates(s) {
   }
   return {whenRuns, whenNot, differs, ran, notRan};
 }
-// a bar centered on 0: red to the left when the datapoint was skipped more often with the
-// augmentation than without it, green to the right when less often; half the bar is 50 points
+// a bar centered on 0, signed like a number line: red to the left (−) when the datapoint was
+// skipped more often with the augmentation than without it, green to the right (+) when less
+// often; half the bar is 50 points
 const SKIP_SCALE = 0.5;
 function skipBar(rates) {
   const row = document.createDocumentFragment(), diff = rates.whenRuns - rates.whenNot;
@@ -188,7 +189,7 @@ function skipBar(rates) {
     " of the times it didn't" + (rates.differs ? "" : " (within chance)");
   const points = Math.round(Math.abs(diff) * 100);
   row.append(text("span", "label", "skips"), bar,
-             text("span", "num" + (rates.differs ? " " + kind : ""), (diff > 0 ? "+" : diff < 0 ? "−" : "") + points + "%"));
+             text("span", "num" + (rates.differs ? " " + kind : ""), (diff > 0 ? "−" : diff < 0 ? "+" : "") + points + "%"));
   return row;
 }
 function flags(node) {
@@ -563,9 +564,9 @@ function openSkips() {
     }
   }
   panel.append(table, text("div", "note", "A datapoint is skipped as a whole. On a card, the skips bar compares how often the datapoint was " +
-    "skipped when that augmentation ran and when it didn't: red to the left means more skips when it runs (it causes " +
-    "them, so the dataset has less of its results than the graph expects), green to the right fewer, the middle no " +
-    "effect. Faded: within chance."))
+    "skipped when that augmentation ran and when it didn't: red to the left (−) means more skips when it runs (it " +
+    "causes them, so the dataset has less of its results than the graph expects), green to the right (+) fewer, the " +
+    "middle no effect. Faded: within chance."))
   panel.classList.add("open");
 }
 
