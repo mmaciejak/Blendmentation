@@ -17,9 +17,9 @@ All notable changes to Blendmentation. The format follows
   `export.augmentation_stats` also counts each augmentation in them (`skipped`).
 - `export.augmentation_report` shows the skipped datapoints: their number in the header
   (click it for the reasons and classes) and, on the cards of augmentations that run for
-  some objects and not for others, a "skips" bar centered on 0: red to the left (e.g.
-  −38%) when images were skipped more often when the augmentation ran than when it
-  didn't, green to the right (+) when less often, faded when within chance, so the
+  some objects and not for others, a "skips" bar centered on 0: red to the right (e.g.
+  +38%) when images were skipped more often when the augmentation ran than when it
+  didn't, green to the left (−) when less often, faded when within chance, so the
   augmentations that cause skips stand out.
 
 ## [0.10.0] - 2026-10-15

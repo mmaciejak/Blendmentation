@@ -797,7 +797,7 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     chance (e.g. moved objects skipped more often by `BBox` because they leave the
     frame) is marked. The datapoints `BBox` skipped are counted by reason (truncation,
     IoU, occlusion) and class, and a card's "skips" bar, centered on 0, shows how much
-    more (red, left) or less (green, right) often the datapoint was skipped when the
+    more (red, right, +) or less (green, left, −) often the datapoint was skipped when the
     augmentation ran than when it didn't, which shows the augmentations that cause skips. Clicking a card shows its settings and
     numbers. The page is one
     file that needs no internet, to open in any browser.

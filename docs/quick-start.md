@@ -306,13 +306,13 @@ for _ in range(100):
 export.augmentation_report("//dataset")
 ```
 
-![The report: 253 datapoints, 47 (16%) skipped by BBox; "standing" ran 85% with a green skips bar at +20%, "lying" ran 15% with a red skips bar at −20%](images/augmentations-report.jpg){ .full-width }
+![The report: 253 datapoints, 47 (16%) skipped by BBox; "standing" ran 85% with a green skips bar at −20%, "lying" ran 15% with a red skips bar at +20%](images/augmentations-report.jpg){ .full-width }
 
 The grey bars are what the dataset got, and the ticks what the preview expected. Here
 `BBox` skipped 47 of the 300 datapoints (click the number for the reasons, here all cut by
 the frame). A lying carton is wider, so the frame cuts it more often: its skips bar is red,
-to the left, at −20% (images were skipped 20 points more often when it lay), standing's is
-green, to the right, and the dataset has 15% lying cartons instead of 20%. A difference larger than chance is marked in orange.
+to the right, at +20% (images were skipped 20 points more often when it lay), standing's is
+green, to the left, and the dataset has 15% lying cartons instead of 20%. A difference larger than chance is marked in orange.
 `export.augmentation_stats(path)` and `export.skip_stats(path)` give the same numbers in
 Python.
 
