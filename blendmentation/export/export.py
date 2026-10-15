@@ -14,6 +14,9 @@ COCO, YOLO and VOC take `bbox_from`, which box to write:
   most detection datasets use. Needs a `Segmentation` step with `per="instance"` or
   `"both"` and the same classes. Fully hidden instances, and ones whose mask was not
   written (`skip_empty`), are left out.
+
+`augmentation_stats` compares how often each augmentation ran over the dataset with
+the probabilities of its graph, from a `generating.Augmentations` step.
 """
 
 import json
@@ -607,3 +610,101 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
     with open(os.path.join(output, "obj_ids.json"), "w") as file:
         json.dump({str(number): name for name, number in obj_ids.items()}, file, indent=2)
     return scene_dir
+
+
+def graph_nodes(node, root, parents_reach, nodes):
+    """Every node of an augmentation graph by id, with its root's id and whether it is
+    reached with its root every time (no OneOf or p below 1 between them)."""
+    nodes[node["id"]] = dict(node, root=root, always=parents_reach)
+    for child in node.get("children", ()):
+        always = parents_reach and child["reached"] == nodes[root]["applied"]
+        graph_nodes(child, root, always, nodes)
+
+
+def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dict[str, dict]:
+    """Compares what the augmentations did over a dataset with what their graph expects.
+
+    Reads the graph `generating.Augmentations` saved and the `augmentations` record of
+    every label. For each augmentation it counts the calls (the objects of the
+    `Compose` it is in, over all datapoints) and how often it ran, and for the ones with
+    `values` in the graph (a `Menu` with options, a `Boolean`...) how often each value
+    was set. Datapoints `BBox` skipped have no label, so a gap between expected and
+    observed shows what the skips (or the scene) changed.
+
+    An augmentation that changes the same thing for every object (an absolute data
+    path, `Seed`) counts once per datapoint, its last call; its `expected` is None when
+    a `OneOf` or a `p` below 1 between it and the `Compose` decides per object whether
+    it is called. An augmentation used in several places of the graph has `expected`
+    None too, since its record mixes them.
+
+    Args:
+        path: the generating path.
+        graph_file: file name of the graph, as given to `generating.Augmentations`.
+
+    Returns:
+        `{id: {"type", "expected", "observed", "applied", "calls", "values"}}` by the ids
+        of the graph: `expected` is the graph's probability that it runs per call,
+        `observed` the fraction of `calls` it ran in (`applied`), and `values`
+        `[{"value", "expected", "observed"}]` for every value expected or set.
+
+    Raises:
+        FileNotFoundError: there is no graph file in the folder.
+
+    Example:
+        ```python
+        stats = export.augmentation_stats("//dataset")
+        for node_id, node in stats.items():
+            print(node_id, node["type"], node["expected"], node["observed"])
+        ```
+    """
+    path = dataset_path(path)
+    with open(os.path.join(path, graph_file)) as file:
+        roots = json.load(file)["augmentations"]
+    nodes = {}
+    for root in roots:
+        graph_nodes(root, root["id"], True, nodes)
+    stats = {node_id: {"type": node["type"], "applied": 0, "calls": 0, "values": {}}
+             for node_id, node in nodes.items() if "same_as" not in node}
+    for name in sorted(os.listdir(path)):
+        if not LABEL.match(name):
+            continue
+        with open(os.path.join(path, name)) as file:
+            record = json.load(file).get("augmentations")
+        if record is None:
+            continue
+        for node_id, stat in stats.items():
+            node = nodes[node_id]
+            objects = len(record.get(node["root"], {}))
+            entries = list(record.get(node_id, {}).values())
+            if node.get("ignores_object") and node_id != node["root"]:
+                stat["calls"] += 1 if objects else 0
+                entries = entries[-1:]
+            else:
+                stat["calls"] += objects
+            stat["applied"] += sum(1 for entry in entries if entry.get("applied"))
+            if "values" in node:
+                for entry in entries:
+                    if entry.get("value") is not None:
+                        key = json.dumps(entry["value"])
+                        stat["values"][key] = stat["values"].get(key, 0) + 1
+    result = {}
+    for node_id, stat in stats.items():
+        node = nodes[node_id]
+        known = "used_at" not in node and (not node.get("ignores_object") or node["always"] or node_id == node["root"])
+        calls = stat["calls"]
+        entry = {"type": stat["type"], "expected": node["applied"] if known else None,
+                 "observed": stat["applied"] / calls if calls else None,
+                 "applied": stat["applied"], "calls": calls}
+        if "values" in node:
+            counts = dict(stat["values"])
+            values = []
+            for item in node["values"]:
+                count = counts.pop(json.dumps(item["value"]), 0)
+                values.append({"value": item["value"], "expected": item["probability"] if known else None,
+                               "observed": count / calls if calls else None})
+            for key, count in counts.items():  # set but not listed, e.g. a slot given by index
+                values.append({"value": json.loads(key), "expected": None,
+                               "observed": count / calls if calls else None})
+            entry["values"] = values
+        result[node_id] = entry
+    return result

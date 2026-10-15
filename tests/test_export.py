@@ -258,3 +258,41 @@ def test_bop_without_masks(tmp_path):
     assert os.listdir(os.path.join(scene_dir, "rgb")) == ["000000.jpg"]
     with pytest.raises(ValueError, match="not in classes"):
         export.bop(out, classes=["cup"])
+
+
+def test_augmentation_stats(tmp_path):
+    """Two datapoints of a Compose over two objects, p=0.5, with a Menu (one entry per
+    datapoint: an absolute path) and a Visibility in a OneOf (expected unknown for the
+    Menu below it, since the OneOf picks per object)."""
+    menu = {"id": "a.1", "type": "Menu", "reached": 0.5, "applied": 0.25, "ignores_object": True,
+            "values": [{"value": "SUN", "probability": 0.25}, {"value": "POINT", "probability": 0.25}]}
+    nested = {"id": "a.0.1", "type": "Number", "reached": 0.25, "applied": 0.25, "ignores_object": True}
+    visibility = {"id": "a.0.0", "type": "Visibility", "reached": 0.25, "applied": 0.25, "ignores_object": False,
+                  "values": [{"value": True, "probability": 0.25}]}
+    one_of = {"id": "a.0", "type": "OneOf", "reached": 0.5, "applied": 0.5, "ignores_object": False,
+              "children": [visibility, nested]}
+    root = {"id": "a", "type": "Compose", "reached": 1.0, "applied": 0.5, "ignores_object": False,
+            "children": [one_of, menu]}
+    (tmp_path / "augmentations.json").write_text(json.dumps({"augmentations": [root]}))
+    labels = [
+        {"a": {"x": {"applied": True}, "y": {"applied": True}},
+         "a.0": {"x": {"applied": True, "value": 0}, "y": {"applied": True, "value": 1}},
+         "a.0.0": {"x": {"applied": True, "value": True}},
+         "a.0.1": {"null": {"applied": True, "value": 3}},
+         "a.1": {"null": {"applied": False, "value": "POINT"}}},
+        {"a": {"x": {"applied": False}, "y": {"applied": False}}},
+    ]
+    for index, record in enumerate(labels):
+        (tmp_path / f"{index:06d}.json").write_text(json.dumps({"resolution": [4, 4], "augmentations": record}))
+    (tmp_path / "000002.json").write_text(json.dumps({"resolution": [4, 4]}))  # no record: ignored
+
+    stats = export.augmentation_stats(str(tmp_path))
+    assert stats["a"] == {"type": "Compose", "expected": 0.5, "observed": 0.5, "applied": 2, "calls": 4}
+    assert stats["a.0.0"]["observed"] == 0.25 and stats["a.0.0"]["values"] == [
+        {"value": True, "expected": 0.25, "observed": 0.25}]
+    assert stats["a.1"]["calls"] == 2 and stats["a.1"]["observed"] == 0 and stats["a.1"]["expected"] == 0.25
+    assert stats["a.1"]["values"] == [{"value": "SUN", "expected": 0.25, "observed": 0.0},
+                                      {"value": "POINT", "expected": 0.25, "observed": 0.5}]
+    assert stats["a.0.1"]["expected"] is None and stats["a.0.1"]["observed"] == 0.5
+    with pytest.raises(FileNotFoundError):
+        export.augmentation_stats(str(tmp_path), graph_file="missing.json")

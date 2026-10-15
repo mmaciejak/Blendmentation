@@ -208,6 +208,8 @@ generator = generating.Compose(
         generating.Pose(classes),               # 6D pose per instance, OpenCV camera axes
         generating.Passes(["Depth"]),           # depth for BOP
         generating.CameraData(),
+        generating.Augmentations({"objects": objects_aug, "lamp": lamp_aug,   # what each augmentation did, per
+                                  "camera": camera_aug}),                  # object; graph in augmentations.json
     ],
     path="/absolute/output/folder",
     resolution=(640, 480),
@@ -283,6 +285,8 @@ export.yolo("/absolute/output/folder")   # <index>.txt next to the images, class
 # included; bbox_from="mask" = boxes of the visible pixels, needs Segmentation per="instance"/"both"
 export.voc("/absolute/output/folder")    # Annotations/*.xml
 export.bop("/absolute/output/folder")    # bop/train_pbr/000000/: needs Pose + CameraData; masks, depth if generated
+for node_id, node in export.augmentation_stats("/absolute/output/folder").items():   # needs Augmentations
+    print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
 ```
 
 ## Steps and options at a glance
@@ -303,6 +307,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `CameraData()` | camera, intrinsics, OpenCV extrinsics, depth of field |
 | `Keypoints({"name": obj \| (obj, vertex index or group) \| (armature, bone) \| (x, y, z)})` | projected points, visibility |
 | `OutputField(name, data_path, objects=None)` | any value by data path |
+| `Augmentations(composes, graph_file="augmentations.json")` | `augmentations`: what each augmentation did per object (`applied`, `value`); their graph with probabilities in `augmentations.json`; `export.augmentation_stats` compares |
 
 - **BBox skip settings**: `iou_deconflict` (two boxes overlap more than this IoU),
   `max_truncation` (fraction of a box out of frame), `max_occlusion` (fraction of an
@@ -352,7 +357,13 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `{object name: actual}` for every object of the last `Compose` call (`(x, y, z)` for
   `Translation`/`Rotation`/`Scale`). An augmentation that doesn't use the object (absolute
   data path, `Seed`) stores only its last value, the one kept, under `None` (`"null"` in the
-  JSON). Save it in the label with `generator({"key": aug.results})`.
+  JSON). Save it in the label with `generator({"key": aug.results})`, or record every
+  augmentation of some `Compose`s with `generating.Augmentations({"name": compose})`.
+  `compose.describe()` is the graph of what a `Compose` can do: every augmentation,
+  nested ones included, with the probability that it is reached and runs per object, its
+  `otherwise`, and for `Menu`/`MaterialSlot`/`UVMap` with options, `Boolean` and
+  `Visibility` each value's probability. It assumes the constructor `p`, not one given to
+  a call (`lamp_aug([lamp], p=0.7)`), which then shows as a gap in `augmentation_stats`.
 - **`Visibility(p=0.5)`** shows the object in the render with probability `p` and hides
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,

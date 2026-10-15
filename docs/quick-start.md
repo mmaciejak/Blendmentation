@@ -902,6 +902,12 @@ steps = [
     gen.CameraData(),
     gen.Keypoints({"car_1": car_1, "car_1_corner": (car_1, 0)}),
     gen.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
+    # what each augmentation did, per object; their graph,
+    # with probabilities, goes to augmentations.json
+    gen.Augmentations({
+        "objects": objects_aug,
+        "camera": camera_aug,
+    }),
 ]
 generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
 
@@ -927,4 +933,8 @@ export.coco("//dataset")
 export.yolo("//dataset", bbox_from="mask")
 # 6D pose: poses, masks, depth
 export.bop("//dataset")
+# how often each augmentation ran, against the graph
+stats = export.augmentation_stats("//dataset")
+for node_id, node in stats.items():
+    print(node_id, node["type"], node["expected"], node["observed"])
 ```

@@ -26,6 +26,9 @@ group (e.g. a geometry nodes scatter) its own random value. `PlaceOnCurve` moves
 camera (or any object) to a random point on a curve, optionally facing along it. `OneOf` applies one
 augmentation from a list, picked at random by weight, and `Chain` applies a list to one
 object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
+`Compose.describe()` is the graph of what a `Compose` can do, with the probability of
+each outcome per object; `generating.Augmentations` saves it and records what happened
+in every label.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -49,6 +52,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from ..values import check_weights, is_number
 from . import bpy_augmentations as bpy_a
+from . import graph
 
 if TYPE_CHECKING:
     from bpy.types import Modifier as BpyModifier, Node as BpyNode, NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
@@ -120,6 +124,14 @@ def flatten(augmentations: Sequence[Any]) -> list[Any]:
     return flat
 
 
+def weight_shares(weights: Optional[Sequence[float]], count: int) -> list[float]:
+    """The probability of each of count items picked by weights (None = equal)."""
+    if weights is None:
+        return [1 / count] * count
+    total = sum(weights)
+    return [weight / total for weight in weights]
+
+
 class Compose:
     """Applies a list of augmentations to every object it is called with, in place.
 
@@ -168,6 +180,7 @@ class Compose:
         self.augmentations = augmentations
         self.p = check_p(p)
         self.applied: Optional[bool] = None
+        self._objects: list[str] = []
 
     def __call__(self, blender_objects: Sequence[Object], p: Optional[float] = None) -> None:
         """Applies the augmentations to the objects.
@@ -181,15 +194,68 @@ class Compose:
             ValueError: if `p` is not between 0 and 1.
         """
         for augmentation in flatten(self.augmentations):
-            results = getattr(augmentation, "results", None)
-            if isinstance(results, dict):
-                results.clear()
+            for name in ("results", "_applied"):
+                results = getattr(augmentation, name, None)
+                if isinstance(results, dict):
+                    results.clear()
+        self._objects = [blender_object.name for blender_object in blender_objects]
         self.applied = happens(self.p if p is None else check_p(p))
         if not self.applied:
             return
         for blender_object in blender_objects:
             for augmentation in self.augmentations:
                 augmentation(blender_object)
+
+    def describe(self) -> dict[str, Any]:
+        """The graph of what this `Compose` can do: every augmentation in it, nested
+        ones included, with the probability of each outcome per object.
+
+        The probabilities multiply down the tree: a `Compose` and a `Chain` reach their
+        augmentations when they run (`p`), a `OneOf` reaches each one with its weight
+        share, a `Node` or `Modifier` reaches its inputs. They assume the `p` given at
+        construction, not one given to a call, and leave out what the scene decides:
+        options read from Blender, an object not over the `PlaceOn` surface, datapoints
+        a `generating.BBox` skips. `generating.Augmentations` saves this graph next to the
+        dataset and records what each augmentation did in every label, and
+        `export.augmentation_stats` compares the two.
+
+        Each node has:
+
+        - `id`: `"0"` for the `Compose`, then the index of each augmentation down the
+          tree, e.g. `"0.2.1"`: the 2nd augmentation of the 3rd one;
+        - `type` and `settings`, the augmentation's arguments;
+        - `reached`: the probability it is called, `applied`: that it runs (its `p`
+          drawn), `skipped`: that it is called but doesn't run, `otherwise`: the value it
+          sets then, `{value, probability}`;
+        - `values`: for a `Menu`, `MaterialSlot` or `UVMap` with its options listed, a
+          `Boolean` or a `Visibility`, each value it can set, `{value, probability}`,
+          `otherwise` included;
+        - `ignores_object`: it changes the same thing for every object (an absolute data
+          path, `Seed`), so only its last call counts;
+        - `children`; an augmentation used twice is described once, the second time
+          only as `same_as` its first id.
+
+        Returns:
+            The `Compose` as the root node, plain values JSON can store.
+
+        Example:
+            ```python
+            lights_aug = augmentations.Compose([
+                augmentations.OneOf([
+                    augmentations.Menu("data.type", options=["SPOT", "AREA"]),
+                    augmentations.Number("data.energy", (100, 1000)),
+                ], weights=[1, 3]),
+            ], p=0.5)
+            graph = lights_aug.describe()
+            graph["children"][0]["children"][0]["applied"]   # 0.125: 0.5 * 1/4
+            graph["children"][0]["children"][0]["values"]
+            # [{"value": "SPOT", "probability": 0.0625}, {"value": "AREA", "probability": 0.0625}]
+            ```
+        """
+        return graph.describe(self)
+
+    def _graph_children(self) -> list[tuple[Any, float]]:
+        return [(augmentation, 1.0) for augmentation in self.augmentations]
 
 
 class Augmentation:
@@ -257,6 +323,7 @@ class Augmentation:
         self.applied: Optional[bool] = None
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
+        self._applied: dict[Optional[str], bool] = {}  # applied of each call, by the keys of results
 
     def __call__(self, obj: Optional[Object] = None, p: Optional[float] = None) -> None:
         """Applies the augmentation with probability `p`, and records it in `results`.
@@ -274,7 +341,9 @@ class Augmentation:
             self.apply(obj)
         else:
             self.skip(obj)
-        self.results[self._result_key(obj)] = self._result()
+        key = self._result_key(obj)
+        self.results[key] = self._result()
+        self._applied[key] = self.applied
 
     @property
     def ignores_object(self) -> bool:
@@ -286,6 +355,15 @@ class Augmentation:
     def _result_key(self, obj: Optional[Object]) -> Optional[str]:
         """The key of a call in `results`."""
         return None if obj is None or self.ignores_object else obj.name
+
+    def _graph_children(self) -> list[tuple[Any, float]]:
+        """[(child, probability it is reached when this one runs)], for the graph."""
+        return [(augmentation, 1.0) for augmentation in getattr(self, "augmentations", ())]
+
+    def _graph_values(self) -> Optional[list[tuple[Any, float]]]:
+        """[(value, share)] when it runs, for an augmentation that sets one of a known
+        list of values, otherwise None."""
+        return None
 
     def _result(self) -> Any:
         """The value stored in `results` for the last call."""
@@ -400,6 +478,9 @@ class OneOf(Augmentation):
     def ignores_object(self) -> bool:
         return all(getattr(augmentation, "ignores_object", False) for augmentation in self.augmentations)
 
+    def _graph_children(self) -> list[tuple[Any, float]]:
+        return list(zip(self.augmentations, weight_shares(self.weights, len(self.augmentations))))
+
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = random.choices(range(len(self.augmentations)), weights=self.weights)[0]
         self.augmentations[self.actual](obj)
@@ -420,8 +501,9 @@ class Chain(Augmentation):
         p: probability of applying the whole list.
 
     Attributes:
-        actual (list | None): the `actual` of each augmentation after the last call
-            (`None` for those without one), None when it was skipped.
+        actual (list | None): what each augmentation set in the last call, as in its
+            `results` (`(x, y, z)` for `Translation`, `Rotation` and `Scale`, `None` for
+            a callable without `actual`), None when it was skipped.
 
     Raises:
         ValueError: `augmentations` is empty.
@@ -475,7 +557,8 @@ class Chain(Augmentation):
     def apply(self, obj: Optional[Object]) -> None:
         for augmentation in self.augmentations:
             augmentation(obj)
-        self.actual = [getattr(augmentation, "actual", None) for augmentation in self.augmentations]
+        self.actual = [augmentation._result() if isinstance(augmentation, Augmentation)
+                       else getattr(augmentation, "actual", None) for augmentation in self.augmentations]
 
     @staticmethod
     def shape_keys_template(obj: Object, prefix: str = "augmentations.", relative: bool = True) -> str:
@@ -708,6 +791,9 @@ class Visibility(ObjectAugmentation):
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.visibility(obj, True)
+
+    def _graph_values(self) -> list[tuple[Any, float]]:
+        return [(True, 1.0)]
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
         return bpy_a.visibility(obj, self.otherwise)
@@ -1231,6 +1317,9 @@ class MaterialSlot(ObjectAugmentation):
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.material_slot(obj, self.slots, self.weights)
 
+    def _graph_values(self) -> Optional[list[tuple[Any, float]]]:
+        return None if self.slots is None else list(zip(self.slots, weight_shares(self.weights, len(self.slots))))
+
     def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
         return bpy_a.material_slot(obj, [self.otherwise], None)
 
@@ -1293,6 +1382,9 @@ class UVMap(ObjectAugmentation):
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.uv_map(obj, self.uv_maps, self.weights)
+
+    def _graph_values(self) -> Optional[list[tuple[Any, float]]]:
+        return None if self.uv_maps is None else list(zip(self.uv_maps, weight_shares(self.weights, len(self.uv_maps))))
 
     def set_otherwise(self, obj: Optional[Object]) -> Optional[str]:
         return bpy_a.uv_map(obj, [self.otherwise], None)
@@ -1555,6 +1647,9 @@ class Boolean(PathAugmentation):
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.boolean(obj, self.path(), True)
 
+    def _graph_values(self) -> list[tuple[Any, float]]:
+        return [(True, 1.0)]
+
     def set_otherwise(self, obj: Optional[Object]) -> bool:
         return bpy_a.boolean(obj, self.path(), self.otherwise)
 
@@ -1621,6 +1716,9 @@ class Menu(PathAugmentation):
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.menu(obj, self.path(), self.options, self.weights)
 
+    def _graph_values(self) -> Optional[list[tuple[Any, float]]]:
+        return None if self.options is None else list(zip(self.options, weight_shares(self.weights, len(self.options))))
+
     def set_otherwise(self, obj: Optional[Object]) -> Any:
         return bpy_a.menu(obj, self.path(), [self.otherwise], None)
 
@@ -1675,6 +1773,7 @@ class InputAugmentation:
         self.applied: Optional[bool] = None
         self.actual: Any = None
         self.results: dict[Optional[str], Any] = {}
+        self._applied: dict[Optional[str], Optional[bool]] = {}
 
     @property
     def augmentations(self) -> list[PathAugmentation]:
@@ -1709,7 +1808,12 @@ class InputAugmentation:
         finally:
             augmentation.data_path = None  # it is the Node's, given again on the next call
         self.applied, self.actual = augmentation.applied, augmentation.actual
-        self.results[None if obj is None or self.ignores_object else obj.name] = self.actual
+        key = None if obj is None or self.ignores_object else obj.name
+        self.results[key] = self.actual
+        self._applied[key] = self.applied
+
+    def _graph_children(self) -> list[tuple[Any, float]]:
+        return [(augmentation, 1.0) for augmentation in self.augmentations]
 
     @property
     def ignores_object(self) -> bool:

@@ -192,6 +192,10 @@ image_generator = generating.Compose(
             "part_2_origin": obj2,
         }),
         generating.OutputField("light_energy", 'bpy.data.lights["Light"].energy'),
+        # what each augmentation did, per object (applied, value), and their graph, what they
+        # can do with which probability, in augmentations.json (camera_transforms.describe())
+        generating.Augmentations({"clutter": clutter_transforms, "camera": camera_transforms,
+                                  "world": world_transforms}),
     ],
     path=output_path,
     resolution=(460, 460),
@@ -224,3 +228,8 @@ export.voc(output_path, bbox_from="mask")  # boxes of the visible pixels (from t
 # BOP for 6D pose estimation (poses, camera, masks, depth). It assumes rigid objects with
 # one mesh per class, so leave out the shape key augmentation for real pose training
 export.bop(output_path)
+
+# how often each augmentation ran over the dataset, against the probabilities of the graph:
+# the datapoints BBox skipped are not in it
+for node_id, node in export.augmentation_stats(output_path).items():
+    print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])

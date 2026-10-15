@@ -1,3 +1,4 @@
+import json
 import math
 import os
 
@@ -877,3 +878,54 @@ def test_background_empty_image_folder(scene, out, tmp_path):
     (tmp_path / "empty").mkdir()
     with pytest.raises(ValueError, match="no .png"):
         G.Compose([G.Background({"image": 1}, images_path=str(tmp_path / "empty"))], out, (16, 12))()
+
+
+def test_augmentations_step(scene, cube, out):
+    from blendmentation.augmentations import augmentations as A
+    from blendmentation.state import state
+
+    objs = [cube(f"Cube.{i}") for i in range(2)]
+    objects_aug = A.Compose([A.Visibility(p=1), A.Translation(x=(1, 1))])
+    camera_aug = A.Compose([A.Rotation(z=(2, 2))])
+    step = G.Augmentations({"objects": objects_aug, "camera": camera_aug})
+    generator = G.Compose([step], out, (16, 12))
+    with state.restoring():
+        objects_aug(objs)
+        camera_aug([scene.camera])
+        generator()
+    record = label(out)["augmentations"]
+    assert record["objects"] == {"Cube.0": {"applied": True}, "Cube.1": {"applied": True}}
+    assert record["objects.1"]["Cube.1"] == {"applied": True, "value": [1.0, 0.0, 0.0]}
+    assert record["camera.0"] == {"Camera": {"applied": True, "value": [0.0, 0.0, 2.0]}}
+    graph_path = os.path.join(out, "augmentations.json")
+    with open(graph_path) as file:
+        roots = json.load(file)["augmentations"]
+    assert [root["id"] for root in roots] == ["objects", "camera"]
+    assert roots[0]["children"][0]["values"] == [{"value": True, "probability": 1.0},
+                                                 {"value": False, "probability": 0.0}]
+
+    # rewritten when the augmentations change
+    objects_aug.augmentations[0].p = 0.5
+    with state.restoring():
+        objects_aug(objs)
+        generator()
+    with open(graph_path) as file:
+        assert json.load(file)["augmentations"][0]["children"][0]["applied"] == 0.5
+    G.Compose([G.Augmentations([objects_aug], graph_file=None)], out, (16, 12))()
+    assert sorted(name for name in os.listdir(out) if not name[0].isdigit()) == ["augmentations.json"]
+
+
+@pytest.mark.parametrize("augmentations, graph_file, error", [
+    ([object()], "augmentations.json", TypeError),
+    ({1: None}, "augmentations.json", TypeError),
+    ([], "augmentations.json", ValueError),
+    ("compose", "augmentations.json", TypeError),
+    (None, "sub/graph.json", ValueError),
+])
+def test_augmentations_step_errors(scene, out, augmentations, graph_file, error):
+    from blendmentation.augmentations import augmentations as A
+
+    if augmentations is None:
+        augmentations = A.Compose([A.Rotation(z=1)])
+    with pytest.raises(error):
+        G.Compose([G.Augmentations(augmentations, graph_file)], out, (16, 12))()

@@ -2,7 +2,7 @@
 JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
-`Pose`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`), so a datapoint skipped
+`Pose`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`, `Augmentations`), so a datapoint skipped
 by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
 then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
 `SegmentationImage`. All steps share one render, except that `Segmentation` with EEVEE or
@@ -11,7 +11,8 @@ both have the same classes, and `Segmentation(full_masks=True)` adds the renders
 masks that ignore occlusion. `Pose` saves the 6D pose of every instance, and with full
 masks, `CameraData` and the `Depth` pass, `export.bop` writes a BOP dataset.
 `Background` puts a random color, noise or image behind the render and the preview
-images.
+images. `Augmentations` records what the augmentations did in every label and saves
+their graph, with the probability of each outcome, next to the dataset.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
@@ -386,6 +387,64 @@ class OutputField(Step):
 
     def __call__(self, frame):
         bpy_g.output_field(frame, self.name, self.data_path, self.objects)
+
+
+class Augmentations(Step):
+    """Records what the augmentations did in the label, and saves their graph, what they
+    can do with which probability, next to the dataset.
+
+    Give it the augmentation `Compose`s you call before generating. For each datapoint it
+    reads what each augmentation did for each object of the last call, nested ones
+    included. The graph (`augmentations.Compose.describe`) goes to
+    `<path>/augmentations.json`, rewritten when the augmentations change, so it
+    describes the latest ones. `export.augmentation_stats` compares the two over the
+    dataset: the datapoints `BBox` skipped have no label, so they don't count.
+
+    In the label JSON: `"augmentations": {id: {object name: {"applied", "value"}}}`, by
+    the ids of the graph (the root's name, then the index of each augmentation down the
+    tree, e.g. `"objects.0.1"`). `applied` is whether it ran for that object (its `p`),
+    and `value` what it set (its `results`), the `otherwise` value when it didn't run. A
+    `Compose` lists the objects it was called with, `{"applied"}` each. An augmentation
+    that didn't run for any object (a `OneOf` didn't pick it) is left out, and one that
+    changes the same thing for every object (an absolute data path, `Seed`) has a single
+    entry under `"null"`, its last call.
+
+    Args:
+        augmentations: augmentation `Compose`s: one, a list (ids `"0"`, `"1"`...) or a
+            dict `{name: Compose}` (ids the names).
+        graph_file: file name of the graph in the output folder, None to not save it.
+
+    Raises:
+        TypeError: an item is not an `augmentations.Compose`.
+
+    Example:
+        ```python
+        objects_aug = augmentations.Compose([augmentations.Rotation(z=180), augmentations.Visibility(p=0.8)])
+        camera_aug = augmentations.Compose([augmentations.LookAt(car, distance=(5, 10))])
+        generator = generating.Compose([
+            generating.Render(),
+            generating.Augmentations({"objects": objects_aug, "camera": camera_aug}),
+        ], path="//dataset", resolution=(640, 480))
+        for _ in range(100):
+            with state.restoring():
+                objects_aug([car, truck])
+                camera_aug([camera])
+                generator()
+        # "augmentations": {"objects.0": {"car": {"applied": true, "value": [0, 0, 41.5]}, ...}, ...}
+        ```
+    """
+
+    stage = 0
+
+    def __init__(self, augmentations: Any, graph_file: Optional[str] = "augmentations.json"):
+        self.augmentations = augmentations
+        self.graph_file = graph_file
+
+    def check(self):
+        bpy_g.check_augmentations(self.augmentations, self.graph_file)
+
+    def __call__(self, frame):
+        bpy_g.record_augmentations(frame, self.augmentations, self.graph_file)
 
 
 class CameraData(Step):

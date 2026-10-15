@@ -1,5 +1,7 @@
 import collections
 import colorsys
+import functools
+import json
 import math
 import random
 
@@ -12,7 +14,7 @@ from mathutils import Vector  # noqa: E402
 
 from blendmentation import bpy_paths  # noqa: E402
 from blendmentation.augmentations import augmentations as A  # noqa: E402
-from blendmentation.augmentations import bpy_augmentations  # noqa: E402
+from blendmentation.augmentations import bpy_augmentations, graph  # noqa: E402
 from blendmentation.state import state  # noqa: E402
 from conftest import new_material  # noqa: E402
 
@@ -884,7 +886,7 @@ def test_chain(cube):
     with state.restoring():
         chain(obj)
         assert tuple(obj.location) == pytest.approx((1, 0, 2))
-        assert chain.actual == [None, pytest.approx(2)], "Translation has actual_x/y/z, no actual"
+        assert chain.actual == [pytest.approx((1, 0, 0)), pytest.approx(2)], "Translation: (x, y, z), as in results"
 
         chain(obj, p=0)
         assert chain.applied is False and chain.actual is None and obj.location.x == pytest.approx(1)
@@ -1688,3 +1690,71 @@ def test_object_data_path(scene, cube):
         A.Translation(x=1, data_path='bpy.data.materials["Target paint"]')()
     with pytest.raises(KeyError):
         A.Translation(x=1, data_path='bpy.data.objects["Nope"]')()
+
+
+def graph_node(node, node_id):
+    if node["id"] == node_id:
+        return node
+    for child in node.get("children", ()):
+        found = graph_node(child, node_id)
+        if found:
+            return found
+    return None
+
+
+def test_describe(cube):
+    obj = cube("Cube")
+    node_group_node(obj)
+    move = A.Translation(x=1)
+    compose = A.Compose([
+        A.OneOf([
+            A.Chain([move, A.Rotation(z=(0, 90, 45))], p=0.5),
+            A.Menu('bpy.data.lights["Sun"].type', options=["SUN", "AREA"], weights=[1, 3], p=0.5, otherwise="AREA"),
+        ], weights=[1, 3]),
+        A.Visibility(p=0.7),
+        A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Rust": A.Number((0, 1), p=0.5, otherwise=0)},
+               p=0.5),
+        A.MaterialSlot(),  # options read from the object at a call: no values
+        move,
+        lambda obj: None,
+    ], p=0.8)
+    graph = compose.describe()
+    assert json.loads(json.dumps(graph)) == graph, "plain values only"
+    node = functools.partial(graph_node, graph)
+    assert node("0")["type"] == "Compose" and node("0")["applied"] == 0.8
+    chain = node("0.0.0")
+    assert (chain["reached"], chain["applied"], chain["skipped"]) == (0.2, 0.1, 0.1)
+    assert node("0.0.0.1")["settings"] == {"x": 0, "y": 0, "z": [0, 90, 45]}
+    menu = node("0.0.1")
+    assert (menu["reached"], menu["applied"]) == (0.6, 0.3) and menu["ignores_object"] is True
+    assert menu["otherwise"] == {"value": "AREA", "probability": 0.3}
+    assert menu["values"] == [{"value": "SUN", "probability": 0.075}, {"value": "AREA", "probability": 0.525}]
+    assert node("0.1")["values"] == [{"value": True, "probability": 0.56}, {"value": False, "probability": 0.24}]
+    rust = node("0.2.0.0")  # Node > its input > the input's Number
+    assert node("0.2.0")["type"] == "NodeInput" and node("0.2.0")["settings"]["key"] == "Rust"
+    assert (rust["reached"], rust["applied"]) == (0.4, 0.2) and rust["otherwise"]["probability"] == 0.2
+    assert "values" not in node("0.3")
+    assert node("0.4") == {"id": "0.4", "type": "Translation", "reached": 0.8, "applied": 0.8, "same_as": "0.0.0.0"}
+    assert node("0.0.0.0")["used_at"] == ["0.4"]
+    assert node("0.5")["type"] == "function" and "settings" not in node("0.5")
+
+
+def test_record(cube):
+    objs = [cube(f"Cube.{i}") for i in range(2)]
+    bpy.data.lights.new("Sun", "SUN")
+    translation = A.Translation(x=1, p=0)
+    menu = A.Menu('bpy.data.lights["Sun"].type', options=["SPOT"], p=0, otherwise="SPOT")
+    compose = A.Compose([A.OneOf([translation, A.Rotation(z=1)], weights=[1, 0]), menu])
+    with state.restoring():
+        compose(objs)
+        record = graph.record(compose, "objects")
+    assert record["objects"] == {"Cube.0": {"applied": True}, "Cube.1": {"applied": True}}
+    assert record["objects.0"] == {name: {"applied": True, "value": 0} for name in ("Cube.0", "Cube.1")}
+    assert record["objects.0.0"]["Cube.0"] == {"applied": False, "value": None}
+    assert "objects.0.1" not in record, "never picked"
+    # otherwise and a pick look the same in results, applied tells them apart
+    assert record["objects.1"] == {None: {"applied": False, "value": "SPOT"}}
+
+    with state.restoring():
+        compose(objs, p=0)
+    assert graph.record(compose) == {"0": {"Cube.0": {"applied": False}, "Cube.1": {"applied": False}}}

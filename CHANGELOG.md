@@ -6,6 +6,21 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `augmentations.Compose.describe()` returns the graph of what a `Compose` can do: every
+  augmentation in it, nested ones in `OneOf`, `Chain`, `Node` and `Modifier` included, with
+  the probability that it is reached and that it runs per object, its `otherwise` value,
+  and for a `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
+  `Visibility`, the probability of each value.
+- `generating.Augmentations({"name": compose, ...})` records in every label what each
+  augmentation did for each object (`applied`, whether its `p` let it run, and `value`,
+  what it set, the `otherwise` value included), under `augmentations`, and saves the graph
+  of the `Compose`s to `augmentations.json` in the output folder.
+- `export.augmentation_stats(path)` compares how often each augmentation ran over a
+  dataset, and how often it set each value, with the probabilities of its graph. The
+  datapoints `BBox` skipped are not in the dataset, so the gap shows what they changed.
+
 ### Changed
 
 - `results` of an augmentation that doesn't use the object it is called with (an absolute
@@ -16,6 +31,8 @@ All notable changes to Blendmentation. The format follows
 
 ### Fixed
 
+- `augmentations.Chain`'s `actual` (and `results`) holds `(x, y, z)` for a `Translation`,
+  `Rotation` or `Scale` in it, as their own `results` do. It was `None` for them.
 - `augmentations.Menu`, `MaterialSlot` and `UVMap` reject negative weights. Before, they
   were accepted and picked a wrong option every time (`weights=[-1, 2]` always picked the
   second one). Weights that sum to 0, are infinite or aren't numbers now fail when the
