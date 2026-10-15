@@ -210,6 +210,112 @@ for _ in range(100):
             generator()
     ```
 
+## Checking the augmentations
+
+Two pages show what a pipeline does with its augmentations: a preview of what they *can*
+do, before generating, and a report of what the dataset *got*, after it. Both are HTML
+files that open in any browser, without internet.
+
+### Before generating
+
+The milk carton from above, as one `Compose` with a `OneOf`. A `name` on an augmentation
+is optional; the pages show it in place of the class name. `aug.graph_preview` draws the
+augmentations to `dataset/augmentations_preview.html`:
+
+```python hl_lines="8 9 12 14 15 17 20 21 22"
+milk_box = bpy.data.objects["Milk Box"]
+floor = bpy.data.objects["Floor"]
+
+carton_aug = aug.Compose(
+    [
+        aug.OneOf(
+            [
+                aug.Rotation(z=180, name="standing"),
+                aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180, name="lying"),
+            ],
+            weights=[8, 2],
+            name="standing or lying",
+        ),
+        aug.Translation(x=0.5, y=0.5, name="move on the floor"),
+        aug.PlaceOn(floor, name="set down"),
+    ],
+    name="carton",
+)
+
+# what the augmentations can do, with which probability;
+# show=True opens it in the web browser
+aug.graph_preview({"carton": carton_aug}, "//dataset", show=True)
+```
+
+![The preview: a frame "carton" with the fork "standing or lying" to "standing" (weight 8, 80%) and "lying" (weight 2, 20%), joining before "move on the floor" and "set down"](images/augmentations-preview.jpg){ .full-width }
+
+The steps in a frame run left to right, for every object. "standing or lying" is a fork:
+it picks one branch per object by weight (8 and 2, so 80% and 20%), and the branches join
+again before "move on the floor", which runs whichever was picked. The bar on each card is
+the probability that the augmentation runs, and lines are thinner for rarer branches.
+
+### After generating
+
+Add the `gen.Augmentations` step: every label then records what each augmentation did for
+each object, and every datapoint `BBox` skips is written to `skipped.jsonl` with the
+reason. After the loop, `export.augmentation_report` draws the augmentations again, with
+what the dataset got, to `dataset/augmentations.html`:
+
+```python hl_lines="29 30 41 42"
+milk_box = bpy.data.objects["Milk Box"]
+floor = bpy.data.objects["Floor"]
+
+carton_aug = aug.Compose(
+    [
+        aug.OneOf(
+            [
+                aug.Rotation(z=180, name="standing"),
+                aug.Rotation(x=(90, 90), y=(0, 270, 90), z=180, name="lying"),
+            ],
+            weights=[8, 2],
+            name="standing or lying",
+        ),
+        aug.Translation(x=0.5, y=0.5, name="move on the floor"),
+        aug.PlaceOn(floor, name="set down"),
+    ],
+    name="carton",
+)
+
+# what the augmentations can do, with which probability;
+# show=True opens it in the web browser
+aug.graph_preview({"carton": carton_aug}, "//dataset", show=True)
+
+generator = gen.Compose(
+    [
+        gen.Render(),
+        # skips the datapoint when over 20% of the box is out of frame
+        gen.BBox({"milk_box": [milk_box]}, max_truncation=0.2),
+        # what each augmentation did, in every label
+        gen.Augmentations({"carton": carton_aug}),
+    ],
+    path="//dataset",
+    resolution=(640, 480),
+)
+
+for _ in range(100):
+    with state.restoring():
+        carton_aug([milk_box])
+        generator()
+
+# what the dataset got, against the graph: dataset/augmentations.html
+export.augmentation_report("//dataset")
+```
+
+![The report: 253 datapoints, 47 (16%) skipped by BBox; "standing" ran 85% with a green skips bar at -20%, "lying" ran 15% with a red skips bar at +20%](images/augmentations-report.jpg){ .full-width }
+
+The grey bars are what the dataset got, and the ticks what the preview expected. Here
+`BBox` skipped 47 of the 300 datapoints (click the number for the reasons, here all cut by
+the frame). A lying carton is wider, so the frame cuts it more often: its skips bar is red
+(images were skipped 20% more often when it lay), standing's is green, and the dataset has
+15% lying cartons instead of 20%. A difference larger than chance is marked in orange.
+`export.augmentation_stats(path)` and `export.skip_stats(path)` give the same numbers in
+Python.
+
 ## Augmenting a material with shader nodes
 
 ![Material nodes: textures moved by the Vector node "Texture randomization", Value nodes "Surface Damage" and "Rust Amount", and an AOV Output "rust"](images/rust-material-nodes.jpg)
