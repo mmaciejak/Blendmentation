@@ -796,9 +796,10 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     `Visibility`, one per value. A difference more than 3 standard errors from
     chance (e.g. moved objects skipped more often by `BBox` because they leave the
     frame) is marked. The datapoints `BBox` skipped are counted by reason (truncation,
-    IoU, occlusion) and class, and every card has a second bar with how often the
-    augmentation ran in them, which shows which ones the skips took out. Clicking a card
-    shows its settings and numbers. The page is one
+    IoU, occlusion) and class, and a card says how often the datapoint was skipped when
+    the augmentation ran and when it didn't ("skipped 69% when run, 31% if not"), which
+    shows the augmentations that cause skips. Clicking a card shows its settings and
+    numbers. The page is one
     file that needs no internet, to open in any browser.
 
     Args:

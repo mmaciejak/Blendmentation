@@ -8,13 +8,13 @@
 :root {
   --bg: #fafafa; --card: #ffffff; --ink: #24272d; --muted: #737985; --line: #e1e3e8;
   --bar: #8a909c; --track: #eff0f3; --tick: #24272d; --warn: #b4572e; --chip: #f2f3f5;
-  --edge: #c3c7cf; --select: #5b6475; --frame: #f3f4f6; --skip: #c9a58f;
+  --edge: #c3c7cf; --select: #5b6475; --frame: #f3f4f6;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #16181c; --card: #1d2025; --ink: #dfe1e5; --muted: #8b909a; --line: #2e3138;
     --bar: #7d838e; --track: #272a30; --tick: #dfe1e5; --warn: #d9895f; --chip: #262a30;
-    --edge: #454a54; --select: #9aa1ae; --frame: #1a1c20; --skip: #8a6a57;
+    --edge: #454a54; --select: #9aa1ae; --frame: #1a1c20;
   }
 }
 * { box-sizing: border-box; }
@@ -72,7 +72,8 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 .bars .num { text-align: right; font-variant-numeric: tabular-nums; }
 .track { position: relative; height: 5px; background: var(--track); border-radius: 3px; }
 .track .o { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 3px; }
-.track.skip .o { background: var(--skip); }
+.skipline { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.skipline.warn { color: var(--warn); }
 .summary .link { cursor: pointer; }
 .summary .link:hover span { text-decoration: underline; }
 .track .e { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: var(--tick); }
@@ -114,7 +115,7 @@ body.preview .report-only, body:not(.preview) .preview-only, body:not(.skips) .s
   <span>⑂ a fork: picks one branch, by weight</span>
   <span class="report-only"><i style="background: var(--bar)"></i>observed (dataset)</span>
   <span class="report-only"><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
-  <span class="skips-only"><i style="background: var(--skip)"></i>in the datapoints BBox skipped</span>
+  <span class="skips-only">skipped X% when run: how often BBox skipped the datapoint when it ran</span>
   <span class="preview-only"><i style="background: var(--bar)"></i>probability it runs, per object of a call</span>
   <span><i style="background: var(--edge); height: 2px"></i>line width: how often it is reached</span>
   <span class="report-only"><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
@@ -151,6 +152,23 @@ function zScore(expected, observed, calls) {
   if (expected === null || expected === undefined || observed === null || observed === undefined || !calls) return null;
   if (expected <= 0 || expected >= 1) return Math.abs(observed - expected) > 0.005 ? Infinity * Math.sign(observed - expected) : 0;
   return (observed - expected) / Math.sqrt(expected * (1 - expected) / calls);
+}
+// how often BBox skipped the datapoint when the augmentation ran and when it didn't, per
+// object of a call: {whenRuns, whenNot, differs}, null without skips. A datapoint is skipped
+// as a whole, so this is what an augmentation has to do with the skips.
+function skipRates(s) {
+  if (!hasSkips || !s || !s.skipped || !s.skipped.calls) return null;
+  const ran = s.applied + s.skipped.applied, ranSkipped = s.skipped.applied;
+  const notRan = (s.calls - s.applied) + (s.skipped.calls - s.skipped.applied), notSkipped = s.skipped.calls - s.skipped.applied;
+  if (!ran) return null;
+  const whenRuns = ranSkipped / ran, whenNot = notRan ? notSkipped / notRan : null;
+  let differs = false;
+  if (whenNot !== null) {  // two-proportion z test
+    const pooled = (ranSkipped + notSkipped) / (ran + notRan);
+    const se = Math.sqrt(pooled * (1 - pooled) * (1 / ran + 1 / notRan));
+    differs = se > 0 && Math.abs(whenRuns - whenNot) / se > 3;
+  }
+  return {whenRuns, whenNot, differs, ran, notRan};
 }
 function flags(node) {
   const s = node.stats, found = [];
@@ -279,14 +297,14 @@ function makeCard(node) {
 
   const bars = text("div", "bars");
   barRow(bars, "runs", ...runs(node));
-  if (hasSkips && node.stats && node.stats.skipped && node.stats.skipped.calls) {
-    bars.append(text("span", "label", "skipped"));
-    const bar = track(null, node.stats.skipped.observed);
-    bar.classList.add("skip");
-    bar.title = "in the skipped datapoints: " + pct(node.stats.skipped.observed);
-    bars.append(bar, text("span", "num", pct(node.stats.skipped.observed)));
-  }
   card.append(bars);
+  const rates = skipRates(node.stats);
+  if (rates && rates.whenNot !== null) {  // something to compare: it runs for some objects and not for others
+    const line = text("div", "skipline" + (rates.differs ? " warn" : ""),
+                      "skipped " + pct(rates.whenRuns) + " when run, " + pct(rates.whenNot) + " if not");
+    line.title = "Of the datapoints where it ran, BBox skipped " + pct(rates.whenRuns) + "; where it didn't run, " + pct(rates.whenNot);
+    card.append(line);
+  }
   const s = node.stats;
   const values = s && s.values && s.values.length ? s.values
     : (!s && node.values ? node.values.map(v => ({value: v.value, expected: v.probability, observed: null})) : []);
@@ -456,8 +474,10 @@ function openPanel(node) {
     [DATA.preview ? "Runs" : "Runs (expected)", pct(s.expected !== undefined && s.expected !== null ? s.expected : node.applied), node.p !== undefined ? "reached × p " + node.p : ""],
   ];
   if (!DATA.preview) rows.push(["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""]);
-  if (hasSkips && s.skipped && s.skipped.calls) {
-    rows.push(["Runs (skipped datapoints)", pct(s.skipped.observed), s.skipped.applied + " of " + s.skipped.calls + " calls in the datapoints BBox skipped"]);
+  const rates = skipRates(node.stats);
+  if (rates) {
+    rows.push(["Skipped when it runs", pct(rates.whenRuns), "BBox skipped the datapoint for " + Math.round(rates.whenRuns * rates.ran) + " of the " + rates.ran + " objects it ran on"]);
+    if (rates.whenNot !== null) rows.push(["Skipped when not", pct(rates.whenNot), Math.round(rates.whenNot * rates.notRan) + " of " + rates.notRan + (rates.differs ? " · the difference is beyond chance" : "")]);
   }
   const z = zScore(s.expected, s.observed, s.calls);
   if (z !== null) rows.push(["Difference", ((s.observed - s.expected) * 100).toFixed(1) + " pts", "z " + (isFinite(z) ? z.toFixed(1) : "∞")]);
@@ -477,14 +497,18 @@ function openPanel(node) {
     const vt = text("table"), hr = text("tr");
     hr.append(text("th", "", "value"), text("th", "n", DATA.preview ? "probability" : "expected"));
     if (!DATA.preview) hr.append(text("th", "n", "observed"), text("th", "n", "difference"));
-    if (hasSkips) hr.append(text("th", "n", "skipped"));
+    if (hasSkips) hr.append(text("th", "n", "skipped when set"));
     vt.append(hr);
     for (const v of values) {
       const tr = text("tr"), zv = zScore(v.expected, v.observed, s.calls);
       const diff = zv === null ? "" : ((v.observed - v.expected) * 100).toFixed(1) + " pts (z " + (isFinite(zv) ? zv.toFixed(1) : "∞") + ")";
       tr.append(text("td", "", show(v.value)), text("td", "n", pct(v.expected)));
       if (!DATA.preview) tr.append(text("td", "n", pct(v.observed)), text("td", "n", diff));
-      if (hasSkips) tr.append(text("td", "n", pct(v.skipped_observed)));
+      if (hasSkips) {
+        // objects the value was set on, in kept and in skipped datapoints
+        const kept = (v.observed || 0) * (s.calls || 0), lost = (v.skipped_observed || 0) * (s.skipped.calls || 0);
+        tr.append(text("td", "n", kept + lost ? pct(lost / (kept + lost)) : "–"));
+      }
       vt.append(tr);
     }
     panel.append(vt);
@@ -520,8 +544,9 @@ function openSkips() {
       table.append(sub);
     }
   }
-  panel.append(table, text("div", "note", "Each card's second bar shows how often the augmentation ran in these datapoints: " +
-    "much higher than in the kept ones means the skips took its results out of the dataset."));
+  panel.append(table, text("div", "note", "A datapoint is skipped as a whole. On a card, \"skipped 46% when run, 16% if not\" " +
+    "compares how often the datapoint was skipped with and without that augmentation: a big difference (orange) " +
+    "means it causes skips, so the dataset has less of its results than the graph expects."))
   panel.classList.add("open");
 }
 

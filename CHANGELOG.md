@@ -14,8 +14,10 @@ All notable changes to Blendmentation. The format follows
 - `export.skip_stats(path)` counts the skipped datapoints by reason and class, and
   `export.augmentation_stats` also counts each augmentation in them (`skipped`).
 - `export.augmentation_report` shows the skipped datapoints: their number in the header
-  (click it for the reasons and classes) and, on every card, a second bar with how often
-  the augmentation ran in them, so the augmentations the skips took out stand out.
+  (click it for the reasons and classes) and, on the cards of augmentations that run for
+  some objects and not for others, how often the datapoint was skipped when it ran and
+  when it didn't (e.g. "skipped 69% when run, 31% if not"), in orange when the difference
+  is beyond chance, so the augmentations that cause skips stand out.
 
 ## [0.10.0] - 2026-10-15
 
