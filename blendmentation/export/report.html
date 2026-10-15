@@ -36,7 +36,9 @@ button:hover { border-color: var(--select); }
 #stage { position: relative; overflow: auto; height: calc(100vh - 118px); min-height: 300px; border-top: 1px solid var(--line); }
 #canvas { position: relative; }
 svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-svg .share { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; }
+.share { position: absolute; transform: translate(-50%, -50%); background: var(--card); border: 1px solid var(--line);
+  border-radius: 4px; padding: 0 5px; font-size: 11px; line-height: 17px; color: var(--muted); white-space: nowrap;
+  pointer-events: none; }
 .card { position: absolute; width: 260px; background: var(--card); border: 1px solid var(--line);
   border-radius: 6px; padding: 9px 11px 10px; cursor: pointer; }
 .card:hover, .card.selected { border-color: var(--select); }
@@ -255,9 +257,11 @@ function edges(node, paths) {
     paths.push(`<path d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" fill="none" stroke="var(--edge)"
       stroke-width="${(1 + 2.5 * reached).toFixed(2)}" stroke-opacity="${(0.45 + 0.55 * reached).toFixed(2)}"
       ${child.same_as ? 'stroke-dasharray="4 4"' : ""}/>`);
-    if (child.share !== undefined) {  // a OneOf branch: its weight and share of the picks
-      const label = "weight " + show(child.weight) + " · " + pct(child.share);
-      paths.push(`<text x="${x2 - 6}" y="${y2 - 6}" text-anchor="end" class="share">${label.replace(/[<&]/g, "")}</text>`);
+    if (child.share !== undefined) {  // a OneOf branch: its weight and share, in a box on the middle of the line
+      const box = text("div", "share", "weight " + show(child.weight) + " · " + pct(child.share));
+      box.style.left = mid + "px";
+      box.style.top = (y1 + y2) / 2 + "px";  // the curve's midpoint: its control points share x = mid
+      canvas.append(box);
     }
     edges(child, paths);
   }
@@ -278,6 +282,7 @@ function render() {
   svg.setAttribute("width", width);
   svg.setAttribute("height", top);
   const paths = [];
+  canvas.querySelectorAll(".share").forEach(box => box.remove());
   DATA.roots.forEach(root => edges(root, paths));
   svg.innerHTML = paths.join("");
 }
