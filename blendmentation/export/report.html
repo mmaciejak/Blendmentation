@@ -6,61 +6,62 @@
 <title>Augmentation report</title>
 <style>
 :root {
-  --bg: #f6f7f9; --card: #ffffff; --ink: #1d2330; --muted: #677085; --line: #d9dde5;
-  --accent: #3b6fd8; --observed: #19a37a; --warn: #d9541e; --warn-bg: #fff1ea; --chip: #eef1f6;
-  --edge: #8c96aa; --shadow: 0 1px 2px rgba(20, 30, 50, .08), 0 2px 8px rgba(20, 30, 50, .05);
+  --bg: #fafafa; --card: #ffffff; --ink: #24272d; --muted: #737985; --line: #e1e3e8;
+  --bar: #8a909c; --track: #eff0f3; --tick: #24272d; --warn: #b4572e; --chip: #f2f3f5;
+  --edge: #c3c7cf; --select: #5b6475;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12151b; --card: #1b2029; --ink: #e6e9ef; --muted: #9099ab; --line: #2c3340;
-    --accent: #6e9bff; --observed: #3fcf9f; --warn: #ff8a5c; --warn-bg: #3a2219; --chip: #262c37;
-    --edge: #5d6678; --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    --bg: #16181c; --card: #1d2025; --ink: #dfe1e5; --muted: #8b909a; --line: #2e3138;
+    --bar: #7d838e; --track: #272a30; --tick: #dfe1e5; --warn: #d9895f; --chip: #262a30;
+    --edge: #454a54; --select: #9aa1ae;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 header { padding: 18px 20px 10px; display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; }
-h1 { margin: 0; font-size: 18px; font-weight: 650; }
+h1 { margin: 0; font-size: 16px; font-weight: 600; }
 .sub { color: var(--muted); }
 .summary { display: flex; gap: 22px; flex-wrap: wrap; }
-.summary b { display: block; font-size: 17px; }
+.summary b { display: block; font-size: 15px; font-weight: 600; }
 .summary .warn b { color: var(--warn); }
 .toolbar { display: flex; gap: 8px; margin-left: auto; }
 button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px 10px; cursor: pointer; }
-button:hover { border-color: var(--accent); }
+button:hover { border-color: var(--select); }
 .legend { padding: 0 20px 10px; display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
-.legend i { display: inline-block; width: 18px; height: 6px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend i.tick { width: 2px; height: 10px; border-radius: 0; }
 #stage { position: relative; overflow: auto; height: calc(100vh - 118px); min-height: 300px; border-top: 1px solid var(--line); }
 #canvas { position: relative; }
 svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
 .card { position: absolute; width: 260px; background: var(--card); border: 1px solid var(--line);
-  border-radius: 9px; padding: 9px 11px 10px; box-shadow: var(--shadow); cursor: pointer; }
-.card:hover, .card.selected { border-color: var(--accent); }
-.card.flag { border-color: var(--warn); background: linear-gradient(var(--warn-bg), var(--card) 46px); }
-.card.ghost { border-style: dashed; box-shadow: none; opacity: .75; }
+  border-radius: 6px; padding: 9px 11px 10px; cursor: pointer; }
+.card:hover, .card.selected { border-color: var(--select); }
+.card.flag { box-shadow: inset 2px 0 0 var(--warn); }
+.card.ghost { border-style: dashed; opacity: .7; }
 .head { display: flex; align-items: baseline; gap: 6px; }
-.type { font-weight: 650; }
+.type { font-weight: 600; }
 .id { color: var(--muted); font-size: 11px; margin-left: auto; font-family: ui-monospace, Menlo, monospace; }
 .toggle { border: 0; background: var(--chip); padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; }
 .what { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-family: ui-monospace, Menlo, monospace; margin-top: 1px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .chip { background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 11px; line-height: 18px; }
-.chip.warn { background: var(--warn); color: #fff; }
+.chip.warn { background: none; color: var(--warn); padding: 0; }
 .bars { margin-top: 7px; display: grid; grid-template-columns: 54px 1fr 42px; gap: 3px 6px; align-items: center; font-size: 11px; }
 .bars .label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bars .num { text-align: right; font-variant-numeric: tabular-nums; }
-.track { position: relative; height: 12px; background: var(--chip); border-radius: 3px; overflow: hidden; }
-.track .e { position: absolute; left: 0; top: 0; height: 6px; background: var(--accent); }
-.track .o { position: absolute; left: 0; bottom: 0; height: 6px; background: var(--observed); }
+.track { position: relative; height: 5px; background: var(--track); border-radius: 3px; }
+.track .o { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 3px; }
+.track .e { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: var(--tick); }
 .values { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; }
 #panel { position: fixed; right: 0; top: 0; bottom: 0; width: min(420px, 100vw); background: var(--card);
-  border-left: 1px solid var(--line); box-shadow: -4px 0 20px rgba(0, 0, 0, .12); padding: 18px 20px; overflow: auto;
+  border-left: 1px solid var(--line); padding: 18px 20px; overflow: auto;
   transform: translateX(105%); transition: transform .18s ease; z-index: 5; }
 #panel.open { transform: none; }
-#panel h2 { margin: 0 0 2px; font-size: 16px; }
+#panel h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
 #panel table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 12px; }
 #panel td, #panel th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 #panel th { color: var(--muted); font-weight: 500; }
@@ -87,10 +88,10 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
   </div>
 </header>
 <div class="legend">
-  <span><i style="background: var(--accent)"></i>expected (graph)</span>
-  <span><i style="background: var(--observed)"></i>observed (dataset)</span>
+  <span><i style="background: var(--bar)"></i>observed (dataset)</span>
+  <span><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
   <span><i style="background: var(--edge); height: 2px"></i>line width: how often the branch is reached</span>
-  <span><i style="background: var(--warn)"></i>observed differs from expected (|z| &gt; 3)</span>
+  <span><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
 </div>
 <div id="stage"><div id="canvas"><svg id="edges"></svg></div></div>
 <aside id="panel"></aside>
@@ -150,9 +151,12 @@ function barRow(parent, label, expected, observed) {
   parent.append(text("span", "label", label));
   const track = text("div", "track");
   const e = text("div", "e"), o = text("div", "o");
-  e.style.width = expected === null || expected === undefined ? "0" : (expected * 100) + "%";
   o.style.width = observed === null || observed === undefined ? "0" : (observed * 100) + "%";
-  track.append(e, o);
+  track.append(o);
+  if (expected !== null && expected !== undefined) {
+    e.style.left = (expected * 100) + "%";
+    track.append(e);
+  }
   track.title = "expected " + pct(expected) + ", observed " + pct(observed);
   parent.append(track, text("span", "num", pct(observed === null || observed === undefined ? expected : observed)));
 }
@@ -242,7 +246,7 @@ function edges(node, paths) {
     const x1 = node.x + CARD_W, y1 = node.y + node.h / 2, x2 = child.x, y2 = child.y + child.h / 2, mid = (x1 + x2) / 2;
     const reached = child.reached || 0;
     paths.push(`<path d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" fill="none" stroke="var(--edge)"
-      stroke-width="${(1 + 9 * reached).toFixed(2)}" stroke-opacity="${(0.3 + 0.7 * reached).toFixed(2)}"
+      stroke-width="${(1 + 2.5 * reached).toFixed(2)}" stroke-opacity="${(0.45 + 0.55 * reached).toFixed(2)}"
       ${child.same_as ? 'stroke-dasharray="4 4"' : ""}/>`);
     edges(child, paths);
   }
