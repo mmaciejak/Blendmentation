@@ -20,6 +20,10 @@ All notable changes to Blendmentation. The format follows
 - `export.augmentation_stats(path)` compares how often each augmentation ran over a
   dataset, and how often it set each value, with the probabilities of its graph. The
   datapoints `BBox` skipped are not in the dataset, so the gap shows what they changed.
+- `export.augmentation_report(path)` writes `augmentations.html`, a page that draws the
+  graph as connected cards, with bars of how often each augmentation runs and sets each
+  value, expected and observed, and marks the differences larger than chance. It is one
+  file, opened in any browser without internet.
 
 ### Changed
 

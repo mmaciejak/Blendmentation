@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Augmentation report</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --ink: #1d2330; --muted: #677085; --line: #d9dde5;
+  --accent: #3b6fd8; --observed: #19a37a; --warn: #d9541e; --warn-bg: #fff1ea; --chip: #eef1f6;
+  --edge: #8c96aa; --shadow: 0 1px 2px rgba(20, 30, 50, .08), 0 2px 8px rgba(20, 30, 50, .05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --card: #1b2029; --ink: #e6e9ef; --muted: #9099ab; --line: #2c3340;
+    --accent: #6e9bff; --observed: #3fcf9f; --warn: #ff8a5c; --warn-bg: #3a2219; --chip: #262c37;
+    --edge: #5d6678; --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { padding: 18px 20px 10px; display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-end; }
+h1 { margin: 0; font-size: 18px; font-weight: 650; }
+.sub { color: var(--muted); }
+.summary { display: flex; gap: 22px; flex-wrap: wrap; }
+.summary b { display: block; font-size: 17px; }
+.summary .warn b { color: var(--warn); }
+.toolbar { display: flex; gap: 8px; margin-left: auto; }
+button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.legend { padding: 0 20px 10px; display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 18px; height: 6px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+#stage { position: relative; overflow: auto; height: calc(100vh - 118px); min-height: 300px; border-top: 1px solid var(--line); }
+#canvas { position: relative; }
+svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.card { position: absolute; width: 260px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 11px 10px; box-shadow: var(--shadow); cursor: pointer; }
+.card:hover, .card.selected { border-color: var(--accent); }
+.card.flag { border-color: var(--warn); background: linear-gradient(var(--warn-bg), var(--card) 46px); }
+.card.ghost { border-style: dashed; box-shadow: none; opacity: .75; }
+.head { display: flex; align-items: baseline; gap: 6px; }
+.type { font-weight: 650; }
+.id { color: var(--muted); font-size: 11px; margin-left: auto; font-family: ui-monospace, Menlo, monospace; }
+.toggle { border: 0; background: var(--chip); padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; }
+.what { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: ui-monospace, Menlo, monospace; margin-top: 1px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chip { background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 11px; line-height: 18px; }
+.chip.warn { background: var(--warn); color: #fff; }
+.bars { margin-top: 7px; display: grid; grid-template-columns: 54px 1fr 42px; gap: 3px 6px; align-items: center; font-size: 11px; }
+.bars .label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bars .num { text-align: right; font-variant-numeric: tabular-nums; }
+.track { position: relative; height: 12px; background: var(--chip); border-radius: 3px; overflow: hidden; }
+.track .e { position: absolute; left: 0; top: 0; height: 6px; background: var(--accent); }
+.track .o { position: absolute; left: 0; bottom: 0; height: 6px; background: var(--observed); }
+.values { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; }
+#panel { position: fixed; right: 0; top: 0; bottom: 0; width: min(420px, 100vw); background: var(--card);
+  border-left: 1px solid var(--line); box-shadow: -4px 0 20px rgba(0, 0, 0, .12); padding: 18px 20px; overflow: auto;
+  transform: translateX(105%); transition: transform .18s ease; z-index: 5; }
+#panel.open { transform: none; }
+#panel h2 { margin: 0 0 2px; font-size: 16px; }
+#panel table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 12px; }
+#panel td, #panel th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+#panel th { color: var(--muted); font-weight: 500; }
+#panel td.n { text-align: right; font-variant-numeric: tabular-nums; }
+#panel pre { background: var(--chip); padding: 10px; border-radius: 6px; overflow: auto; font-size: 12px; margin: 6px 0 14px; }
+#panel .close { float: right; }
+.note { color: var(--muted); font-size: 12px; }
+@media (max-width: 640px) {
+  header { padding: 14px 16px 8px; } .legend { padding: 0 16px 8px; } .toolbar { margin-left: 0; }
+  #stage { height: auto; min-height: 70vh; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="title">Augmentation report</h1>
+    <div class="sub" id="path"></div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="toolbar">
+    <button id="expand">Expand all</button>
+    <button id="collapse">Collapse all</button>
+  </div>
+</header>
+<div class="legend">
+  <span><i style="background: var(--accent)"></i>expected (graph)</span>
+  <span><i style="background: var(--observed)"></i>observed (dataset)</span>
+  <span><i style="background: var(--edge); height: 2px"></i>line width: how often the branch is reached</span>
+  <span><i style="background: var(--warn)"></i>observed differs from expected (|z| &gt; 3)</span>
+</div>
+<div id="stage"><div id="canvas"><svg id="edges"></svg></div></div>
+<aside id="panel"></aside>
+<script>
+const DATA = __DATA__;
+const CARD_W = 260, GAP_X = 64, GAP_Y = 14, PAD = 20;
+const nodes = {}, cards = {}, collapsed = new Set();
+const canvas = document.getElementById("canvas"), svg = document.getElementById("edges");
+
+function pct(x) {
+  if (x === null || x === undefined) return "–";
+  const v = x * 100;
+  return (v === 0 || v === 100 || v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "%";
+}
+function text(tag, cls, content) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (content !== undefined) el.textContent = content;
+  return el;
+}
+function show(value) {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+// how far observed is from expected, in standard errors; null when there is nothing to compare
+function zScore(expected, observed, calls) {
+  if (expected === null || expected === undefined || observed === null || observed === undefined || !calls) return null;
+  if (expected <= 0 || expected >= 1) return Math.abs(observed - expected) > 0.005 ? Infinity * Math.sign(observed - expected) : 0;
+  return (observed - expected) / Math.sqrt(expected * (1 - expected) / calls);
+}
+function flags(node) {
+  const s = node.stats, found = [];
+  if (!s) return found;
+  const z = zScore(s.expected, s.observed, s.calls);
+  if (z !== null && Math.abs(z) > 3) found.push({what: "runs", z, expected: s.expected, observed: s.observed});
+  for (const v of s.values || []) {
+    const zv = zScore(v.expected, v.observed, s.calls);
+    if (zv !== null && Math.abs(zv) > 3) found.push({what: show(v.value), z: zv, expected: v.expected, observed: v.observed});
+  }
+  return found;
+}
+function describe(node) {
+  const st = node.settings || {};
+  for (const key of ["data_path", "node", "modifier", "node_group"]) if (st[key]) return st[key];
+  if (st.key !== undefined) return "input " + show(st.key);
+  if (node.name) return node.name;
+  return Object.entries(st).map(([k, v]) => k + " " + show(v)).join(" · ");
+}
+
+function walk(node, parent, depth) {
+  node.parent = parent; node.depth = depth; node.stats = DATA.stats[node.id];
+  nodes[node.id] = node;
+  (node.children || []).forEach(child => walk(child, node, depth + 1));
+}
+DATA.roots.forEach(root => walk(root, null, 0));
+
+function barRow(parent, label, expected, observed) {
+  parent.append(text("span", "label", label));
+  const track = text("div", "track");
+  const e = text("div", "e"), o = text("div", "o");
+  e.style.width = expected === null || expected === undefined ? "0" : (expected * 100) + "%";
+  o.style.width = observed === null || observed === undefined ? "0" : (observed * 100) + "%";
+  track.append(e, o);
+  track.title = "expected " + pct(expected) + ", observed " + pct(observed);
+  parent.append(track, text("span", "num", pct(observed === null || observed === undefined ? expected : observed)));
+}
+
+function makeCard(node) {
+  const card = text("div", "card");
+  const found = flags(node);
+  if (found.length) card.classList.add("flag");
+  if (node.same_as) card.classList.add("ghost");
+  const head = text("div", "head");
+  if (node.children && node.children.length) {
+    const toggle = text("button", "toggle", "▾");
+    toggle.title = "Collapse / expand";
+    toggle.onclick = event => {
+      event.stopPropagation();
+      collapsed.has(node.id) ? collapsed.delete(node.id) : collapsed.add(node.id);
+      render();
+    };
+    head.append(toggle);
+    node.toggle = toggle;
+  }
+  head.append(text("span", "type", node.type), text("span", "id", node.id));
+  card.append(head);
+  const what = describe(node);
+  if (what) { const w = text("div", "what", what); w.title = what; card.append(w); }
+
+  const chips = text("div", "chips");
+  if (node.p !== undefined && node.p < 1) chips.append(text("span", "chip", "p " + node.p));
+  if (node.otherwise) chips.append(text("span", "chip", "otherwise " + show(node.otherwise.value)));
+  if (node.ignores_object) chips.append(text("span", "chip", "ignores object"));
+  if (node.same_as) chips.append(text("span", "chip", "same as " + node.same_as));
+  if (node.used_at) chips.append(text("span", "chip", "also at " + node.used_at.join(", ")));
+  for (const f of found) {
+    const diff = f.observed - f.expected;
+    chips.append(text("span", "chip warn", (f.what === "runs" ? "" : f.what + " ") + (diff > 0 ? "+" : "") + (diff * 100).toFixed(1) + " pts"));
+  }
+  if (chips.children.length) card.append(chips);
+
+  const s = node.stats;
+  const bars = text("div", "bars");
+  barRow(bars, "runs", s && s.expected !== null ? s.expected : node.applied, s ? s.observed : null);
+  card.append(bars);
+  if (s && s.values && s.values.length) {
+    const values = text("div", "bars values");
+    s.values.slice(0, 8).forEach(v => barRow(values, show(v.value), v.expected, v.observed));
+    card.append(values);
+  } else if (!s && node.values) {
+    const values = text("div", "bars values");
+    node.values.slice(0, 8).forEach(v => barRow(values, show(v.value), v.probability, null));
+    card.append(values);
+  }
+  card.onclick = () => openPanel(node);
+  canvas.append(card);
+  return card;
+}
+
+function visibleChildren(node) {
+  return collapsed.has(node.id) ? [] : (node.children || []);
+}
+function setVisible(node, visible) {
+  cards[node.id].style.display = visible ? "" : "none";
+  if (node.toggle) node.toggle.textContent = collapsed.has(node.id) ? "▸ " + countBelow(node) : "▾";
+  (node.children || []).forEach(child => setVisible(child, visible && !collapsed.has(node.id)));
+}
+function countBelow(node) {
+  return (node.children || []).reduce((sum, child) => sum + 1 + countBelow(child), 0);
+}
+const heights = {};
+function subtreeHeight(node) {
+  const own = cards[node.id].offsetHeight, kids = visibleChildren(node);
+  const below = kids.reduce((sum, child) => sum + subtreeHeight(child), 0) + GAP_Y * Math.max(0, kids.length - 1);
+  return heights[node.id] = Math.max(own, below);
+}
+function place(node, top) {
+  const card = cards[node.id], own = card.offsetHeight, total = heights[node.id], kids = visibleChildren(node);
+  node.x = PAD + node.depth * (CARD_W + GAP_X);
+  node.y = top + (total - own) / 2;
+  node.h = own;
+  card.style.left = node.x + "px";
+  card.style.top = node.y + "px";
+  const below = kids.reduce((sum, child) => sum + heights[child.id], 0) + GAP_Y * Math.max(0, kids.length - 1);
+  let y = top + (total - below) / 2;
+  for (const child of kids) { place(child, y); y += heights[child.id] + GAP_Y; }
+}
+function edges(node, paths) {
+  for (const child of visibleChildren(node)) {
+    const x1 = node.x + CARD_W, y1 = node.y + node.h / 2, x2 = child.x, y2 = child.y + child.h / 2, mid = (x1 + x2) / 2;
+    const reached = child.reached || 0;
+    paths.push(`<path d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" fill="none" stroke="var(--edge)"
+      stroke-width="${(1 + 9 * reached).toFixed(2)}" stroke-opacity="${(0.3 + 0.7 * reached).toFixed(2)}"
+      ${child.same_as ? 'stroke-dasharray="4 4"' : ""}/>`);
+    edges(child, paths);
+  }
+}
+function render() {
+  DATA.roots.forEach(root => setVisible(root, true));
+  let top = PAD, width = 0;
+  for (const root of DATA.roots) {
+    subtreeHeight(root);
+    place(root, top);
+    top += heights[root.id] + GAP_Y * 3;
+  }
+  for (const node of Object.values(nodes)) {
+    if (cards[node.id].style.display !== "none") width = Math.max(width, node.x + CARD_W + PAD);
+  }
+  canvas.style.width = width + "px";
+  canvas.style.height = top + "px";
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", top);
+  const paths = [];
+  DATA.roots.forEach(root => edges(root, paths));
+  svg.innerHTML = paths.join("");
+}
+
+function openPanel(node) {
+  document.querySelectorAll(".card.selected").forEach(card => card.classList.remove("selected"));
+  cards[node.id].classList.add("selected");
+  const panel = document.getElementById("panel");
+  panel.innerHTML = "";
+  const close = text("button", "close", "Close");
+  close.onclick = () => { panel.classList.remove("open"); cards[node.id].classList.remove("selected"); };
+  panel.append(close, text("h2", "", node.type), text("div", "note", node.id));
+  const s = node.stats || {};
+  const rows = [
+    ["Reached", pct(node.reached), "how often it is called, per object of a call"],
+    ["Runs (expected)", pct(s.expected !== undefined && s.expected !== null ? s.expected : node.applied), node.p !== undefined ? "reached × p " + node.p : ""],
+    ["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""],
+  ];
+  const z = zScore(s.expected, s.observed, s.calls);
+  if (z !== null) rows.push(["Difference", ((s.observed - s.expected) * 100).toFixed(1) + " pts", "z " + (isFinite(z) ? z.toFixed(1) : "∞")]);
+  if (node.otherwise) rows.push(["Otherwise", show(node.otherwise.value), pct(node.otherwise.probability) + " expected"]);
+  if (s.expected === null) rows.push(["", "", "no expected value: it ignores the object below a per-object choice, or is used in several places"]);
+  const table = text("table");
+  for (const [name, value, note] of rows) {
+    const tr = text("tr");
+    tr.append(text("th", "", name), text("td", "n", value), text("td", "note", note));
+    table.append(tr);
+  }
+  panel.append(table);
+  const values = s.values || (node.values || []).map(v => ({value: v.value, expected: v.probability, observed: null}));
+  if (values.length) {
+    panel.append(text("div", "note", "Values (per call)"));
+    const vt = text("table"), hr = text("tr");
+    hr.append(text("th", "", "value"), text("th", "n", "expected"), text("th", "n", "observed"), text("th", "n", "difference"));
+    vt.append(hr);
+    for (const v of values) {
+      const tr = text("tr"), zv = zScore(v.expected, v.observed, s.calls);
+      const diff = zv === null ? "" : ((v.observed - v.expected) * 100).toFixed(1) + " pts (z " + (isFinite(zv) ? zv.toFixed(1) : "∞") + ")";
+      tr.append(text("td", "", show(v.value)), text("td", "n", pct(v.expected)), text("td", "n", pct(v.observed)), text("td", "n", diff));
+      vt.append(tr);
+    }
+    panel.append(vt);
+  }
+  if (node.settings && Object.keys(node.settings).length) {
+    panel.append(text("div", "note", "Settings"), text("pre", "", JSON.stringify(node.settings, null, 2)));
+  }
+  panel.classList.add("open");
+}
+
+document.getElementById("title").textContent = DATA.title;
+document.getElementById("path").textContent = DATA.path;
+const flagged = Object.values(nodes).filter(node => flags(node).length).length;
+const summary = document.getElementById("summary");
+for (const [label, value, cls] of [["datapoints", DATA.datapoints], ["augmentations", Object.keys(nodes).length],
+                                   ["differ from expected", flagged, flagged ? "warn" : ""]]) {
+  const item = text("div", cls);
+  item.append(text("b", "", String(value)), text("span", "sub", label));
+  summary.append(item);
+}
+document.getElementById("expand").onclick = () => { collapsed.clear(); render(); };
+document.getElementById("collapse").onclick = () => {
+  Object.values(nodes).forEach(node => { if (node.depth >= 1 && node.children && node.children.length) collapsed.add(node.id); });
+  render();
+};
+for (const node of Object.values(nodes)) cards[node.id] = makeCard(node);
+render();
+</script>
+</body>
+</html>

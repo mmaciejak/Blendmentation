@@ -233,3 +233,5 @@ export.bop(output_path)
 # the datapoints BBox skipped are not in it
 for node_id, node in export.augmentation_stats(output_path).items():
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
+# the same drawn as a graph, in augmentations.html next to the dataset (open it in a browser)
+export.augmentation_report(output_path)

@@ -38,5 +38,9 @@ docs = ["mkdocs<2", "mkdocs-material", "mkdocstrings[python]", "mkdocs-glightbox
 [tool.setuptools.packages.find]
 include = ["blendmentation*"]
 
+# the page template of export.augmentation_report
+[tool.setuptools.package-data]
+"blendmentation.export" = ["report.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

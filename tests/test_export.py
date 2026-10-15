@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import xml.etree.ElementTree as ElementTree
 
 import numpy as np
@@ -296,3 +297,23 @@ def test_augmentation_stats(tmp_path):
     assert stats["a.0.1"]["expected"] is None and stats["a.0.1"]["observed"] == 0.5
     with pytest.raises(FileNotFoundError):
         export.augmentation_stats(str(tmp_path), graph_file="missing.json")
+
+
+def test_augmentation_report(tmp_path):
+    menu = {"id": "0.0", "type": "Menu", "reached": 1.0, "applied": 1.0, "ignores_object": False,
+            "settings": {"options": ["</script><b>x</b>"]}, "values": [{"value": "</script><b>x</b>", "probability": 1.0}]}
+    root = {"id": "0", "type": "Compose", "reached": 1.0, "applied": 1.0, "ignores_object": False, "children": [menu]}
+    (tmp_path / "augmentations.json").write_text(json.dumps({"augmentations": [root]}))
+    record = {"0": {"a": {"applied": True}}, "0.0": {"a": {"applied": True, "value": "</script><b>x</b>"}}}
+    (tmp_path / "000000.json").write_text(json.dumps({"augmentations": record}))
+
+    output = export.augmentation_report(str(tmp_path))
+    assert output == os.path.join(str(tmp_path), "augmentations.html")
+    with open(output) as file:
+        page = file.read()
+    assert "__DATA__" not in page and page.count("</script>") == 1, "the data can't end the script"
+    data = json.loads(re.search(r"const DATA = (.*);\n", page).group(1).replace("<\\/", "</"))
+    assert data["datapoints"] == 1 and data["roots"] == [root]
+    assert data["stats"]["0.0"]["observed"] == 1.0
+    other = export.augmentation_report(str(tmp_path), output=str(tmp_path / "report.html"))
+    assert other.endswith("report.html") and os.path.exists(other)

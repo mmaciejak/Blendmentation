@@ -287,6 +287,7 @@ export.voc("/absolute/output/folder")    # Annotations/*.xml
 export.bop("/absolute/output/folder")    # bop/train_pbr/000000/: needs Pose + CameraData; masks, depth if generated
 for node_id, node in export.augmentation_stats("/absolute/output/folder").items():   # needs Augmentations
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
+print(export.augmentation_report("/absolute/output/folder"))   # augmentations.html: the graph drawn, give the user the path
 ```
 
 ## Steps and options at a glance
@@ -307,7 +308,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `CameraData()` | camera, intrinsics, OpenCV extrinsics, depth of field |
 | `Keypoints({"name": obj \| (obj, vertex index or group) \| (armature, bone) \| (x, y, z)})` | projected points, visibility |
 | `OutputField(name, data_path, objects=None)` | any value by data path |
-| `Augmentations(composes, graph_file="augmentations.json")` | `augmentations`: what each augmentation did per object (`applied`, `value`); their graph with probabilities in `augmentations.json`; `export.augmentation_stats` compares |
+| `Augmentations(composes, graph_file="augmentations.json")` | `augmentations`: what each augmentation did per object (`applied`, `value`); their graph with probabilities in `augmentations.json`; `export.augmentation_stats` compares, `export.augmentation_report` draws both as an HTML page |
 
 - **BBox skip settings**: `iou_deconflict` (two boxes overlap more than this IoU),
   `max_truncation` (fraction of a box out of frame), `max_occlusion` (fraction of an

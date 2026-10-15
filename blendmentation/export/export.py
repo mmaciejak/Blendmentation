@@ -16,7 +16,8 @@ COCO, YOLO and VOC take `bbox_from`, which box to write:
   written (`skip_empty`), are left out.
 
 `augmentation_stats` compares how often each augmentation ran over the dataset with
-the probabilities of its graph, from a `generating.Augmentations` step.
+the probabilities of its graph, from a `generating.Augmentations` step, and
+`augmentation_report` draws both on an HTML page.
 """
 
 import json
@@ -621,6 +622,24 @@ def graph_nodes(node, root, parents_reach, nodes):
         graph_nodes(child, root, always, nodes)
 
 
+def load_graph(path, graph_file):
+    with open(os.path.join(path, graph_file)) as file:
+        return json.load(file)["augmentations"]
+
+
+def augmentation_records(path):
+    """The "augmentations" record of every label that has one, by index."""
+    records = []
+    for name in os.listdir(path):
+        match = LABEL.match(name)
+        if match:
+            with open(os.path.join(path, name)) as file:
+                record = json.load(file).get("augmentations")
+            if record is not None:
+                records.append((int(match.group(1)), record))
+    return [record for _, record in sorted(records, key=lambda item: item[0])]
+
+
 def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dict[str, dict]:
     """Compares what the augmentations did over a dataset with what their graph expects.
 
@@ -658,20 +677,13 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
         ```
     """
     path = dataset_path(path)
-    with open(os.path.join(path, graph_file)) as file:
-        roots = json.load(file)["augmentations"]
+    roots = load_graph(path, graph_file)
     nodes = {}
     for root in roots:
         graph_nodes(root, root["id"], True, nodes)
     stats = {node_id: {"type": node["type"], "applied": 0, "calls": 0, "values": {}}
              for node_id, node in nodes.items() if "same_as" not in node}
-    for name in sorted(os.listdir(path)):
-        if not LABEL.match(name):
-            continue
-        with open(os.path.join(path, name)) as file:
-            record = json.load(file).get("augmentations")
-        if record is None:
-            continue
+    for record in augmentation_records(path):
         for node_id, stat in stats.items():
             node = nodes[node_id]
             objects = len(record.get(node["root"], {}))
@@ -708,3 +720,50 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
             entry["values"] = values
         result[node_id] = entry
     return result
+
+
+def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json") -> str:
+    """Writes an HTML page with the augmentation graph and how the dataset followed it.
+
+    Every augmentation is a card, connected to the ones inside it by lines as thick as
+    the probability that they are reached. Each card has a bar with how often it runs,
+    expected (the graph) and observed (the dataset, `augmentation_stats`), and for a
+    `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
+    `Visibility`, one per value. A difference more than 3 standard errors from
+    chance (e.g. moved objects skipped more often by `BBox` because they leave the
+    frame) is marked. Clicking a card shows its settings and numbers. The page is one
+    file that needs no internet, to open in any browser.
+
+    Args:
+        path: the generating path, with a `generating.Augmentations` step's output.
+        output: file to write, `<path>/augmentations.html` by default.
+        graph_file: file name of the graph, as given to `generating.Augmentations`.
+
+    Returns:
+        The path of the HTML file.
+
+    Raises:
+        FileNotFoundError: there is no graph file in the folder.
+
+    Example:
+        ```python
+        export.augmentation_report("//dataset")   # open dataset/augmentations.html in a browser
+        ```
+    """
+    path = dataset_path(path)
+    roots = load_graph(path, graph_file)
+    data = {
+        "title": f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}",
+        "path": path,
+        "datapoints": len(augmentation_records(path)),
+        "roots": roots,
+        "stats": augmentation_stats(path, graph_file),
+    }
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.html")) as file:
+        template = file.read()
+    # "</" would end the script element the data is in
+    page = template.replace("__DATA__", json.dumps(data).replace("</", "<\\/"))
+    output = os.path.join(path, "augmentations.html") if output is None else dataset_path(output)
+    with open(output, "w") as file:
+        file.write(page)
+    return output
