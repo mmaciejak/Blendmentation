@@ -3,6 +3,7 @@ import colorsys
 import functools
 import json
 import math
+import re
 import random
 
 import pytest
@@ -1780,3 +1781,26 @@ def test_names(cube):
     for make in (lambda: A.Translation(x=1, name=""), lambda: A.Compose([], name=3), lambda: A.Menu(["a"], name=1)):
         with pytest.raises(TypeError, match="name"):
             make()
+
+
+def test_graph_preview(tmp_path, monkeypatch):
+    objects_aug = A.Compose([A.Translation(x=1, p=0.5, name="slide"), A.OneOf([A.Rotation(z=1), A.Visibility()])])
+    camera_aug = A.Compose([A.Rotation(z=1)], p=0.7)
+    opened = []
+    monkeypatch.setattr(A.webbrowser, "open", opened.append)
+
+    output = A.graph_preview({"objects": objects_aug, "camera": camera_aug}, str(tmp_path / "preview.html"), show=True)
+    assert output == str(tmp_path / "preview.html") and opened == [(tmp_path / "preview.html").as_uri()]
+    with open(output) as file:
+        page = file.read()
+    data = json.loads(re.search(r"const DATA = (.*);\n", page).group(1).replace("<\\/", "</"))
+    assert data["preview"] is True and data["stats"] == {} and data["datapoints"] is None
+    assert [root["id"] for root in data["roots"]] == ["objects", "camera"]
+    assert data["roots"][0]["children"][0]["name"] == "slide" and data["roots"][1]["applied"] == 0.7
+
+    # a folder: augmentations_preview.html in it; a list: ids "0", "1"
+    output = A.graph_preview([objects_aug, camera_aug], str(tmp_path))
+    assert output == str(tmp_path / "augmentations_preview.html") and len(opened) == 1
+    for bad, error in ((A.Rotation(z=1), TypeError), ([], ValueError), ({1: objects_aug}, TypeError)):
+        with pytest.raises(error):
+            A.graph_preview(bad, str(tmp_path))

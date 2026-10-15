@@ -710,29 +710,8 @@ def output_field(frame, name, data_path, objects):
     frame.label[name] = values
 
 
-def augmentation_roots(augmentations):
-    """[(root id, Compose)] of the augmentations of an Augmentations step."""
-    if isinstance(augmentations, augs.Compose):
-        roots = [("0", augmentations)]
-    elif isinstance(augmentations, dict):
-        roots = list(augmentations.items())
-    elif isinstance(augmentations, (list, tuple)):
-        roots = [(str(index), compose) for index, compose in enumerate(augmentations)]
-    else:
-        raise TypeError(f"Augmentations takes augmentation Composes: one, a list or a dict {{name: Compose}}, "
-                        f"got {augmentations!r}")
-    if not roots:
-        raise ValueError("Augmentations needs at least one augmentation Compose")
-    for name, compose in roots:
-        if not isinstance(name, str):
-            raise TypeError(f"Augmentations names must be strings, got {name!r}")
-        if not isinstance(compose, augs.Compose):
-            raise TypeError(f"Augmentations takes augmentations.Compose, got {compose!r} for '{name}'")
-    return roots
-
-
 def check_augmentations(augmentations, graph_file):
-    augmentation_roots(augmentations)
+    augs.compose_roots(augmentations)
     if graph_file is not None and (not isinstance(graph_file, str) or not graph_file
                                    or os.path.basename(graph_file) != graph_file):
         raise ValueError(f"graph_file must be a file name in the output folder, got {graph_file!r}")
@@ -741,7 +720,7 @@ def check_augmentations(augmentations, graph_file):
 def record_augmentations(frame, augmentations, graph_file):
     """Adds what each augmentation did to the labels under "augmentations", and writes
     their graph to <path>/<graph_file> when it changed."""
-    roots = augmentation_roots(augmentations)
+    roots = augs.compose_roots(augmentations)
     record = {}
     for name, compose in roots:
         graph.record(compose, name, record)

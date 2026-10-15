@@ -70,6 +70,7 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 #panel pre { background: var(--chip); padding: 10px; border-radius: 6px; overflow: auto; font-size: 12px; margin: 6px 0 14px; }
 #panel .close { float: right; }
 .note { color: var(--muted); font-size: 12px; }
+body.preview .report-only, body:not(.preview) .preview-only { display: none; }
 @media (max-width: 640px) {
   header { padding: 14px 16px 8px; } .legend { padding: 0 16px 8px; } .toolbar { margin-left: 0; }
   #stage { height: auto; min-height: 70vh; }
@@ -89,10 +90,11 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
   </div>
 </header>
 <div class="legend">
-  <span><i style="background: var(--bar)"></i>observed (dataset)</span>
-  <span><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
+  <span class="report-only"><i style="background: var(--bar)"></i>observed (dataset)</span>
+  <span class="report-only"><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
+  <span class="preview-only"><i style="background: var(--bar)"></i>probability it runs, per object of a call</span>
   <span><i style="background: var(--edge); height: 2px"></i>line width: how often the branch is reached</span>
-  <span><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
+  <span class="report-only"><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
 </div>
 <div id="stage"><div id="canvas"><svg id="edges"></svg></div></div>
 <aside id="panel"></aside>
@@ -152,13 +154,14 @@ function barRow(parent, label, expected, observed) {
   parent.append(text("span", "label", label));
   const track = text("div", "track");
   const e = text("div", "e"), o = text("div", "o");
+  if (DATA.preview) observed = expected;  // no dataset: the bar is the graph's probability
   o.style.width = observed === null || observed === undefined ? "0" : (observed * 100) + "%";
   track.append(o);
-  if (expected !== null && expected !== undefined) {
+  if (!DATA.preview && expected !== null && expected !== undefined) {
     e.style.left = (expected * 100) + "%";
     track.append(e);
   }
-  track.title = "expected " + pct(expected) + ", observed " + pct(observed);
+  track.title = DATA.preview ? "probability " + pct(expected) : "expected " + pct(expected) + ", observed " + pct(observed);
   parent.append(track, text("span", "num", pct(observed === null || observed === undefined ? expected : observed)));
 }
 
@@ -286,13 +289,13 @@ function openPanel(node) {
   const s = node.stats || {};
   const rows = [
     ["Reached", pct(node.reached), "how often it is called, per object of a call"],
-    ["Runs (expected)", pct(s.expected !== undefined && s.expected !== null ? s.expected : node.applied), node.p !== undefined ? "reached × p " + node.p : ""],
-    ["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""],
+    [DATA.preview ? "Runs" : "Runs (expected)", pct(s.expected !== undefined && s.expected !== null ? s.expected : node.applied), node.p !== undefined ? "reached × p " + node.p : ""],
   ];
+  if (!DATA.preview) rows.push(["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""]);
   const z = zScore(s.expected, s.observed, s.calls);
   if (z !== null) rows.push(["Difference", ((s.observed - s.expected) * 100).toFixed(1) + " pts", "z " + (isFinite(z) ? z.toFixed(1) : "∞")]);
   if (node.otherwise) rows.push(["Otherwise", show(node.otherwise.value), pct(node.otherwise.probability) + " expected"]);
-  if (s.expected === null) rows.push(["", "", "no expected value: it ignores the object below a per-object choice, or is used in several places"]);
+  if (!DATA.preview && s.expected === null) rows.push(["", "", "no expected value: it ignores the object below a per-object choice, or is used in several places"]);
   const table = text("table");
   for (const [name, value, note] of rows) {
     const tr = text("tr");
@@ -304,12 +307,14 @@ function openPanel(node) {
   if (values.length) {
     panel.append(text("div", "note", "Values (per call)"));
     const vt = text("table"), hr = text("tr");
-    hr.append(text("th", "", "value"), text("th", "n", "expected"), text("th", "n", "observed"), text("th", "n", "difference"));
+    hr.append(text("th", "", "value"), text("th", "n", DATA.preview ? "probability" : "expected"));
+    if (!DATA.preview) hr.append(text("th", "n", "observed"), text("th", "n", "difference"));
     vt.append(hr);
     for (const v of values) {
       const tr = text("tr"), zv = zScore(v.expected, v.observed, s.calls);
       const diff = zv === null ? "" : ((v.observed - v.expected) * 100).toFixed(1) + " pts (z " + (isFinite(zv) ? zv.toFixed(1) : "∞") + ")";
-      tr.append(text("td", "", show(v.value)), text("td", "n", pct(v.expected)), text("td", "n", pct(v.observed)), text("td", "n", diff));
+      tr.append(text("td", "", show(v.value)), text("td", "n", pct(v.expected)));
+      if (!DATA.preview) tr.append(text("td", "n", pct(v.observed)), text("td", "n", diff));
       vt.append(tr);
     }
     panel.append(vt);
@@ -321,11 +326,15 @@ function openPanel(node) {
 }
 
 document.getElementById("title").textContent = DATA.title;
-document.getElementById("path").textContent = DATA.path;
+if (DATA.preview) document.body.classList.add("preview");
+document.getElementById("path").textContent = DATA.preview
+  ? "What the augmentations can do, per object, before generating" : DATA.path;
 const flagged = Object.values(nodes).filter(node => flags(node).length).length;
 const summary = document.getElementById("summary");
-for (const [label, value, cls] of [["datapoints", DATA.datapoints], ["augmentations", Object.keys(nodes).length],
-                                   ["differ from expected", flagged, flagged ? "warn" : ""]]) {
+const figures = DATA.preview ? [["augmentations", Object.keys(nodes).length]]
+  : [["datapoints", DATA.datapoints], ["augmentations", Object.keys(nodes).length],
+     ["differ from expected", flagged, flagged ? "warn" : ""]];
+for (const [label, value, cls] of figures) {
   const item = text("div", cls);
   item.append(text("b", "", String(value)), text("span", "sub", label));
   summary.append(item);

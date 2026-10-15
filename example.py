@@ -203,6 +203,12 @@ image_generator = generating.Compose(
 )
 
 
+# what the augmentations can do, with which probability, drawn before generating
+# (show=True opens it in the browser)
+augmentations.graph_preview({"clutter": clutter_transforms, "camera": camera_transforms,
+                             "world": world_transforms}, output_path)
+
+
 def pipeline():
     # everything the augmentations change inside is set back when the block ends,
     # also when a step fails

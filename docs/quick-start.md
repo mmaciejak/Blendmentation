@@ -914,6 +914,13 @@ steps = [
 ]
 generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
 
+# the graph of the augmentations, before generating;
+# show=True opens it in the browser
+aug.graph_preview(
+    {"objects": objects_aug, "camera": camera_aug},
+    "//dataset",
+)
+
 for _ in range(1000):
     # 3. everything changed inside is set back afterwards
     with state.restoring():

@@ -27,8 +27,8 @@ camera (or any object) to a random point on a curve, optionally facing along it.
 augmentation from a list, picked at random by weight, and `Chain` applies a list to one
 object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
 `Compose.describe()` is the graph of what a `Compose` can do, with the probability of
-each outcome per object; `generating.Augmentations` saves it and records what happened
-in every label.
+each outcome per object; `graph_preview` draws it on an HTML page before generating, and
+`generating.Augmentations` saves it and records what happened in every label.
 
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
@@ -46,10 +46,14 @@ finds them by name in every version.
 
 from __future__ import annotations
 
+import os
+import pathlib
 import random
+import webbrowser
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, Union
 
+from ..export import export
 from ..values import check_weights, is_number
 from . import bpy_augmentations as bpy_a
 from . import graph
@@ -122,6 +126,64 @@ def flatten(augmentations: Sequence[Any]) -> list[Any]:
         flat.append(augmentation)
         flat.extend(flatten(getattr(augmentation, "augmentations", ())))
     return flat
+
+
+def compose_roots(augmentations: Any) -> list[tuple[str, Compose]]:
+    """[(root id, Compose)]: one Compose ("0"), a list ("0", "1"...) or a dict {name: Compose}."""
+    if isinstance(augmentations, Compose):
+        roots = [("0", augmentations)]
+    elif isinstance(augmentations, dict):
+        roots = list(augmentations.items())
+    elif isinstance(augmentations, (list, tuple)):
+        roots = [(str(index), compose) for index, compose in enumerate(augmentations)]
+    else:
+        raise TypeError(f"Give augmentation Composes: one, a list or a dict {{name: Compose}}, got {augmentations!r}")
+    if not roots:
+        raise ValueError("Give at least one augmentation Compose")
+    for name, compose in roots:
+        if not isinstance(name, str):
+            raise TypeError(f"The names of the Composes must be strings, got {name!r}")
+        if not isinstance(compose, Compose):
+            raise TypeError(f"Expected an augmentations.Compose, got {compose!r} for '{name}'")
+    return roots
+
+
+def graph_preview(composes: Any, path: str, show: bool = False) -> str:
+    """Draws what augmentation `Compose`s can do on an HTML page, before generating.
+
+    The same page as `export.augmentation_report`, without a dataset: every augmentation
+    is a card, connected to the ones inside it by lines as thick as the probability that
+    they are reached, with a bar of how often it runs per object and, for a `Menu`,
+    `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a `Visibility`,
+    one per value (`Compose.describe`). Check the probabilities of a pipeline before a
+    long run; after it, `export.augmentation_report` adds what the dataset did.
+
+    Args:
+        composes: augmentation `Compose`s: one, a list (ids `"0"`, `"1"`...) or a dict
+            `{name: Compose}` (ids the names), as for `generating.Augmentations`.
+        path: the HTML file to write, or a folder to write `augmentations_preview.html`
+            to. `//` paths are relative to the .blend file.
+        show: open the page in the web browser.
+
+    Returns:
+        The path of the HTML file.
+
+    Raises:
+        TypeError: an item is not an `augmentations.Compose`.
+
+    Example:
+        ```python
+        augmentations.graph_preview({"objects": objects_aug, "camera": camera_aug}, "//preview.html", show=True)
+        ```
+    """
+    roots = [graph.describe(compose, name) for name, compose in compose_roots(composes)]
+    output = export.dataset_path(path)
+    if os.path.isdir(output):
+        output = os.path.join(output, "augmentations_preview.html")
+    export.write_report(output, "Augmentations preview", None, roots)
+    if show:
+        webbrowser.open(pathlib.Path(output).as_uri())
+    return output
 
 
 def weight_shares(weights: Optional[Sequence[float]], count: int) -> list[float]:

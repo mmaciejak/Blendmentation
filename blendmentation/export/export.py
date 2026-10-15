@@ -752,19 +752,20 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
         ```
     """
     path = dataset_path(path)
-    roots = load_graph(path, graph_file)
-    data = {
-        "title": f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}",
-        "path": path,
-        "datapoints": len(augmentation_records(path)),
-        "roots": roots,
-        "stats": augmentation_stats(path, graph_file),
-    }
+    output = os.path.join(path, "augmentations.html") if output is None else dataset_path(output)
+    write_report(output, f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}", path,
+                 load_graph(path, graph_file), augmentation_stats(path, graph_file), len(augmentation_records(path)))
+    return output
+
+
+def write_report(output, title, path, roots, stats=None, datapoints=None):
+    """Writes the report page for graph roots; without stats it is a preview of the
+    graph alone (augmentations.graph_preview)."""
+    data = {"title": title, "path": path or "", "preview": stats is None, "datapoints": datapoints,
+            "roots": roots, "stats": stats or {}}
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.html")) as file:
         template = file.read()
     # "</" would end the script element the data is in
     page = template.replace("__DATA__", json.dumps(data).replace("</", "<\\/"))
-    output = os.path.join(path, "augmentations.html") if output is None else dataset_path(output)
     with open(output, "w") as file:
         file.write(page)
-    return output
