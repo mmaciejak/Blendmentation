@@ -16,8 +16,9 @@ COCO, YOLO and VOC take `bbox_from`, which box to write:
   written (`skip_empty`), are left out.
 
 `augmentation_stats` compares how often each augmentation ran over the dataset with
-the probabilities of its graph, from a `generating.Augmentations` step, and
-`augmentation_report` draws both on an HTML page.
+the probabilities of its graph, from a `generating.Augmentations` step, `skip_stats`
+counts the datapoints `BBox` skipped by reason, and `augmentation_report` draws it all
+on an HTML page.
 """
 
 import json
@@ -29,6 +30,8 @@ from collections.abc import Sequence
 from typing import Literal, Optional
 
 LABEL = re.compile(r"^(\d+)\.json$")
+# written by generating.Augmentations for every datapoint a step skipped
+SKIPPED_FILE = "skipped.jsonl"
 
 
 def dataset_path(path):
@@ -661,11 +664,14 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
         graph_file: file name of the graph, as given to `generating.Augmentations`.
 
     Returns:
-        `{id: {"type", "name", "expected", "observed", "applied", "calls", "values"}}` by
-        the ids of the graph: `name` is the one given to the augmentation (None without),
-        `expected` the graph's probability that it runs per call,
+        `{id: {"type", "name", "expected", "observed", "applied", "calls", "skipped",
+        "values"}}` by the ids of the graph: `name` is the one given to the augmentation
+        (None without), `skipped` the same counts over the skipped datapoints
+        (`{"observed", "applied", "calls"}`, from `skipped.jsonl`), `expected` the graph's
+        probability that it runs per call,
         `observed` the fraction of `calls` it ran in (`applied`), and `values`
-        `[{"value", "expected", "observed"}]` for every value expected or set.
+        `[{"value", "expected", "observed", "skipped_observed"}]` for every value expected
+        or set.
 
     Raises:
         FileNotFoundError: there is no graph file in the folder.
@@ -682,9 +688,37 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
     nodes = {}
     for root in roots:
         graph_nodes(root, root["id"], True, nodes)
-    stats = {node_id: {"type": node["type"], "applied": 0, "calls": 0, "values": {}}
-             for node_id, node in nodes.items() if "same_as" not in node}
-    for record in augmentation_records(path):
+    ids = [node_id for node_id, node in nodes.items() if "same_as" not in node]
+    stats = count_records(augmentation_records(path), nodes, ids)
+    skipped = count_records([line["augmentations"] for line in skipped_lines(path)], nodes, ids)
+    result = {}
+    for node_id, stat in stats.items():
+        node = nodes[node_id]
+        known = "used_at" not in node and (not node.get("ignores_object") or node["always"] or node_id == node["root"])
+        calls, skip = stat["calls"], skipped[node_id]
+        entry = {"type": node["type"], "name": node.get("name"), "expected": node["applied"] if known else None,
+                 "observed": stat["applied"] / calls if calls else None,
+                 "applied": stat["applied"], "calls": calls,
+                 "skipped": {"observed": skip["applied"] / skip["calls"] if skip["calls"] else None,
+                             "applied": skip["applied"], "calls": skip["calls"]}}
+        if "values" in node:
+            counts, skip_counts = dict(stat["values"]), dict(skip["values"])
+            keys = [json.dumps(item["value"]) for item in node["values"]]
+            keys += [key for key in list(counts) + list(skip_counts) if key not in keys]  # set but not listed
+            expected = {json.dumps(item["value"]): item["probability"] for item in node["values"]}
+            entry["values"] = [{"value": json.loads(key), "expected": expected.get(key) if known else None,
+                                "observed": counts.get(key, 0) / calls if calls else None,
+                                "skipped_observed": skip_counts.get(key, 0) / skip["calls"] if skip["calls"] else None}
+                               for key in dict.fromkeys(keys)]
+        result[node_id] = entry
+    return result
+
+
+def count_records(records, nodes, ids):
+    """For each node id: how often it was called and ran over the records, and how
+    often it set each value."""
+    stats = {node_id: {"applied": 0, "calls": 0, "values": {}} for node_id in ids}
+    for record in records:
         for node_id, stat in stats.items():
             node = nodes[node_id]
             objects = len(record.get(node["root"], {}))
@@ -700,27 +734,54 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
                     if entry.get("value") is not None:
                         key = json.dumps(entry["value"])
                         stat["values"][key] = stat["values"].get(key, 0) + 1
-    result = {}
-    for node_id, stat in stats.items():
-        node = nodes[node_id]
-        known = "used_at" not in node and (not node.get("ignores_object") or node["always"] or node_id == node["root"])
-        calls = stat["calls"]
-        entry = {"type": stat["type"], "name": node.get("name"), "expected": node["applied"] if known else None,
-                 "observed": stat["applied"] / calls if calls else None,
-                 "applied": stat["applied"], "calls": calls}
-        if "values" in node:
-            counts = dict(stat["values"])
-            values = []
-            for item in node["values"]:
-                count = counts.pop(json.dumps(item["value"]), 0)
-                values.append({"value": item["value"], "expected": item["probability"] if known else None,
-                               "observed": count / calls if calls else None})
-            for key, count in counts.items():  # set but not listed, e.g. a slot given by index
-                values.append({"value": json.loads(key), "expected": None,
-                               "observed": count / calls if calls else None})
-            entry["values"] = values
-        result[node_id] = entry
-    return result
+    return stats
+
+
+def skipped_lines(path):
+    """The lines of <path>/skipped.jsonl, {"skip", "augmentations"} each; [] without it."""
+    file_path = os.path.join(path, SKIPPED_FILE)
+    if not os.path.exists(file_path):
+        return []
+    with open(file_path) as file:
+        return [json.loads(line) for line in file if line.strip()]
+
+
+def skip_stats(path: str) -> dict:
+    """Counts the datapoints `generating.BBox` skipped, by reason and class.
+
+    Reads `skipped.jsonl`, which `generating.Augmentations` writes for every skipped
+    datapoint, and counts the labels with an `augmentations` record as the kept ones.
+
+    Args:
+        path: the generating path.
+
+    Returns:
+        `{"kept", "skipped", "reasons": {reason: {"count", "classes": {class: count}}}}`,
+        where the reason is the `BBox` setting that skipped it (`"max_truncation"`,
+        `"iou_deconflict"`, `"max_occlusion"`), and the class of an `iou_deconflict` skip
+        is the two classes joined by `" + "`.
+
+    Example:
+        ```python
+        skips = export.skip_stats("//dataset")
+        print(skips["skipped"], "of", skips["kept"] + skips["skipped"], "skipped")
+        for reason, info in skips["reasons"].items():
+            print(reason, info["count"], info["classes"])
+        ```
+    """
+    path = dataset_path(path)
+    reasons = {}
+    lines = skipped_lines(path)
+    for line in lines:
+        skip = line.get("skip") or {}
+        reason = reasons.setdefault(skip.get("reason", "unknown"), {"count": 0, "classes": {}})
+        reason["count"] += 1
+        name = skip.get("class")
+        name = " + ".join(name) if isinstance(name, list) else name
+        if name is not None:
+            reason["classes"][name] = reason["classes"].get(name, 0) + 1
+    ordered = dict(sorted(reasons.items(), key=lambda item: -item[1]["count"]))
+    return {"kept": len(augmentation_records(path)), "skipped": len(lines), "reasons": ordered}
 
 
 def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json") -> str:
@@ -734,7 +795,10 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
     `Visibility`, one per value. A difference more than 3 standard errors from
     chance (e.g. moved objects skipped more often by `BBox` because they leave the
-    frame) is marked. Clicking a card shows its settings and numbers. The page is one
+    frame) is marked. The datapoints `BBox` skipped are counted by reason (truncation,
+    IoU, occlusion) and class, and every card has a second bar with how often the
+    augmentation ran in them, which shows which ones the skips took out. Clicking a card
+    shows its settings and numbers. The page is one
     file that needs no internet, to open in any browser.
 
     Args:
@@ -756,15 +820,16 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     path = dataset_path(path)
     output = os.path.join(path, "augmentations.html") if output is None else dataset_path(output)
     write_report(output, f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}", path,
-                 load_graph(path, graph_file), augmentation_stats(path, graph_file), len(augmentation_records(path)))
+                 load_graph(path, graph_file), augmentation_stats(path, graph_file), len(augmentation_records(path)),
+                 skip_stats(path))
     return output
 
 
-def write_report(output, title, path, roots, stats=None, datapoints=None):
+def write_report(output, title, path, roots, stats=None, datapoints=None, skips=None):
     """Writes the report page for graph roots; without stats it is a preview of the
     graph alone (augmentations.graph_preview)."""
     data = {"title": title, "path": path or "", "preview": stats is None, "datapoints": datapoints,
-            "roots": roots, "stats": stats or {}}
+            "roots": roots, "stats": stats or {}, "skips": skips}
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "report.html")) as file:
         template = file.read()
     # "</" would end the script element the data is in

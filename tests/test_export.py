@@ -288,12 +288,13 @@ def test_augmentation_stats(tmp_path):
     (tmp_path / "000002.json").write_text(json.dumps({"resolution": [4, 4]}))  # no record: ignored
 
     stats = export.augmentation_stats(str(tmp_path))
-    assert stats["a"] == {"type": "Compose", "name": None, "expected": 0.5, "observed": 0.5, "applied": 2, "calls": 4}
+    assert stats["a"] == {"type": "Compose", "name": None, "expected": 0.5, "observed": 0.5, "applied": 2, "calls": 4,
+                          "skipped": {"observed": None, "applied": 0, "calls": 0}}
     assert stats["a.0.0"]["observed"] == 0.25 and stats["a.0.0"]["values"] == [
-        {"value": True, "expected": 0.25, "observed": 0.25}]
+        {"value": True, "expected": 0.25, "observed": 0.25, "skipped_observed": None}]
     assert stats["a.1"]["calls"] == 2 and stats["a.1"]["observed"] == 0 and stats["a.1"]["expected"] == 0.25
-    assert stats["a.1"]["values"] == [{"value": "SUN", "expected": 0.25, "observed": 0.0},
-                                      {"value": "POINT", "expected": 0.25, "observed": 0.5}]
+    assert stats["a.1"]["values"] == [{"value": "SUN", "expected": 0.25, "observed": 0.0, "skipped_observed": None},
+                                      {"value": "POINT", "expected": 0.25, "observed": 0.5, "skipped_observed": None}]
     assert stats["a.0.1"]["expected"] is None and stats["a.0.1"]["observed"] == 0.5
     with pytest.raises(FileNotFoundError):
         export.augmentation_stats(str(tmp_path), graph_file="missing.json")
@@ -317,3 +318,33 @@ def test_augmentation_report(tmp_path):
     assert data["stats"]["0.0"]["observed"] == 1.0
     other = export.augmentation_report(str(tmp_path), output=str(tmp_path / "report.html"))
     assert other.endswith("report.html") and os.path.exists(other)
+
+
+def test_skip_stats(tmp_path):
+    root = {"id": "a", "type": "Compose", "reached": 1.0, "applied": 1.0, "ignores_object": False,
+            "children": [{"id": "a.0", "type": "Visibility", "reached": 1.0, "applied": 0.5, "ignores_object": False,
+                          "values": [{"value": True, "probability": 0.5}, {"value": False, "probability": 0.5}]}]}
+    (tmp_path / "augmentations.json").write_text(json.dumps({"augmentations": [root]}))
+    (tmp_path / "000000.json").write_text(json.dumps({"augmentations": {
+        "a": {"x": {"applied": True}}, "a.0": {"x": {"applied": False, "value": False}}}}))
+    lines = [
+        {"skip": {"reason": "max_truncation", "class": "car", "objects": ["x"], "value": 0.4, "limit": 0.3},
+         "augmentations": {"a": {"x": {"applied": True}}, "a.0": {"x": {"applied": True, "value": True}}}},
+        {"skip": {"reason": "iou_deconflict", "class": ["car", "table"], "objects": [["x"], ["t"]], "value": 0.6,
+                  "limit": 0.5},
+         "augmentations": {"a": {"x": {"applied": True}}, "a.0": {"x": {"applied": True, "value": True}}}},
+        {"skip": {"reason": "max_truncation", "class": "car", "objects": ["x"], "value": 0.9, "limit": 0.3},
+         "augmentations": {"a": {"x": {"applied": True}}, "a.0": {"x": {"applied": False, "value": False}}}},
+    ]
+    (tmp_path / "skipped.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+
+    assert export.skip_stats(str(tmp_path)) == {"kept": 1, "skipped": 3, "reasons": {
+        "max_truncation": {"count": 2, "classes": {"car": 2}},
+        "iou_deconflict": {"count": 1, "classes": {"car + table": 1}}}}
+    stats = export.augmentation_stats(str(tmp_path))["a.0"]
+    assert stats["observed"] == 0 and stats["skipped"] == {"observed": 2 / 3, "applied": 2, "calls": 3}
+    assert stats["values"] == [{"value": True, "expected": 0.5, "observed": 0.0, "skipped_observed": 2 / 3},
+                               {"value": False, "expected": 0.5, "observed": 1.0, "skipped_observed": 1 / 3}]
+    page = open(export.augmentation_report(str(tmp_path))).read()
+    data = json.loads(re.search(r"const DATA = (.*);\n", page).group(1).replace("<\\/", "</"))
+    assert data["skips"]["skipped"] == 3 and data["stats"]["a.0"]["skipped"]["applied"] == 2

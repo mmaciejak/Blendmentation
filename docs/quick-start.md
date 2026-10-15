@@ -947,6 +947,8 @@ export.bop("//dataset")
 stats = export.augmentation_stats("//dataset")
 for node_id, node in stats.items():
     print(node_id, node["type"], node["expected"], node["observed"])
+# why BBox skipped datapoints, by reason and class
+print(export.skip_stats("//dataset"))
 # the same drawn: dataset/augmentations.html
 export.augmentation_report("//dataset")
 ```

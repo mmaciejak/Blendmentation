@@ -62,6 +62,9 @@ class Step:
     def __call__(self, frame: Any) -> Optional[bool]:
         raise NotImplementedError
 
+    def skipped(self, frame: Any) -> None:
+        """Called on every step when a step skipped the datapoint; `frame.skip` says why."""
+
 
 class Compose:
     """Generates one datapoint per call from a list of steps.
@@ -397,8 +400,10 @@ class Augmentations(Step):
     reads what each augmentation did for each object of the last call, nested ones
     included. The graph (`augmentations.Compose.describe`) goes to
     `<path>/augmentations.json`, rewritten when the augmentations change, so it
-    describes the latest ones. `export.augmentation_stats` compares the two over the
-    dataset: the datapoints `BBox` skipped have no label, so they don't count.
+    describes the latest ones. A datapoint `BBox` skips has no label: its line in
+    `<path>/skipped.jsonl` says why and what the augmentations did, so
+    `export.augmentation_stats`, `export.skip_stats` and `export.augmentation_report`
+    show what the skips took out of the dataset.
 
     In the label JSON: `"augmentations": {id: {object name: {"applied", "value"}}}`, by
     the ids of the graph (the root's name, then the index of each augmentation down the
@@ -408,6 +413,13 @@ class Augmentations(Step):
     that didn't run for any object (a `OneOf` didn't pick it) is left out, and one that
     changes the same thing for every object (an absolute data path, `Seed`) has a single
     entry under `"null"`, its last call.
+
+    In `skipped.jsonl`, one JSON object per skipped datapoint: `{"skip": {"reason",
+    "class", "objects", "value", "limit"}, "augmentations": {...}}`, where the reason is
+    the `BBox` setting (`"max_truncation"`, `"iou_deconflict"` or `"max_occlusion"`),
+    `value` what was measured (the truncated fraction, the IoU or the occluded fraction)
+    and `limit` the setting's value; for `iou_deconflict`, `class` and `objects` list the
+    two instances.
 
     Args:
         augmentations: augmentation `Compose`s: one, a list (ids `"0"`, `"1"`...) or a
@@ -445,6 +457,9 @@ class Augmentations(Step):
 
     def __call__(self, frame):
         bpy_g.record_augmentations(frame, self.augmentations, self.graph_file)
+
+    def skipped(self, frame):
+        bpy_g.record_skip(frame, self.augmentations, self.graph_file)
 
 
 class CameraData(Step):

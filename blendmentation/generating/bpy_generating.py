@@ -32,6 +32,8 @@ INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
 
 
 CLASS_SETTINGS = ("iou_deconflict", "max_truncation", "max_occlusion")
+# the datapoints a step skipped, one JSON line each (generating.Augmentations)
+SKIPPED_FILE = "skipped.jsonl"
 
 
 def check_threshold(name, value, owner):
@@ -247,14 +249,17 @@ def iou(box_a, box_b):
 
 
 def iou_conflict(boxes, limits):
-    """Whether two boxes overlap more than their limit, the lower of the two limits
-    (a None limit sets none; two None limits mean the pair is never a conflict)."""
+    """The first pair of boxes that overlap more than their limit, the lower of the two
+    limits, as (i, j, iou, limit), or None (a None limit sets none; two None limits mean
+    the pair is never a conflict)."""
     for i in range(len(boxes)):
         for j in range(i + 1, len(boxes)):
             pair = [limit for limit in (limits[i], limits[j]) if limit is not None]
-            if pair and iou(boxes[i], boxes[j]) > min(pair):
-                return True
-    return False
+            if pair:
+                overlap = iou(boxes[i], boxes[j])
+                if overlap > min(pair):
+                    return i, j, overlap, min(pair)
+    return None
 
 
 def rotation_to_camera(camera, obj):
@@ -430,6 +435,8 @@ class Frame:
         self.height = height
         self.temp_dir = temp_dir
         self.label = {"resolution": [width, height]}
+        # why a step skipped the datapoint: {"reason", "class", "objects", "value", "limit"}
+        self.skip: Optional[dict] = None
         self.rendered = False
         # (path, channel names of each part) of the multilayer EXR, once saved
         self.multilayer_file: Optional[tuple[str, list]] = None
@@ -614,7 +621,7 @@ def bboxes(frame, classes, settings, allow_empty=False):
     """
     settings = class_settings(classes, settings)
     instances = to_instances(classes, frame)
-    entries, boxes, limits = [], [], []
+    entries, boxes, limits, boxed = [], [], [], []
     for class_name, group in instances:
         entry = {"class": class_name, "objects": [obj.name for obj in group], "bbox": None}
         entries.append(entry)
@@ -627,22 +634,34 @@ def bboxes(frame, classes, settings, allow_empty=False):
         if bounds is None and not behind:
             continue
         limit = settings[class_name]["max_truncation"]
-        if limit is not None and truncation(bounds, behind) > limit:
+        if limit is not None:
+            value = truncation(bounds, behind)
             # with allow_empty, an instance out of view is absent, not truncated
-            if not allow_empty or in_view(frame.scene, frame.camera, rendered, frame.depsgraph, bounds, behind):
+            if value > limit and (not allow_empty or in_view(frame.scene, frame.camera, rendered, frame.depsgraph,
+                                                             bounds, behind)):
+                frame.skip = {"reason": "max_truncation", "class": class_name, "objects": entry["objects"],
+                              "value": value, "limit": limit}
                 return False
         box = entry["bbox"] = to_pixels(bounds, frame.width, frame.height)
         if box is not None:
             boxes.append(box)
             limits.append(settings[class_name]["iou_deconflict"])
-    if iou_conflict(boxes, limits):
+            boxed.append(entry)
+    conflict = iou_conflict(boxes, limits)
+    if conflict:
+        i, j, overlap, limit = conflict
+        frame.skip = {"reason": "iou_deconflict", "class": [boxed[i]["class"], boxed[j]["class"]],
+                      "objects": [boxed[i]["objects"], boxed[j]["objects"]], "value": overlap, "limit": limit}
         return False
     # last, it needs two workbench renders
     occlusion_limits = [settings[class_name]["max_occlusion"] for class_name, _ in instances]
     if any(limit is not None for limit in occlusion_limits):
         occluded = occlusions(frame, [group for _, group in instances])
-        if any(limit is not None and value > limit for value, limit in zip(occluded, occlusion_limits)):
-            return False
+        for entry, value, limit in zip(entries, occluded, occlusion_limits):
+            if limit is not None and value > limit:
+                frame.skip = {"reason": "max_occlusion", "class": entry["class"], "objects": entry["objects"],
+                              "value": value, "limit": limit}
+                return False
     frame.add("bboxes", entries)
     return True
 
@@ -721,10 +740,29 @@ def record_augmentations(frame, augmentations, graph_file):
     """Adds what each augmentation did to the labels under "augmentations", and writes
     their graph to <path>/<graph_file> when it changed."""
     roots = augs.compose_roots(augmentations)
+    frame.label["augmentations"] = augmentation_record(roots)
+    write_graph(frame, roots, graph_file)
+
+
+def augmentation_record(roots):
     record = {}
     for name, compose in roots:
         graph.record(compose, name, record)
-    frame.label["augmentations"] = record
+    return record
+
+
+def record_skip(frame, augmentations, graph_file):
+    """Appends why the datapoint was skipped and what each augmentation did to
+    <path>/skipped.jsonl, one JSON object per line: {"skip": {...}, "augmentations": {...}}."""
+    roots = augs.compose_roots(augmentations)
+    line = {"skip": frame.skip, "augmentations": augmentation_record(roots)}
+    with open(os.path.join(frame.path, SKIPPED_FILE), "a") as file:
+        file.write(json.dumps(line) + "\n")
+    write_graph(frame, roots, graph_file)
+
+
+def write_graph(frame, roots, graph_file):
+    """Writes the graph of the augmentations to <path>/<graph_file> when it changed."""
     if graph_file is None:
         return
     text = json.dumps({"augmentations": [graph.describe(compose, name) for name, compose in roots]}, indent=2)
@@ -1264,6 +1302,9 @@ def generate(path, resolution, steps, custom_dict=None):
             step.prepare(frame)
         for step in steps:
             if step(frame) is False:
+                frame.skip = frame.skip or {"reason": type(step).__name__}
+                for other in steps:
+                    other.skipped(frame)
                 return False
 
     label = frame.label

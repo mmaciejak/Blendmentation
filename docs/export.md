@@ -2,4 +2,4 @@
 
 ::: blendmentation.export.export
     options:
-      members: [coco, yolo, voc, bop, augmentation_stats, augmentation_report]
+      members: [coco, yolo, voc, bop, augmentation_stats, skip_stats, augmentation_report]

@@ -8,13 +8,13 @@
 :root {
   --bg: #fafafa; --card: #ffffff; --ink: #24272d; --muted: #737985; --line: #e1e3e8;
   --bar: #8a909c; --track: #eff0f3; --tick: #24272d; --warn: #b4572e; --chip: #f2f3f5;
-  --edge: #c3c7cf; --select: #5b6475; --frame: #f3f4f6;
+  --edge: #c3c7cf; --select: #5b6475; --frame: #f3f4f6; --skip: #c9a58f;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #16181c; --card: #1d2025; --ink: #dfe1e5; --muted: #8b909a; --line: #2e3138;
     --bar: #7d838e; --track: #272a30; --tick: #dfe1e5; --warn: #d9895f; --chip: #262a30;
-    --edge: #454a54; --select: #9aa1ae; --frame: #1a1c20;
+    --edge: #454a54; --select: #9aa1ae; --frame: #1a1c20; --skip: #8a6a57;
   }
 }
 * { box-sizing: border-box; }
@@ -72,6 +72,9 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 .bars .num { text-align: right; font-variant-numeric: tabular-nums; }
 .track { position: relative; height: 5px; background: var(--track); border-radius: 3px; }
 .track .o { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 3px; }
+.track.skip .o { background: var(--skip); }
+.summary .link { cursor: pointer; }
+.summary .link:hover span { text-decoration: underline; }
 .track .e { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: var(--tick); }
 .values { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; }
 .input-row + .input-row { margin-top: 3px; }
@@ -87,7 +90,7 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 #panel pre { background: var(--chip); padding: 10px; border-radius: 6px; overflow: auto; font-size: 12px; margin: 6px 0 14px; }
 #panel .close { float: right; }
 .note { color: var(--muted); font-size: 12px; }
-body.preview .report-only, body:not(.preview) .preview-only { display: none; }
+body.preview .report-only, body:not(.preview) .preview-only, body:not(.skips) .skips-only { display: none; }
 @media (max-width: 640px) {
   header { padding: 14px 16px 8px; } .legend { padding: 0 16px 8px; } .toolbar { margin-left: 0; }
   #stage { height: auto; min-height: 70vh; }
@@ -111,6 +114,7 @@ body.preview .report-only, body:not(.preview) .preview-only { display: none; }
   <span>⑂ a fork: picks one branch, by weight</span>
   <span class="report-only"><i style="background: var(--bar)"></i>observed (dataset)</span>
   <span class="report-only"><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
+  <span class="skips-only"><i style="background: var(--skip)"></i>in the datapoints BBox skipped</span>
   <span class="preview-only"><i style="background: var(--bar)"></i>probability it runs, per object of a call</span>
   <span><i style="background: var(--edge); height: 2px"></i>line width: how often it is reached</span>
   <span class="report-only"><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
@@ -119,6 +123,8 @@ body.preview .report-only, body:not(.preview) .preview-only { display: none; }
 <aside id="panel"></aside>
 <script>
 const DATA = __DATA__;
+const hasSkips = !DATA.preview && DATA.skips && DATA.skips.skipped > 0;
+if (hasSkips) document.body.classList.add("skips");
 // a flowchart: a Compose or Chain is a frame whose steps run left to right, a OneOf a card
 // with a fork to its branches, which join again; Node and Modifier inputs are rows of their card
 const CARD_W = 236, SEQ_GAP = 34, LEAD = 18, FORK_W = 124, JOIN_W = 34, V_GAP = 16, PAD = 20, FRAME_PAD = 12,
@@ -273,6 +279,13 @@ function makeCard(node) {
 
   const bars = text("div", "bars");
   barRow(bars, "runs", ...runs(node));
+  if (hasSkips && node.stats && node.stats.skipped && node.stats.skipped.calls) {
+    bars.append(text("span", "label", "skipped"));
+    const bar = track(null, node.stats.skipped.observed);
+    bar.classList.add("skip");
+    bar.title = "in the skipped datapoints: " + pct(node.stats.skipped.observed);
+    bars.append(bar, text("span", "num", pct(node.stats.skipped.observed)));
+  }
   card.append(bars);
   const s = node.stats;
   const values = s && s.values && s.values.length ? s.values
@@ -443,6 +456,9 @@ function openPanel(node) {
     [DATA.preview ? "Runs" : "Runs (expected)", pct(s.expected !== undefined && s.expected !== null ? s.expected : node.applied), node.p !== undefined ? "reached × p " + node.p : ""],
   ];
   if (!DATA.preview) rows.push(["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""]);
+  if (hasSkips && s.skipped && s.skipped.calls) {
+    rows.push(["Runs (skipped datapoints)", pct(s.skipped.observed), s.skipped.applied + " of " + s.skipped.calls + " calls in the datapoints BBox skipped"]);
+  }
   const z = zScore(s.expected, s.observed, s.calls);
   if (z !== null) rows.push(["Difference", ((s.observed - s.expected) * 100).toFixed(1) + " pts", "z " + (isFinite(z) ? z.toFixed(1) : "∞")]);
   if (node.share !== undefined) rows.push(["Branch", "weight " + show(node.weight), pct(node.share) + " of the picks of " + title(node.parent)]);
@@ -461,12 +477,14 @@ function openPanel(node) {
     const vt = text("table"), hr = text("tr");
     hr.append(text("th", "", "value"), text("th", "n", DATA.preview ? "probability" : "expected"));
     if (!DATA.preview) hr.append(text("th", "n", "observed"), text("th", "n", "difference"));
+    if (hasSkips) hr.append(text("th", "n", "skipped"));
     vt.append(hr);
     for (const v of values) {
       const tr = text("tr"), zv = zScore(v.expected, v.observed, s.calls);
       const diff = zv === null ? "" : ((v.observed - v.expected) * 100).toFixed(1) + " pts (z " + (isFinite(zv) ? zv.toFixed(1) : "∞") + ")";
       tr.append(text("td", "", show(v.value)), text("td", "n", pct(v.expected)));
       if (!DATA.preview) tr.append(text("td", "n", pct(v.observed)), text("td", "n", diff));
+      if (hasSkips) tr.append(text("td", "n", pct(v.skipped_observed)));
       vt.append(tr);
     }
     panel.append(vt);
@@ -474,6 +492,36 @@ function openPanel(node) {
   if (node.settings && Object.keys(node.settings).length) {
     panel.append(text("div", "note", "Settings"), text("pre", "", JSON.stringify(node.settings, null, 2)));
   }
+  panel.classList.add("open");
+}
+
+function openSkips() {
+  document.querySelectorAll(".selected").forEach(el => el.classList.remove("selected"));
+  const panel = document.getElementById("panel"), skips = DATA.skips, total = skips.kept + skips.skipped;
+  panel.innerHTML = "";
+  const close = text("button", "close", "Close");
+  close.onclick = () => panel.classList.remove("open");
+  panel.append(close, text("h2", "", "Skipped datapoints"),
+               text("div", "note", skips.skipped + " of " + total + " generated (" + pct(skips.skipped / total) + "), skipped by BBox"));
+  const NAMES = {max_truncation: "cut by the frame (max_truncation)", iou_deconflict: "boxes overlapping (iou_deconflict)",
+                 max_occlusion: "hidden by other objects (max_occlusion)"};
+  const table = text("table"), hr = text("tr");
+  hr.append(text("th", "", "reason"), text("th", "n", "datapoints"), text("th", "n", "of all"));
+  table.append(hr);
+  for (const [reason, info] of Object.entries(skips.reasons)) {
+    const tr = text("tr");
+    tr.append(text("td", "", NAMES[reason] || reason), text("td", "n", String(info.count)), text("td", "n", pct(info.count / total)));
+    table.append(tr);
+    for (const [name, count] of Object.entries(info.classes)) {
+      const sub = text("tr");
+      const cell = text("td", "note", name);
+      cell.style.paddingLeft = "20px";
+      sub.append(cell, text("td", "n note", String(count)), text("td", "n note", pct(count / total)));
+      table.append(sub);
+    }
+  }
+  panel.append(table, text("div", "note", "Each card's second bar shows how often the augmentation ran in these datapoints: " +
+    "much higher than in the kept ones means the skips took its results out of the dataset."));
   panel.classList.add("open");
 }
 
@@ -487,9 +535,14 @@ const summary = document.getElementById("summary");
 const figures = DATA.preview ? [["augmentations", counted.length]]
   : [["datapoints", DATA.datapoints], ["augmentations", counted.length],
      ["differ from expected", flagged, flagged ? "warn" : ""]];
+if (hasSkips) {
+  const total = DATA.skips.kept + DATA.skips.skipped;
+  figures.splice(1, 0, ["skipped by BBox", DATA.skips.skipped + " (" + pct(DATA.skips.skipped / total) + ")", "link"]);
+}
 for (const [label, value, cls] of figures) {
   const item = text("div", cls);
   item.append(text("b", "", String(value)), text("span", "sub", label));
+  if (cls === "link") { item.onclick = openSkips; item.title = "Why they were skipped"; }
   summary.append(item);
 }
 document.getElementById("expand").onclick = () => { collapsed.clear(); render(); };

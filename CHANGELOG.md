@@ -6,6 +6,17 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `generating.Augmentations` writes every datapoint `BBox` skips to `skipped.jsonl` in the
+  output folder: the reason (`max_truncation`, `iou_deconflict` or `max_occlusion`), the
+  class and objects, the measured value and the limit, and what each augmentation did.
+- `export.skip_stats(path)` counts the skipped datapoints by reason and class, and
+  `export.augmentation_stats` also counts each augmentation in them (`skipped`).
+- `export.augmentation_report` shows the skipped datapoints: their number in the header
+  (click it for the reasons and classes) and, on every card, a second bar with how often
+  the augmentation ran in them, so the augmentations the skips took out stand out.
+
 ## [0.10.0] - 2026-10-15
 
 ### Added

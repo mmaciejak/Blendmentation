@@ -929,3 +929,43 @@ def test_augmentations_step_errors(scene, out, augmentations, graph_file, error)
         augmentations = A.Compose([A.Rotation(z=1)])
     with pytest.raises(error):
         G.Compose([G.Augmentations(augmentations, graph_file)], out, (16, 12))()
+
+
+def test_skipped_datapoints(scene, cube, out):
+    """A skipped datapoint has no label; Augmentations writes why to skipped.jsonl, with
+    what the augmentations did."""
+    from blendmentation.augmentations import augmentations as A
+    from blendmentation.state import state
+
+    def skipped(objects, **settings):
+        aug = A.Compose([A.Rotation(z=(5, 5))], name="objects")
+        generator = G.Compose([G.BBox({"car": objects}, **settings), G.Augmentations({"objects": aug})], out, (64, 48))
+        with state.restoring():
+            aug(objects)
+            assert generator() is False
+        with open(os.path.join(out, "skipped.jsonl")) as file:
+            return json.loads(file.read().splitlines()[-1])
+
+    far = cube("far", (3.6, 0, 0))  # across the right edge of the frame
+    line = skipped([far], max_truncation=0)
+    assert line["skip"]["reason"] == "max_truncation" and line["skip"]["class"] == "car"
+    assert line["skip"]["objects"] == ["far"] and line["skip"]["limit"] == 0 and 0 < line["skip"]["value"] < 1
+    assert line["augmentations"]["objects.0"] == {"far": {"applied": True, "value": [0.0, 0.0, 5.0]}}
+    assert os.path.exists(os.path.join(out, "augmentations.json")) and not label_files(out)
+    far.location.x = 30  # out of view
+
+    a, b = cube("a", (0, 0, 0)), cube("b", (0.1, 0, 0))
+    line = skipped([a, b], iou_deconflict=0.5)
+    assert line["skip"]["reason"] == "iou_deconflict" and line["skip"]["class"] == ["car", "car"]
+    assert line["skip"]["objects"] == [["a"], ["b"]] and line["skip"]["value"] > 0.5
+    b.location.x = 5
+
+    cube("wall", (0, -3, 0), 2)  # in no class, in front of a
+    line = skipped([a], max_occlusion=0.3)
+    assert line["skip"]["reason"] == "max_occlusion" and line["skip"]["objects"] == ["a"] and line["skip"]["value"] > 0.3
+    with open(os.path.join(out, "skipped.jsonl")) as file:
+        assert len(file.read().splitlines()) == 3, "one line per skipped datapoint, appended"
+
+
+def label_files(out):
+    return [name for name in os.listdir(out) if name[0].isdigit() and name.endswith(".json")]

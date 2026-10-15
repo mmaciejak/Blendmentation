@@ -240,5 +240,8 @@ export.bop(output_path)
 # the datapoints BBox skipped are not in it
 for node_id, node in export.augmentation_stats(output_path).items():
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
+# why BBox skipped datapoints: cut by the frame, overlapping boxes, hidden by the clutter
+skips = export.skip_stats(output_path)
+print(skips["skipped"], "skipped:", {reason: info["count"] for reason, info in skips["reasons"].items()})
 # the same drawn as a graph, in augmentations.html next to the dataset (open it in a browser)
 export.augmentation_report(output_path)

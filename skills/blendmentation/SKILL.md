@@ -287,6 +287,7 @@ export.voc("/absolute/output/folder")    # Annotations/*.xml
 export.bop("/absolute/output/folder")    # bop/train_pbr/000000/: needs Pose + CameraData; masks, depth if generated
 for node_id, node in export.augmentation_stats("/absolute/output/folder").items():   # needs Augmentations
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
+print(export.skip_stats("/absolute/output/folder"))   # why BBox skipped datapoints, by reason and class
 print(export.augmentation_report("/absolute/output/folder"))   # augmentations.html: the graph drawn, give the user the path
 ```
 
