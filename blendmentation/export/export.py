@@ -726,8 +726,10 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
 def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json") -> str:
     """Writes an HTML page with the augmentation graph and how the dataset followed it.
 
-    Every augmentation is a card, connected to the ones inside it by lines as thick as
-    the probability that they are reached. Each card has a bar with how often it runs,
+    The augmentations are drawn as a flowchart: the steps of a `Compose` or `Chain` run
+    left to right in a frame, a `OneOf` forks to its branches (with their weight and
+    share) and they join again, and lines are as thick as the probability that they are
+    reached. Each card has a bar with how often it runs,
     expected (the graph) and observed (the dataset, `augmentation_stats`), and for a
     `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
     `Visibility`, one per value. A difference more than 3 standard errors from

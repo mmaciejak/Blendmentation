@@ -151,9 +151,10 @@ def compose_roots(augmentations: Any) -> list[tuple[str, Compose]]:
 def graph_preview(composes: Any, path: str, show: bool = False) -> str:
     """Draws what augmentation `Compose`s can do on an HTML page, before generating.
 
-    The same page as `export.augmentation_report`, without a dataset: every augmentation
-    is a card, connected to the ones inside it by lines as thick as the probability that
-    they are reached, with a bar of how often it runs per object and, for a `Menu`,
+    The same page as `export.augmentation_report`, without a dataset: a flowchart where
+    the steps of a `Compose` or `Chain` run left to right in a frame and a `OneOf` forks
+    to its branches (with their weight and share), which join again. Each augmentation is
+    a card with a bar of how often it runs per object and, for a `Menu`,
     `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a `Visibility`,
     one per value (`Compose.describe`). Check the probabilities of a pipeline before a
     long run; after it, `export.augmentation_report` adds what the dataset did.

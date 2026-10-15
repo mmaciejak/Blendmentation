@@ -22,9 +22,10 @@ All notable changes to Blendmentation. The format follows
   dataset, and how often it set each value, with the probabilities of its graph. The
   datapoints `BBox` skipped are not in the dataset, so the gap shows what they changed.
 - `export.augmentation_report(path)` writes `augmentations.html`, a page that draws the
-  graph as connected cards, with bars of how often each augmentation runs and sets each
-  value, expected and observed, and marks the differences larger than chance. The lines
-  out of a `OneOf` show each branch's weight and share. It is one
+  graph as a flowchart (the steps of a `Compose` or `Chain` in a row, a `OneOf` as a fork
+  to its branches with their weight and share, `Node` and `Modifier` inputs as rows of
+  their card), with bars of how often each augmentation runs and sets each value,
+  expected and observed, and marks the differences larger than chance. It is one
   file, opened in any browser without internet.
 - `augmentations.graph_preview(composes, path, show=False)` draws the graph of augmentation
   `Compose`s on the same HTML page, before generating, with the probability of each

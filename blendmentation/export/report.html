@@ -8,13 +8,13 @@
 :root {
   --bg: #fafafa; --card: #ffffff; --ink: #24272d; --muted: #737985; --line: #e1e3e8;
   --bar: #8a909c; --track: #eff0f3; --tick: #24272d; --warn: #b4572e; --chip: #f2f3f5;
-  --edge: #c3c7cf; --select: #5b6475;
+  --edge: #c3c7cf; --select: #5b6475; --frame: #f3f4f6;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #16181c; --card: #1d2025; --ink: #dfe1e5; --muted: #8b909a; --line: #2e3138;
     --bar: #7d838e; --track: #272a30; --tick: #dfe1e5; --warn: #d9895f; --chip: #262a30;
-    --edge: #454a54; --select: #9aa1ae;
+    --edge: #454a54; --select: #9aa1ae; --frame: #1a1c20;
   }
 }
 * { box-sizing: border-box; }
@@ -35,11 +35,22 @@ button:hover { border-color: var(--select); }
 .legend i.tick { width: 2px; height: 10px; border-radius: 0; }
 #stage { position: relative; overflow: auto; height: calc(100vh - 118px); min-height: 300px; border-top: 1px solid var(--line); }
 #canvas { position: relative; }
-svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-.share { position: absolute; transform: translate(-50%, -50%); background: var(--card); border: 1px solid var(--line);
+svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 1; }
+.frame { position: absolute; border: 1px solid var(--line); border-radius: 8px; background: var(--frame); z-index: 0; }
+.frame.selected { border-color: var(--select); }
+.frame-head { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px 0; white-space: nowrap; cursor: pointer; font-size: 12px; }
+.frame-head .type { font-weight: 600; font-size: 13px; }
+.frame-head .kind, .frame-head .num { color: var(--muted); }
+.frame-head .track { width: 56px; }
+.frame-head .id { margin-left: 8px; }
+.dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--edge); transform: translate(-50%, -50%); z-index: 3; }
+.input-row { cursor: pointer; }
+.input-row:hover .label { color: var(--ink); }
+.input-row.warn-row .label { color: var(--warn); }
+.share { position: absolute; transform: translate(-50%, -50%); z-index: 3; background: var(--card); border: 1px solid var(--line);
   border-radius: 4px; padding: 0 5px; font-size: 11px; line-height: 17px; color: var(--muted); white-space: nowrap;
   pointer-events: none; }
-.card { position: absolute; width: 260px; background: var(--card); border: 1px solid var(--line);
+.card { position: absolute; width: 236px; z-index: 2; background: var(--card); border: 1px solid var(--line);
   border-radius: 6px; padding: 9px 11px 10px; cursor: pointer; }
 .card:hover, .card.selected { border-color: var(--select); }
 .card.flag { box-shadow: inset 2px 0 0 var(--warn); }
@@ -54,13 +65,14 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .chip { background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 11px; line-height: 18px; }
 .chip.warn { background: none; color: var(--warn); padding: 0; }
-.bars { margin-top: 7px; display: grid; grid-template-columns: 54px 1fr 42px; gap: 3px 6px; align-items: center; font-size: 11px; }
+.bars { margin-top: 7px; display: grid; grid-template-columns: 62px 1fr 42px; gap: 3px 6px; align-items: center; font-size: 11px; }
 .bars .label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bars .num { text-align: right; font-variant-numeric: tabular-nums; }
 .track { position: relative; height: 5px; background: var(--track); border-radius: 3px; }
 .track .o { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 3px; }
 .track .e { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: var(--tick); }
 .values { border-top: 1px solid var(--line); margin-top: 7px; padding-top: 6px; }
+.input-row + .input-row { margin-top: 3px; }
 #panel { position: fixed; right: 0; top: 0; bottom: 0; width: min(420px, 100vw); background: var(--card);
   border-left: 1px solid var(--line); padding: 18px 20px; overflow: auto;
   transform: translateX(105%); transition: transform .18s ease; z-index: 5; }
@@ -93,18 +105,23 @@ body.preview .report-only, body:not(.preview) .preview-only { display: none; }
   </div>
 </header>
 <div class="legend">
+  <span>→ steps in a row: all run, left to right</span>
+  <span>⑂ a fork: picks one branch, by weight</span>
   <span class="report-only"><i style="background: var(--bar)"></i>observed (dataset)</span>
   <span class="report-only"><i class="tick" style="background: var(--tick)"></i>expected (graph)</span>
   <span class="preview-only"><i style="background: var(--bar)"></i>probability it runs, per object of a call</span>
-  <span><i style="background: var(--edge); height: 2px"></i>line width: how often the branch is reached</span>
+  <span><i style="background: var(--edge); height: 2px"></i>line width: how often it is reached</span>
   <span class="report-only"><i style="background: var(--warn); height: 2px"></i>observed differs from expected (|z| &gt; 3)</span>
 </div>
 <div id="stage"><div id="canvas"><svg id="edges"></svg></div></div>
 <aside id="panel"></aside>
 <script>
 const DATA = __DATA__;
-const CARD_W = 260, GAP_X = 104, GAP_Y = 14, PAD = 20;
-const nodes = {}, cards = {}, collapsed = new Set();
+// a flowchart: a Compose or Chain is a frame whose steps run left to right, a OneOf a card
+// with a fork to its branches, which join again; Node and Modifier inputs are rows of their card
+const CARD_W = 236, SEQ_GAP = 34, LEAD = 18, FORK_W = 124, JOIN_W = 34, V_GAP = 16, PAD = 20, FRAME_PAD = 12,
+      HEAD_H = 38, AXIS = 19, ROOT_GAP = 32, STUB = 16;
+const nodes = {}, cards = {}, frames = {}, collapsed = new Set();
 const canvas = document.getElementById("canvas"), svg = document.getElementById("edges");
 
 function pct(x) {
@@ -145,157 +162,254 @@ function describe(node) {
   if (node.type === "function") return node.name;
   return Object.entries(st).map(([k, v]) => k + " " + show(v)).join(" · ");
 }
-
-function walk(node, parent, depth) {
-  node.parent = parent; node.depth = depth; node.stats = DATA.stats[node.id];
-  nodes[node.id] = node;
-  (node.children || []).forEach(child => walk(child, node, depth + 1));
+function title(node) {
+  return node.name && node.type !== "function" ? node.name : node.type;
 }
-DATA.roots.forEach(root => walk(root, null, 0));
+function isInputs(node) {
+  return node.type === "Node" || node.type === "Modifier";
+}
+// a Compose, Chain or OneOf drawn with its children (Node and Modifier inputs are rows instead)
+function isContainer(node) {
+  return !node.same_as && !node.inInputs && !isInputs(node) && (node.children || []).length > 0;
+}
+function shape(node) {
+  if (!isContainer(node) || collapsed.has(node.id)) return "card";
+  return node.type === "OneOf" ? "choice" : "sequence";
+}
 
+function walk(node, parent, depth, inInputs) {
+  node.parent = parent; node.depth = depth; node.stats = DATA.stats[node.id]; node.inInputs = inInputs;
+  nodes[node.id] = node;
+  (node.children || []).forEach(child => walk(child, node, depth + 1, inInputs || isInputs(node)));
+}
+DATA.roots.forEach(root => walk(root, null, 0, false));
+
+function runs(node) {
+  const s = node.stats;
+  return [s && s.expected !== null ? s.expected : node.applied, s ? s.observed : null];
+}
 function barRow(parent, label, expected, observed) {
   parent.append(text("span", "label", label));
-  const track = text("div", "track");
-  const e = text("div", "e"), o = text("div", "o");
+  parent.append(track(expected, observed), text("span", "num", pct(DATA.preview || observed === null || observed === undefined ? expected : observed)));
+}
+function track(expected, observed) {
+  const el = text("div", "track"), e = text("div", "e"), o = text("div", "o");
   if (DATA.preview) observed = expected;  // no dataset: the bar is the graph's probability
   o.style.width = observed === null || observed === undefined ? "0" : (observed * 100) + "%";
-  track.append(o);
+  el.append(o);
   if (!DATA.preview && expected !== null && expected !== undefined) {
     e.style.left = (expected * 100) + "%";
-    track.append(e);
+    el.append(e);
   }
-  track.title = DATA.preview ? "probability " + pct(expected) : "expected " + pct(expected) + ", observed " + pct(observed);
-  parent.append(track, text("span", "num", pct(observed === null || observed === undefined ? expected : observed)));
+  el.title = DATA.preview ? "probability " + pct(expected) : "expected " + pct(expected) + ", observed " + pct(observed);
+  return el;
+}
+function toggle(node) {
+  const button = text("button", "toggle", "▾");
+  button.title = "Collapse / expand";
+  button.onclick = event => {
+    event.stopPropagation();
+    collapsed.has(node.id) ? collapsed.delete(node.id) : collapsed.add(node.id);
+    render();
+  };
+  (node.toggles = node.toggles || []).push(button);
+  return button;
+}
+function chips(node, found) {
+  const el = text("div", "chips");
+  if (node.p !== undefined && node.p < 1) el.append(text("span", "chip", "p " + node.p));
+  if (node.otherwise) el.append(text("span", "chip", "otherwise " + show(node.otherwise.value)));
+  if (node.ignores_object) el.append(text("span", "chip", "ignores object"));
+  if (node.same_as) el.append(text("span", "chip", "same as " + node.same_as));
+  if (node.used_at) el.append(text("span", "chip", "also at " + node.used_at.join(", ")));
+  for (const f of found) {
+    const diff = f.observed - f.expected;
+    el.append(text("span", "chip warn", (f.what === "runs" ? "" : f.what + " ") + (diff > 0 ? "+" : "") + (diff * 100).toFixed(1) + " pts"));
+  }
+  return el;
 }
 
 function makeCard(node) {
   const card = text("div", "card");
   const found = flags(node);
-  if (found.length) card.classList.add("flag");
   if (node.same_as) card.classList.add("ghost");
   const head = text("div", "head");
-  if (node.children && node.children.length) {
-    const toggle = text("button", "toggle", "▾");
-    toggle.title = "Collapse / expand";
-    toggle.onclick = event => {
-      event.stopPropagation();
-      collapsed.has(node.id) ? collapsed.delete(node.id) : collapsed.add(node.id);
-      render();
-    };
-    head.append(toggle);
-    node.toggle = toggle;
-  }
-  const titled = node.name && node.type !== "function";
-  head.append(text("span", "type", titled ? node.name : node.type), text("span", "id", node.id));
+  if (isContainer(node)) head.append(toggle(node));
+  head.append(text("span", "type", title(node)), text("span", "id", node.id));
   card.append(head);
-  if (titled) card.append(text("div", "kind", node.type));
-  const what = describe(node);
+  if (title(node) !== node.type) card.append(text("div", "kind", node.type));
+  const count = (node.children || []).length;
+  const what = isContainer(node) ? (node.type === "OneOf" ? "picks one of " + count : count + " steps, left to right") : describe(node);
   if (what) { const w = text("div", "what", what); w.title = what; card.append(w); }
+  const badges = chips(node, found);
+  if (badges.children.length) card.append(badges);
 
-  const chips = text("div", "chips");
-  if (node.p !== undefined && node.p < 1) chips.append(text("span", "chip", "p " + node.p));
-  if (node.otherwise) chips.append(text("span", "chip", "otherwise " + show(node.otherwise.value)));
-  if (node.ignores_object) chips.append(text("span", "chip", "ignores object"));
-  if (node.same_as) chips.append(text("span", "chip", "same as " + node.same_as));
-  if (node.used_at) chips.append(text("span", "chip", "also at " + node.used_at.join(", ")));
-  for (const f of found) {
-    const diff = f.observed - f.expected;
-    chips.append(text("span", "chip warn", (f.what === "runs" ? "" : f.what + " ") + (diff > 0 ? "+" : "") + (diff * 100).toFixed(1) + " pts"));
-  }
-  if (chips.children.length) card.append(chips);
-
-  const s = node.stats;
   const bars = text("div", "bars");
-  barRow(bars, "runs", s && s.expected !== null ? s.expected : node.applied, s ? s.observed : null);
+  barRow(bars, "runs", ...runs(node));
   card.append(bars);
-  if (s && s.values && s.values.length) {
-    const values = text("div", "bars values");
-    s.values.slice(0, 8).forEach(v => barRow(values, show(v.value), v.expected, v.observed));
-    card.append(values);
-  } else if (!s && node.values) {
-    const values = text("div", "bars values");
-    node.values.slice(0, 8).forEach(v => barRow(values, show(v.value), v.probability, null));
-    card.append(values);
+  const s = node.stats;
+  const values = s && s.values && s.values.length ? s.values
+    : (!s && node.values ? node.values.map(v => ({value: v.value, expected: v.probability, observed: null})) : []);
+  if (values.length) {
+    const el = text("div", "bars values");
+    values.slice(0, 8).forEach(v => barRow(el, show(v.value), v.expected, v.observed));
+    card.append(el);
   }
+  let flagged = found.length > 0;
+  if (isInputs(node)) {  // every input set together: one row each, click for its details
+    const list = text("div", "values");
+    for (const input of node.children || []) {
+      const augmentation = (input.children || [])[0] || input;
+      const row = text("div", "bars input-row");
+      const label = show((input.settings || {}).key);
+      barRow(row, label, ...runs(augmentation));
+      row.title = label + ": " + augmentation.type;
+      if (flags(augmentation).length) { row.classList.add("warn-row"); flagged = true; }
+      row.onclick = event => { event.stopPropagation(); openPanel(augmentation); };
+      list.append(row);
+    }
+    card.append(list);
+  }
+  if (flagged) card.classList.add("flag");
   card.onclick = () => openPanel(node);
   canvas.append(card);
   return card;
 }
+function makeFrame(node) {
+  const frame = text("div", "frame"), head = text("div", "frame-head");
+  head.append(toggle(node), text("span", "type", title(node)));
+  if (title(node) !== node.type) head.append(text("span", "kind", node.type));
+  const badges = chips(node, flags(node));
+  for (const chip of [...badges.children]) head.append(chip);
+  const [expected, observed] = runs(node);
+  head.append(track(expected, observed), text("span", "num", pct(DATA.preview || observed === null ? expected : observed)),
+              text("span", "id", node.id));
+  head.onclick = () => openPanel(node);
+  frame.append(head);
+  canvas.append(frame);
+  return frame;
+}
 
-function visibleChildren(node) {
-  return collapsed.has(node.id) ? [] : (node.children || []);
+// sizes of a node's drawing: width, height, and the height of the flow line in it
+function measure(node) {
+  const kind = shape(node);
+  if (kind === "card") {
+    const card = cards[node.id];
+    card.style.display = "";
+    return node.box = {w: CARD_W, h: card.offsetHeight, axis: AXIS};
+  }
+  const kids = node.children.map(measure);
+  if (kind === "sequence") {
+    const frame = frames[node.id];
+    frame.style.display = "";
+    frame.style.width = "auto";
+    const headW = frame.firstChild.offsetWidth;
+    const axis = Math.max(...kids.map(k => k.axis));
+    const inner = Math.max(...kids.map(k => axis - k.axis + k.h));
+    const innerW = 2 * LEAD + kids.reduce((sum, k) => sum + k.w, 0) + SEQ_GAP * (kids.length - 1);
+    return node.box = {w: Math.max(innerW, headW) + 2 * FRAME_PAD, h: HEAD_H + inner + FRAME_PAD, axis: HEAD_H + axis};
+  }
+  const card = cards[node.id];
+  card.style.display = "";
+  const cardH = card.offsetHeight;
+  const branches = kids.reduce((sum, k) => sum + k.h, 0) + V_GAP * (kids.length - 1);
+  const h = Math.max(cardH, branches);
+  node.cardTop = (h - cardH) / 2;
+  node.branchTop = (h - branches) / 2;
+  return node.box = {w: CARD_W + FORK_W + Math.max(...kids.map(k => k.w)) + JOIN_W, h, axis: node.cardTop + AXIS};
 }
-function setVisible(node, visible) {
-  cards[node.id].style.display = visible ? "" : "none";
-  if (node.toggle) node.toggle.textContent = collapsed.has(node.id) ? "▸ " + countBelow(node) : "▾";
-  (node.children || []).forEach(child => setVisible(child, visible && !collapsed.has(node.id)));
+
+let paths = [];
+function line(x1, y1, x2, y2, reached, arrow) {
+  const width = (1 + 2.5 * (reached || 0)).toFixed(2), opacity = (0.45 + 0.55 * (reached || 0)).toFixed(2);
+  const mid = (x1 + x2) / 2;
+  const d = y1 === y2 ? `M${x1},${y1} L${x2},${y2}` : `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
+  paths.push(`<path d="${d}" fill="none" stroke="var(--edge)" stroke-width="${width}" stroke-opacity="${opacity}"
+    ${arrow ? 'marker-end="url(#arrow)"' : ""}/>`);
 }
-function countBelow(node) {
-  return (node.children || []).reduce((sum, child) => sum + 1 + countBelow(child), 0);
+function dot(x, y) {
+  const el = text("div", "dot");
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+  canvas.append(el);
 }
-const heights = {};
-function subtreeHeight(node) {
-  const own = cards[node.id].offsetHeight, kids = visibleChildren(node);
-  const below = kids.reduce((sum, child) => sum + subtreeHeight(child), 0) + GAP_Y * Math.max(0, kids.length - 1);
-  return heights[node.id] = Math.max(own, below);
-}
-function place(node, top) {
-  const card = cards[node.id], own = card.offsetHeight, total = heights[node.id], kids = visibleChildren(node);
-  node.x = PAD + node.depth * (CARD_W + GAP_X);
-  node.y = top + (total - own) / 2;
-  node.h = own;
-  card.style.left = node.x + "px";
-  card.style.top = node.y + "px";
-  const below = kids.reduce((sum, child) => sum + heights[child.id], 0) + GAP_Y * Math.max(0, kids.length - 1);
-  let y = top + (total - below) / 2;
-  for (const child of kids) { place(child, y); y += heights[child.id] + GAP_Y; }
-}
-function edges(node, paths) {
-  for (const child of visibleChildren(node)) {
-    const x1 = node.x + CARD_W, y1 = node.y + node.h / 2, x2 = child.x, y2 = child.y + child.h / 2, mid = (x1 + x2) / 2;
-    const reached = child.reached || 0;
-    paths.push(`<path d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" fill="none" stroke="var(--edge)"
-      stroke-width="${(1 + 2.5 * reached).toFixed(2)}" stroke-opacity="${(0.45 + 0.55 * reached).toFixed(2)}"
-      ${child.same_as ? 'stroke-dasharray="4 4"' : ""}/>`);
-    if (child.share !== undefined) {  // a OneOf branch: its weight and share, in a box on the middle of the line
-      const box = text("div", "share", "weight " + show(child.weight) + " · " + pct(child.share));
-      box.style.left = mid + "px";
-      box.style.top = (y1 + y2) / 2 + "px";  // the curve's midpoint: its control points share x = mid
-      canvas.append(box);
+function place(node, x, y) {
+  const kind = shape(node), box = node.box;
+  if (kind === "card") {
+    Object.assign(cards[node.id].style, {left: x + "px", top: y + "px"});
+    return;
+  }
+  const flow = y + box.axis;
+  if (kind === "sequence") {
+    Object.assign(frames[node.id].style, {left: x + "px", top: y + "px", width: box.w + "px", height: box.h + "px"});
+    let cx = x + FRAME_PAD + LEAD;
+    line(x, flow, cx, flow, node.children[0].reached, true);
+    node.children.forEach((child, index) => {
+      place(child, cx, flow - child.box.axis);
+      cx += child.box.w;
+      const next = node.children[index + 1];
+      if (next) { line(cx, flow, cx + SEQ_GAP, flow, next.reached, true); cx += SEQ_GAP; }
+    });
+    line(cx, flow, x + box.w, flow, node.applied, false);
+    return;
+  }
+  // a OneOf: its card, a fork to the branches, and the join after them
+  Object.assign(cards[node.id].style, {left: x + "px", top: y + node.cardTop + "px"});
+  const forkX = x + CARD_W, columnX = forkX + FORK_W, joinX = x + box.w;
+  const widest = Math.max(...node.children.map(child => child.box.w));
+  let by = y + node.branchTop;
+  for (const child of node.children) {
+    place(child, columnX, by);
+    const branchY = by + child.box.axis;
+    line(forkX, flow, columnX, branchY, child.reached, true);
+    if (child.share !== undefined) {  // its weight and share, in a box on the middle of the line
+      const label = text("div", "share", "weight " + show(child.weight) + " · " + pct(child.share));
+      label.style.left = (forkX + columnX) / 2 + "px";
+      label.style.top = (flow + branchY) / 2 + "px";
+      canvas.append(label);
     }
-    edges(child, paths);
+    if (child.box.w < widest) line(columnX + child.box.w, branchY, columnX + widest, branchY, child.reached, false);
+    line(columnX + widest, branchY, joinX, flow, child.reached, false);
+    by += child.box.h + V_GAP;
   }
 }
+
 function render() {
-  DATA.roots.forEach(root => setVisible(root, true));
-  let top = PAD, width = 0;
-  for (const root of DATA.roots) {
-    subtreeHeight(root);
-    place(root, top);
-    top += heights[root.id] + GAP_Y * 3;
-  }
+  for (const el of [...Object.values(cards), ...Object.values(frames)]) el.style.display = "none";
+  canvas.querySelectorAll(".share, .dot").forEach(el => el.remove());
   for (const node of Object.values(nodes)) {
-    if (cards[node.id].style.display !== "none") width = Math.max(width, node.x + CARD_W + PAD);
+    for (const button of node.toggles || []) button.textContent = collapsed.has(node.id) ? "▸" : "▾";
+  }
+  paths = [];
+  let y = PAD, width = 0;
+  for (const root of DATA.roots) {
+    const box = measure(root), x = PAD + STUB, flow = y + box.axis;
+    place(root, x, y);
+    dot(PAD, flow);
+    line(PAD, flow, x, flow, root.reached, false);
+    line(x + box.w, flow, x + box.w + STUB, flow, root.applied, false);
+    dot(x + box.w + STUB, flow);
+    width = Math.max(width, x + box.w + STUB + PAD);
+    y += box.h + ROOT_GAP;
   }
   canvas.style.width = width + "px";
-  canvas.style.height = top + "px";
+  canvas.style.height = y + "px";
   svg.setAttribute("width", width);
-  svg.setAttribute("height", top);
-  const paths = [];
-  canvas.querySelectorAll(".share").forEach(box => box.remove());
-  DATA.roots.forEach(root => edges(root, paths));
-  svg.innerHTML = paths.join("");
+  svg.setAttribute("height", y);
+  svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9"
+    markerUnits="userSpaceOnUse" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="var(--edge)"/></marker></defs>` + paths.join("");
 }
 
 function openPanel(node) {
-  document.querySelectorAll(".card.selected").forEach(card => card.classList.remove("selected"));
-  cards[node.id].classList.add("selected");
+  document.querySelectorAll(".selected").forEach(el => el.classList.remove("selected"));
+  const shown = frames[node.id] && frames[node.id].style.display !== "none" ? frames[node.id] : cards[node.id];
+  if (shown) shown.classList.add("selected");
   const panel = document.getElementById("panel");
   panel.innerHTML = "";
   const close = text("button", "close", "Close");
-  close.onclick = () => { panel.classList.remove("open"); cards[node.id].classList.remove("selected"); };
-  panel.append(close, text("h2", "", node.name && node.type !== "function" ? node.name : node.type),
-               text("div", "note", (node.name && node.type !== "function" ? node.type + " · " : "") + node.id));
+  close.onclick = () => { panel.classList.remove("open"); if (shown) shown.classList.remove("selected"); };
+  panel.append(close, text("h2", "", title(node)),
+               text("div", "note", (title(node) !== node.type ? node.type + " · " : "") + node.id));
   const s = node.stats || {};
   const rows = [
     ["Reached", pct(node.reached), "how often it is called, per object of a call"],
@@ -304,6 +418,7 @@ function openPanel(node) {
   if (!DATA.preview) rows.push(["Runs (observed)", pct(s.observed), s.calls !== undefined ? s.applied + " of " + s.calls + " calls" : ""]);
   const z = zScore(s.expected, s.observed, s.calls);
   if (z !== null) rows.push(["Difference", ((s.observed - s.expected) * 100).toFixed(1) + " pts", "z " + (isFinite(z) ? z.toFixed(1) : "∞")]);
+  if (node.share !== undefined) rows.push(["Branch", "weight " + show(node.weight), pct(node.share) + " of the picks of " + title(node.parent)]);
   if (node.otherwise) rows.push(["Otherwise", show(node.otherwise.value), pct(node.otherwise.probability) + " expected"]);
   if (!DATA.preview && s.expected === null) rows.push(["", "", "no expected value: it ignores the object below a per-object choice, or is used in several places"]);
   const table = text("table");
@@ -339,10 +454,11 @@ document.getElementById("title").textContent = DATA.title;
 if (DATA.preview) document.body.classList.add("preview");
 document.getElementById("path").textContent = DATA.preview
   ? "What the augmentations can do, per object, before generating" : DATA.path;
-const flagged = Object.values(nodes).filter(node => flags(node).length).length;
+const counted = Object.values(nodes).filter(node => node.type !== "NodeInput" && node.type !== "ModifierInput");
+const flagged = counted.filter(node => flags(node).length).length;
 const summary = document.getElementById("summary");
-const figures = DATA.preview ? [["augmentations", Object.keys(nodes).length]]
-  : [["datapoints", DATA.datapoints], ["augmentations", Object.keys(nodes).length],
+const figures = DATA.preview ? [["augmentations", counted.length]]
+  : [["datapoints", DATA.datapoints], ["augmentations", counted.length],
      ["differ from expected", flagged, flagged ? "warn" : ""]];
 for (const [label, value, cls] of figures) {
   const item = text("div", cls);
@@ -351,10 +467,14 @@ for (const [label, value, cls] of figures) {
 }
 document.getElementById("expand").onclick = () => { collapsed.clear(); render(); };
 document.getElementById("collapse").onclick = () => {
-  Object.values(nodes).forEach(node => { if (node.depth >= 1 && node.children && node.children.length) collapsed.add(node.id); });
+  Object.values(nodes).forEach(node => { if (node.depth >= 1 && isContainer(node)) collapsed.add(node.id); });
   render();
 };
-for (const node of Object.values(nodes)) cards[node.id] = makeCard(node);
+for (const node of Object.values(nodes)) {
+  if (node.inInputs) continue;
+  cards[node.id] = makeCard(node);
+  if (isContainer(node) && node.type !== "OneOf") frames[node.id] = makeFrame(node);
+}
 render();
 </script>
 </body>
