@@ -858,6 +858,7 @@ def test_background_opaque_render(scene, cube, out):
     (lambda scene: setattr(scene.render.image_settings, "color_mode", "RGB"), G.Background(), "RGBA"),
     (None, G.Background({"sky": 1}), "Unknown background modes"),
     (None, G.Background({"color": 0}), "all 0"),
+    (None, G.Background({"color": float("inf")}), "finite"),
     (None, G.Background(noise_size=(4, 2)), "noise_size"),
     (None, G.Background({"image": 1}), "images_path"),
     (None, G.Background({"image": 1}, images_path="/does/not/exist"), "not a folder"),

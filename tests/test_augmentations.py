@@ -1,3 +1,4 @@
+import collections
 import colorsys
 import math
 import random
@@ -1347,6 +1348,57 @@ def test_one_of(cube):
 def test_one_of_errors(augmentations, weights, match):
     with pytest.raises(ValueError, match=match):
         A.OneOf(augmentations, weights=weights)
+
+
+@pytest.mark.parametrize("weights, match", [
+    ([-1, 2], "negative"),  # random.choices would pick the second one every time
+    ([0, 0], "sum to 0"),
+    ([float("nan"), 1], "negative"),
+    ([float("inf"), 1], "negative"),
+    ([True, 1], "negative"),
+    (["1", 1], "negative"),
+])
+@pytest.mark.parametrize("make", [
+    lambda weights: A.OneOf([A.Scale(x=10), A.Rotation(z=90)], weights=weights),
+    lambda weights: A.MaterialSlot(weights=weights),
+    lambda weights: A.MaterialSlot(["A", "B"], weights=weights),
+    lambda weights: A.UVMap(weights=weights),
+    lambda weights: A.Menu("data.type", options=["SPOT", "AREA"], weights=weights),
+    lambda weights: A.Menu(weights=weights),
+], ids=["OneOf", "MaterialSlot", "MaterialSlot slots", "UVMap", "Menu", "Menu pathless"])
+def test_weights_errors(make, weights, match):
+    with pytest.raises(ValueError, match=match):
+        make(weights)
+
+
+def test_weights(cube):
+    """Picks follow uneven weights, not only 0 and 1."""
+    random.seed(0)
+    obj = slotted_cube(cube)
+    light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
+    one_of = A.OneOf([A.Translation(x=0), A.Translation(x=0)], weights=[1, 3])
+    slot = A.MaterialSlot(["C", 0], weights=[3, 1])
+    menu = A.Menu("data.type", weights=[1, 0, 0, 3])  # Blender's order: POINT, SUN, SPOT, AREA
+    counts = collections.Counter()
+    with state.restoring():
+        for _ in range(2000):
+            one_of(obj)
+            slot(obj)
+            menu(light)
+            counts[one_of.actual] += 1
+            counts[slot.actual] += 1
+            counts[menu.actual] += 1
+    assert set(counts) == {0, 1, "C", "A", "POINT", "AREA"}
+    for high in (1, "C", "AREA"):
+        assert 0.7 < counts[high] / 2000 < 0.8, counts
+
+
+def test_menu_weights_errors():
+    light = bpy.data.objects.new("L", bpy.data.lights.new("L", "POINT"))
+    with pytest.raises(ValueError, match="4 options"):
+        A.Menu("data.type", weights=[1, 2])(light)  # the options are read at the call
+    with pytest.raises(TypeError, match=r"weights=\[3, 1\]"):
+        A.Menu(["A", "B"], [3, 1])  # without a path the first argument is the options
 
 
 def test_otherwise_data_paths(cube):

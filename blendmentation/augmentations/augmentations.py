@@ -47,7 +47,7 @@ import random
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ..values import is_number
+from ..values import check_weights, is_number
 from . import bpy_augmentations as bpy_a
 
 if TYPE_CHECKING:
@@ -345,7 +345,7 @@ class OneOf(Augmentation):
 
     Raises:
         ValueError: `augmentations` is empty, the number of weights and augmentations
-            differ, a weight is negative, or the weights sum to 0.
+            differ, a weight is negative or not a number, or the weights sum to 0.
 
     Example:
         ```python
@@ -364,11 +364,7 @@ class OneOf(Augmentation):
         super().__init__(p)
         if not augmentations:
             raise ValueError("Give at least one augmentation")
-        if weights is not None:
-            if len(weights) != len(augmentations):
-                raise ValueError("Give one weight per augmentation")
-            if any(weight < 0 for weight in weights) or sum(weights) <= 0:
-                raise ValueError(f"weights must not be negative and must not sum to 0, got {weights!r}")
+        check_weights(weights, len(augmentations), "augmentation")
         self.augmentations = augmentations
         self.weights = weights
 
@@ -1139,8 +1135,10 @@ class MaterialSlot(ObjectAugmentation):
             slot, or when skipped without `otherwise`).
 
     Raises:
-        ValueError: the number of weights and slots differ, or `otherwise` is not an
-            index or a name. At a call: the object has no material slots.
+        ValueError: the number of weights and slots differ, a weight is negative or not
+            a number, the weights sum to 0, or `otherwise` is not an index or a name. At
+            a call: the object has no material slots, or (with `slots` None) the number
+            of weights and slots differ.
         TypeError: at a call, the object is not a mesh.
         KeyError: at a call, a slot in `slots` doesn't exist.
 
@@ -1186,8 +1184,7 @@ class MaterialSlot(ObjectAugmentation):
                  p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
         super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path)
-        if slots is not None and weights is not None and len(slots) != len(weights):
-            raise ValueError("Give one weight per slot")
+        check_weights(weights, None if slots is None else len(slots), "slot")
         self.slots = slots
         self.weights = weights
 
@@ -1225,8 +1222,10 @@ class UVMap(ObjectAugmentation):
             `otherwise`).
 
     Raises:
-        ValueError: the number of weights and UV maps differ, or `otherwise` is not an
-            index or a name. At a call: the object has no UV maps.
+        ValueError: the number of weights and UV maps differ, a weight is negative or
+            not a number, the weights sum to 0, or `otherwise` is not an index or a name.
+            At a call: the object has no UV maps, or (with `uv_maps` None) the number of
+            weights and UV maps differ.
         TypeError: at a call, the object is not a mesh.
         KeyError: at a call, a UV map in `uv_maps` doesn't exist.
 
@@ -1248,8 +1247,7 @@ class UVMap(ObjectAugmentation):
                  p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
         super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path)
-        if uv_maps is not None and weights is not None and len(uv_maps) != len(weights):
-            raise ValueError("Give one weight per UV map")
+        check_weights(weights, None if uv_maps is None else len(uv_maps), "UV map")
         self.uv_maps = uv_maps
         self.weights = weights
 
@@ -1535,13 +1533,19 @@ class Menu(PathAugmentation):
             Switch's, or a group node's input that leads to one; required when Blender
             doesn't list them, e.g. for a built-in node's menu like Transform Geometry's
             Mode.
-        weights: relative probability of each option. None = equal.
+        weights: relative probability of each option, in the order of `options`, or
+            without them in Blender's order (a light's type: POINT, SUN, SPOT, AREA; a
+            Menu Switch: its items top to bottom). None = equal.
         p: probability of applying the augmentation.
         otherwise: option to set when it doesn't run, None keeps the value. It doesn't
             have to be one of `options`.
 
     Raises:
-        ValueError: the number of weights and options differ.
+        ValueError: the number of weights and options differ (with `options` None, at
+            a call), a weight is negative or not a number, or the weights sum to 0.
+        TypeError: the data path is not a string, e.g. `Menu(["A", "B"], [3, 1])`
+            inside a `Node`, where the weights must be given by name:
+            `Menu(["A", "B"], weights=[3, 1])`.
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
@@ -1560,9 +1564,11 @@ class Menu(PathAugmentation):
     def __init__(self, data_path: Union[str, Sequence[Any], None] = None, options: Optional[Sequence[Any]] = None,
                  weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None):
         super().__init__(p, otherwise)
+        if not (data_path is None or isinstance(data_path, str)) and options is not None:
+            raise TypeError(f"Without a data path the first argument is the options, so {options!r} can't be "
+                            f"options too: pass the weights by name, Menu({data_path!r}, weights={options!r})")
         self.data_path, options = split_path(data_path, options)
-        if options is not None and weights is not None and len(options) != len(weights):
-            raise ValueError("Give one weight per option")
+        check_weights(weights, None if options is None else len(options))
         self.options = options
         self.weights = weights
 

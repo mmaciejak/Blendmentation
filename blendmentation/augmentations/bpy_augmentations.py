@@ -772,6 +772,8 @@ def menu(obj, data_path, options, weights):
     values = id_property_menu(owner, token)
     if options is None:
         options = list(values) if values else menu_options(owner, token, data_path)
+    if weights is not None and len(weights) != len(options):
+        raise ValueError(f"'{data_path}' has {len(options)} options {options}, got {len(weights)} weights")
     new = random.choices(options, weights=weights)[0]
     if values:
         if new not in values:

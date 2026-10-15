@@ -6,6 +6,20 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `augmentations.Menu`, `MaterialSlot` and `UVMap` reject negative weights. Before, they
+  were accepted and picked a wrong option every time (`weights=[-1, 2]` always picked the
+  second one). Weights that sum to 0, are infinite or aren't numbers now fail when the
+  augmentation is created, in `OneOf` too, instead of at the first call. A `Menu` whose
+  options are read from Blender says how many options it has when the number of weights
+  differs.
+- `augmentations.Menu(["A", "B"], [3, 1])` (inside a `Node` or `Modifier`, without a data
+  path) explains that the weights must be given by name, `weights=[3, 1]`, instead of
+  saying the data path must be a string.
+- `generating.Background` rejects infinite weights before generating, instead of failing at
+  the first datapoint.
+
 ## [0.9.6] - 2026-10-15
 
 ### Fixed

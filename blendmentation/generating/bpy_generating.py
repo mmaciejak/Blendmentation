@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import random
 import re
@@ -772,8 +773,8 @@ def background_weights(weights, images_path):
     unknown = sorted(set(weights) - set(BACKGROUND_MODES))
     if unknown:
         raise ValueError(f"Unknown background modes {unknown}, available: {', '.join(BACKGROUND_MODES)}")
-    if not all(is_number(w) and w >= 0 for w in weights.values()):
-        raise ValueError("Background weights must be numbers >= 0")
+    if not all(is_number(w) and math.isfinite(w) and w >= 0 for w in weights.values()):
+        raise ValueError("Background weights must be finite numbers >= 0")
     if not sum(weights.values()):
         raise ValueError("Background weights are all 0, at least one mode needs a weight")
     return {mode: float(weights.get(mode, 0)) for mode in BACKGROUND_MODES}
