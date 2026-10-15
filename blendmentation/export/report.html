@@ -43,6 +43,7 @@ svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visib
 .card.ghost { border-style: dashed; opacity: .7; }
 .head { display: flex; align-items: baseline; gap: 6px; }
 .type { font-weight: 600; }
+.kind { color: var(--muted); font-size: 12px; margin-top: 1px; }
 .id { color: var(--muted); font-size: 11px; margin-left: auto; font-family: ui-monospace, Menlo, monospace; }
 .toggle { border: 0; background: var(--chip); padding: 0 6px; border-radius: 4px; font-size: 11px; line-height: 18px; }
 .what { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -136,7 +137,7 @@ function describe(node) {
   const st = node.settings || {};
   for (const key of ["data_path", "node", "modifier", "node_group"]) if (st[key]) return st[key];
   if (st.key !== undefined) return "input " + show(st.key);
-  if (node.name) return node.name;
+  if (node.type === "function") return node.name;
   return Object.entries(st).map(([k, v]) => k + " " + show(v)).join(" · ");
 }
 
@@ -178,8 +179,10 @@ function makeCard(node) {
     head.append(toggle);
     node.toggle = toggle;
   }
-  head.append(text("span", "type", node.type), text("span", "id", node.id));
+  const titled = node.name && node.type !== "function";
+  head.append(text("span", "type", titled ? node.name : node.type), text("span", "id", node.id));
   card.append(head);
+  if (titled) card.append(text("div", "kind", node.type));
   const what = describe(node);
   if (what) { const w = text("div", "what", what); w.title = what; card.append(w); }
 
@@ -278,7 +281,8 @@ function openPanel(node) {
   panel.innerHTML = "";
   const close = text("button", "close", "Close");
   close.onclick = () => { panel.classList.remove("open"); cards[node.id].classList.remove("selected"); };
-  panel.append(close, text("h2", "", node.type), text("div", "note", node.id));
+  panel.append(close, text("h2", "", node.name && node.type !== "function" ? node.name : node.type),
+               text("div", "note", (node.name && node.type !== "function" ? node.type + " · " : "") + node.id));
   const s = node.stats || {};
   const rows = [
     ["Reached", pct(node.reached), "how often it is called, per object of a call"],

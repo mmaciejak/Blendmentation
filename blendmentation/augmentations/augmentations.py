@@ -151,6 +151,8 @@ class Compose:
         augmentations: augmentations to apply, each a callable taking one object.
         p: probability of applying the whole list, drawn once per call. A call can
             override it with its own `p`.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         applied (bool | None): whether the last call applied the augmentations.
@@ -176,9 +178,10 @@ class Compose:
         ```
     """
 
-    def __init__(self, augmentations: list[Callable[[Object], Any]], p: float = 1.0):
+    def __init__(self, augmentations: list[Callable[[Object], Any]], p: float = 1.0, name: Optional[str] = None):
         self.augmentations = augmentations
         self.p = check_p(p)
+        self.name = check_name(name)
         self.applied: Optional[bool] = None
         self._objects: list[str] = []
 
@@ -223,7 +226,8 @@ class Compose:
 
         - `id`: `"0"` for the `Compose`, then the index of each augmentation down the
           tree, e.g. `"0.2.1"`: the 2nd augmentation of the 3rd one;
-        - `type` and `settings`, the augmentation's arguments;
+        - `type`, `name` (the `name` argument, when given) and `settings`, the
+          augmentation's other arguments;
         - `reached`: the probability it is called, `applied`: that it runs (its `p`
           drawn), `skipped`: that it is called but doesn't run, `otherwise`: the value it
           sets then, `{value, probability}`;
@@ -293,6 +297,8 @@ class Augmentation:
 
     Args:
         p: probability of applying the augmentation, 0-1.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         applied (bool | None): whether the last call applied it.
@@ -317,8 +323,9 @@ class Augmentation:
         ```
     """
 
-    def __init__(self, p: float = 1.0, otherwise: Any = None):
+    def __init__(self, p: float = 1.0, otherwise: Any = None, name: Optional[str] = None):
         self.p = check_p(p)
+        self.name = check_name(name)
         self.otherwise = otherwise
         self.applied: Optional[bool] = None
         self.actual: Any = None
@@ -380,6 +387,13 @@ class Augmentation:
         raise NotImplementedError
 
 
+def check_name(name: Any) -> Optional[str]:
+    """None, or a name for the graph: a non-empty string."""
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        raise TypeError(f"name must be a non-empty string, got {name!r}")
+    return name
+
+
 def is_absolute(data_path: Any) -> bool:
     """Whether a data path is absolute (starting with `bpy.`)."""
     return isinstance(data_path, str) and data_path.startswith(("bpy.", "bpy["))
@@ -400,8 +414,9 @@ class ObjectAugmentation(Augmentation):
     data-path augmentation with an absolute path. `results` is then stored under that
     object's name."""
 
-    def __init__(self, p: float = 1.0, otherwise: Any = None, data_path: Optional[str] = None):
-        super().__init__(p, otherwise)
+    def __init__(self, p: float = 1.0, otherwise: Any = None, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
+        super().__init__(p, otherwise, name=name)
         self.data_path = check_object_path(data_path)
 
     @property
@@ -443,6 +458,8 @@ class OneOf(Augmentation):
         augmentations: augmentations to pick from, each a callable taking one object.
         weights: relative probability of each augmentation. None = equal.
         p: probability of applying one of them.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (int | None): index of the augmentation picked by the last call, None
@@ -466,8 +483,8 @@ class OneOf(Augmentation):
     """
 
     def __init__(self, augmentations: list[Callable[[Object], Any]],
-                 weights: Optional[Sequence[float]] = None, p: float = 1.0):
-        super().__init__(p)
+                 weights: Optional[Sequence[float]] = None, p: float = 1.0, name: Optional[str] = None):
+        super().__init__(p, name=name)
         if not augmentations:
             raise ValueError("Give at least one augmentation")
         check_weights(weights, len(augmentations), "augmentation")
@@ -499,6 +516,8 @@ class Chain(Augmentation):
     Args:
         augmentations: augmentations to apply, each a callable taking one object.
         p: probability of applying the whole list.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (list | None): what each augmentation set in the last call, as in its
@@ -544,8 +563,9 @@ class Chain(Augmentation):
         ```
     """
 
-    def __init__(self, augmentations: list[Callable[[Optional[Object]], Any]], p: float = 1.0):
-        super().__init__(p)
+    def __init__(self, augmentations: list[Callable[[Optional[Object]], Any]], p: float = 1.0,
+                 name: Optional[str] = None):
+        super().__init__(p, name=name)
         if not augmentations:
             raise ValueError("Give at least one augmentation")
         self.augmentations = augmentations
@@ -630,6 +650,8 @@ class AxisAugmentation(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Raises:
         ValueError: an axis is not a number, a pair or a triple, low is above high, or
@@ -644,8 +666,8 @@ class AxisAugmentation(ObjectAugmentation):
     """
 
     def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0,
-                 data_path: Optional[str] = None):
-        super().__init__(p, data_path=data_path)
+                 data_path: Optional[str] = None, name: Optional[str] = None):
+        super().__init__(p, data_path=data_path, name=name)
         self.x = check_offset(x, "x")
         self.y = check_offset(y, "y")
         self.z = check_offset(z, "z")
@@ -677,6 +699,8 @@ class Translation(AxisAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Example:
         ```python
@@ -708,6 +732,8 @@ class Rotation(AxisAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Example:
         ```python
@@ -737,6 +763,8 @@ class Scale(AxisAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Example:
         ```python
@@ -768,6 +796,8 @@ class Visibility(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (bool | None): whether the last call made the object visible, None when
@@ -786,8 +816,10 @@ class Visibility(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False, data_path: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path)
+    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
+                         name=name)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.visibility(obj, True)
@@ -824,6 +856,8 @@ class KeepAbove(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (float | None): how far the last call moved the object up, 0 when it
@@ -845,8 +879,9 @@ class KeepAbove(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None):
-        super().__init__(p, data_path=data_path)
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
+        super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
         self.margin = margin
 
@@ -882,6 +917,8 @@ class PlaceOn(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (float | None): how far the last call moved the object, positive up and
@@ -903,8 +940,9 @@ class PlaceOn(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None):
-        super().__init__(p, data_path=data_path)
+    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
+        super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
         self.margin = margin
 
@@ -930,6 +968,8 @@ class Seed(Augmentation):
             any other node tree (a material's `node_tree`).
         p: probability of applying the augmentation.
         otherwise: seed to set on all of them when it doesn't run, None keeps them.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict[str, int] | None): the seed set on each node, by node name
@@ -951,9 +991,10 @@ class Seed(Augmentation):
         ```
     """
 
-    def __init__(self, node_group: NodeTree, p: float = 1.0, otherwise: Optional[int] = None):
+    def __init__(self, node_group: NodeTree, p: float = 1.0, otherwise: Optional[int] = None,
+                 name: Optional[str] = None):
         valid = isinstance(otherwise, int) and not isinstance(otherwise, bool)
-        super().__init__(p, check_otherwise(otherwise, valid, "an int"))
+        super().__init__(p, check_otherwise(otherwise, valid, "an int"), name=name)
         bpy_a.check_seed_group(node_group)
         self.node_group = node_group
 
@@ -989,6 +1030,8 @@ class LookAt(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | None): the distance, elevation, azimuth, roll and focal length
@@ -1014,8 +1057,9 @@ class LookAt(ObjectAugmentation):
         focal_length: Optional[RangeOrValue] = None,
         p: float = 1.0,
         data_path: Optional[str] = None,
+        name: Optional[str] = None,
     ):
-        super().__init__(p, data_path=data_path)
+        super().__init__(p, data_path=data_path, name=name)
         self.target = target
         self.distance = distance
         self.elevation = elevation
@@ -1061,6 +1105,8 @@ class PlaceOnCurve(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | None): the `position` (fraction of the length) and the world
@@ -1084,8 +1130,8 @@ class PlaceOnCurve(ObjectAugmentation):
     """
 
     def __init__(self, curve: Object, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0,
-                 data_path: Optional[str] = None):
-        super().__init__(p, data_path=data_path)
+                 data_path: Optional[str] = None, name: Optional[str] = None):
+        super().__init__(p, data_path=data_path, name=name)
         bpy_a.check_curve(curve)
         self.curve = curve
         self.align = align
@@ -1120,6 +1166,8 @@ class FocalLength(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | None): `focal_length` set by the last call, and with
@@ -1143,8 +1191,8 @@ class FocalLength(ObjectAugmentation):
 
     def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
                  size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None,
-                 data_path: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"), data_path)
+                 data_path: Optional[str] = None, name: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"), data_path, name=name)
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
         if keep_size and otherwise is not None:
@@ -1196,6 +1244,8 @@ class DepthOfField(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | bool | None): `{"f_stop", "focus_distance"}` set by the last
@@ -1218,8 +1268,9 @@ class DepthOfField(ObjectAugmentation):
 
     def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None,
                  defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None,
-                 data_path: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"), data_path)
+                 data_path: Optional[str] = None, name: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"), data_path,
+                         name=name)
         self.target = target
         self.f_stop = f_stop
         self.defocus = None if defocus is None else check_offset(defocus, "defocus")
@@ -1255,6 +1306,8 @@ class MaterialSlot(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (str | None): name of the picked slot's material (None for an empty
@@ -1307,9 +1360,10 @@ class MaterialSlot(ObjectAugmentation):
     """
 
     def __init__(self, slots: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
-                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
+                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
-        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path)
+        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path, name=name)
         check_weights(weights, None if slots is None else len(slots), "slot")
         self.slots = slots
         self.weights = weights
@@ -1345,6 +1399,8 @@ class UVMap(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Crate"]'`; then it can also be called
             alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (str | None): name of the picked UV map (None when skipped without
@@ -1373,9 +1429,10 @@ class UVMap(ObjectAugmentation):
     """
 
     def __init__(self, uv_maps: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
-                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None):
+                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
-        super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path)
+        super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path, name=name)
         check_weights(weights, None if uv_maps is None else len(uv_maps), "UV map")
         self.uv_maps = uv_maps
         self.weights = weights
@@ -1410,6 +1467,8 @@ class SimpleMaterial(ObjectAugmentation):
         data_path: absolute data path of an object to change instead of the one it is
             called with, e.g. `'bpy.data.objects["Camera"]'`; then it can also be
             called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Tip:
         Use `SimpleMaterial` for negative data, secondary objects, or to make a model
@@ -1435,8 +1494,9 @@ class SimpleMaterial(ObjectAugmentation):
         metallic: Optional[RangeOrValue] = None,
         p: float = 1.0,
         data_path: Optional[str] = None,
+        name: Optional[str] = None,
     ):
-        super().__init__(p, data_path=data_path)
+        super().__init__(p, data_path=data_path, name=name)
         self.material_id = material_id
         self.hue = hue
         self.saturation = saturation
@@ -1498,6 +1558,8 @@ class Number(PathAugmentation):
         value_range: `(min, max)` range of the new value, or `(min, max, step)`.
         p: probability of applying the augmentation.
         otherwise: value to set when it doesn't run, None keeps the value.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Raises:
         ValueError: `value_range` is not `(min, max)` or `(min, max, step)`, min is
@@ -1523,8 +1585,8 @@ class Number(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, Range, None] = None, value_range: Optional[Range] = None,
-                 p: float = 1.0, otherwise: Optional[float] = None):
-        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"))
+                 p: float = 1.0, otherwise: Optional[float] = None, name: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"), name=name)
         self.data_path, value_range = split_path(data_path, value_range)
         self.value_range = check_range(value_range, "value_range")
 
@@ -1557,6 +1619,8 @@ class Vector(PathAugmentation):
         p: probability of applying the augmentation.
         otherwise: vector to set when it doesn't run, a number for all components or
             one value per component (None keeps that component). None keeps the vector.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
@@ -1582,11 +1646,11 @@ class Vector(PathAugmentation):
 
     def __init__(self, data_path: Union[str, tuple[Bound, Bound], None] = None,
                  value_range: Optional[tuple[Bound, Bound]] = None, p: float = 1.0,
-                 otherwise: Optional[Bound] = None):
+                 otherwise: Optional[Bound] = None, name: Optional[str] = None):
         valid = is_number(otherwise) or (
             isinstance(otherwise, Sequence) and not isinstance(otherwise, str)
             and all(value is None or is_number(value) for value in otherwise))
-        super().__init__(p, check_otherwise(otherwise, valid, "a number or one value per component"))
+        super().__init__(p, check_otherwise(otherwise, valid, "a number or one value per component"), name=name)
         self.data_path, value_range = split_path(data_path, value_range)
         if isinstance(value_range, str) or not isinstance(value_range, Sequence) or len(value_range) != 2:
             raise ValueError(f"value_range must be (min, max), got {value_range!r}")
@@ -1621,6 +1685,8 @@ class Boolean(PathAugmentation):
             `Node` or `Modifier`.
         p: probability of True.
         otherwise: value to set the rest of the time, None keeps the value.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
@@ -1638,10 +1704,10 @@ class Boolean(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, float, None] = None, p: Optional[float] = None,
-                 otherwise: Optional[bool] = False):
+                 otherwise: Optional[bool] = False, name: Optional[str] = None):
         data_path, p = split_path(data_path, p)
         super().__init__(0.5 if p is None else p,
-                         check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"))
+                         check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), name=name)
         self.data_path = data_path
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -1679,6 +1745,8 @@ class Menu(PathAugmentation):
         p: probability of applying the augmentation.
         otherwise: option to set when it doesn't run, None keeps the value. It doesn't
             have to be one of `options`.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Raises:
         ValueError: the number of weights and options differ (with `options` None, at
@@ -1703,8 +1771,9 @@ class Menu(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, Sequence[Any], None] = None, options: Optional[Sequence[Any]] = None,
-                 weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None):
-        super().__init__(p, otherwise)
+                 weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None,
+                 name: Optional[str] = None):
+        super().__init__(p, otherwise, name=name)
         if not (data_path is None or isinstance(data_path, str)) and options is not None:
             raise TypeError(f"Without a data path the first argument is the options, so {options!r} can't be "
                             f"options too: pass the weights by name, Menu({data_path!r}, weights={options!r})")
@@ -1857,8 +1926,8 @@ class InputsAugmentation(Augmentation):
     """A `Node` or `Modifier`: runs one `InputAugmentation` per input, its `actual` is
     `{key: the input's actual}`."""
 
-    def __init__(self, inputs: dict[Union[str, int], Any], p: float):
-        super().__init__(p)
+    def __init__(self, inputs: dict[Union[str, int], Any], p: float, name: Optional[str] = None):
+        super().__init__(p, name=name)
         if not inputs:
             raise ValueError("Give at least one input")
         self.inputs = inputs
@@ -1925,6 +1994,8 @@ class Node(InputsAugmentation):
         node: data path of the node.
         inputs: what to set each input to, by input name or index.
         p: probability of applying the augmentation.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | None): the value set to each input by the last call, by its
@@ -1986,8 +2057,8 @@ class Node(InputsAugmentation):
         ```
     """
 
-    def __init__(self, node: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
-        super().__init__(inputs, p)
+    def __init__(self, node: str, inputs: dict[Union[str, int], Any], p: float = 1.0, name: Optional[str] = None):
+        super().__init__(inputs, p, name=name)
         self.node = node
         self.augmentations = [NodeInput(key, f"{node}.inputs[{input_key(key)}].default_value", spec)
                               for key, spec in inputs.items()]
@@ -2119,6 +2190,8 @@ class Modifier(InputsAugmentation):
         inputs: what to set each input or setting to, by input name or index (geometry
             nodes), or setting name.
         p: probability of applying the augmentation.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"slide sideways"`. None: its class name.
 
     Attributes:
         actual (dict | None): the value set to each input by the last call, by its
@@ -2173,8 +2246,8 @@ class Modifier(InputsAugmentation):
         ```
     """
 
-    def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0):
-        super().__init__(inputs, p)
+    def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0, name: Optional[str] = None):
+        super().__init__(inputs, p, name=name)
         self.modifier = modifier
         self.augmentations = [ModifierInput(key, modifier, spec) for key, spec in inputs.items()]
 

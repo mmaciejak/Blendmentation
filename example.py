@@ -124,7 +124,8 @@ floor_transforms = augmentations.Compose([
 # the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.
 # Only the clutter is scaled: BOP (export.bop) has one 3D model, with one size, per class
 clutter_transforms = augmentations.Compose([
-    augmentations.Visibility(p=0.6),
+    # name: optional, shown in the graph (describe) and in export.augmentation_report
+    augmentations.Visibility(p=0.6, name="clutter shown"),
     augmentations.MaterialSlot(),  # one of the materials in its slots, all faces
     augmentations.UVMap(),  # textures laid out by one of its UV maps
     augmentations.Scale(x=60.0, y=60.0, z=10.0, p=0.5),  # every augmentation takes p, how often it runs

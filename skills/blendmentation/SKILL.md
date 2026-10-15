@@ -365,6 +365,8 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `otherwise`, and for `Menu`/`MaterialSlot`/`UVMap` with options, `Boolean` and
   `Visibility` each value's probability. It assumes the constructor `p`, not one given to
   a call (`lamp_aug([lamp], p=0.7)`), which then shows as a gap in `augmentation_stats`.
+  Every augmentation and `Compose` takes an optional `name="..."`, shown in the graph and
+  in `export.augmentation_report` instead of the class name; name the ones the user cares about.
 - **`Visibility(p=0.5)`** shows the object in the render with probability `p` and hides
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,

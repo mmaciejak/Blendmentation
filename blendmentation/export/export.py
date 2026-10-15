@@ -661,8 +661,9 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
         graph_file: file name of the graph, as given to `generating.Augmentations`.
 
     Returns:
-        `{id: {"type", "expected", "observed", "applied", "calls", "values"}}` by the ids
-        of the graph: `expected` is the graph's probability that it runs per call,
+        `{id: {"type", "name", "expected", "observed", "applied", "calls", "values"}}` by
+        the ids of the graph: `name` is the one given to the augmentation (None without),
+        `expected` the graph's probability that it runs per call,
         `observed` the fraction of `calls` it ran in (`applied`), and `values`
         `[{"value", "expected", "observed"}]` for every value expected or set.
 
@@ -704,7 +705,7 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
         node = nodes[node_id]
         known = "used_at" not in node and (not node.get("ignores_object") or node["always"] or node_id == node["root"])
         calls = stat["calls"]
-        entry = {"type": stat["type"], "expected": node["applied"] if known else None,
+        entry = {"type": stat["type"], "name": node.get("name"), "expected": node["applied"] if known else None,
                  "observed": stat["applied"] / calls if calls else None,
                  "applied": stat["applied"], "calls": calls}
         if "values" in node:

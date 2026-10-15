@@ -288,7 +288,7 @@ def test_augmentation_stats(tmp_path):
     (tmp_path / "000002.json").write_text(json.dumps({"resolution": [4, 4]}))  # no record: ignored
 
     stats = export.augmentation_stats(str(tmp_path))
-    assert stats["a"] == {"type": "Compose", "expected": 0.5, "observed": 0.5, "applied": 2, "calls": 4}
+    assert stats["a"] == {"type": "Compose", "name": None, "expected": 0.5, "observed": 0.5, "applied": 2, "calls": 4}
     assert stats["a.0.0"]["observed"] == 0.25 and stats["a.0.0"]["values"] == [
         {"value": True, "expected": 0.25, "observed": 0.25}]
     assert stats["a.1"]["calls"] == 2 and stats["a.1"]["observed"] == 0 and stats["a.1"]["expected"] == 0.25

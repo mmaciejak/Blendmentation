@@ -770,6 +770,9 @@ objects_aug = aug.Compose([
             # a clear coat on 30% of the cars, none on the others
             "Coat Weight": aug.Number((0.5, 1), p=0.3, otherwise=0),
         },
+        # any augmentation can take a name, shown in the
+        # graph and in export.augmentation_report
+        name="clear coat",
     ),
     # after the transforms: lifts the cars out of the floor
     keep_above,

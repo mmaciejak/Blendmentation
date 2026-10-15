@@ -16,7 +16,7 @@ from typing import Any, Optional
 # attributes that hold state, or that the graph shows in another way (children,
 # probabilities, values), left out of a node's settings
 STATE = {"applied", "actual", "actual_x", "actual_y", "actual_z", "results", "_applied", "_objects", "augmentations",
-         "p", "otherwise", "weights", "inputs", "by_kind", "color"}
+         "p", "otherwise", "weights", "inputs", "by_kind", "color", "name"}
 
 
 def plain(value: Any) -> Any:
@@ -107,6 +107,8 @@ def describe_node(node: Any, node_id: str, reached: float, seen: dict[int, str],
     entry: dict[str, Any] = {"id": node_id, "type": type(node).__name__}
     if not is_augmentation(node):
         entry["name"] = getattr(node, "__name__", repr(node))
+    elif getattr(node, "name", None):
+        entry["name"] = node.name  # given by the user
     entry.update(reached=probability(reached), applied=probability(applied))
     nodes[node_id] = entry
     if id(node) in seen:

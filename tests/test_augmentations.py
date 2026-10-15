@@ -1758,3 +1758,25 @@ def test_record(cube):
     with state.restoring():
         compose(objs, p=0)
     assert graph.record(compose) == {"0": {"Cube.0": {"applied": False}, "Cube.1": {"applied": False}}}
+
+
+def test_names(cube):
+    obj = cube("Cube")
+    node_group_node(obj)
+    compose = A.Compose([
+        A.Translation(x=1, name="slide sideways"),
+        A.OneOf([A.Rotation(z=90), A.Visibility(name="hide")], name="turn or hide"),
+        A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Rust": A.Number((0, 1), name="rust")},
+               name="smart material"),
+        A.Number("location[2]", (0, 1)),
+    ], name="objects")
+    graph = compose.describe()
+    node = functools.partial(graph_node, graph)
+    assert graph["name"] == "objects"
+    assert node("0.0")["name"] == "slide sideways" and "name" not in node("0.0")["settings"]
+    assert node("0.1")["name"] == "turn or hide" and node("0.1.1")["name"] == "hide"
+    assert "name" not in node("0.1.0") and "name" not in node("0.3"), "optional"
+    assert node("0.2")["name"] == "smart material" and node("0.2.0.0")["name"] == "rust"
+    for make in (lambda: A.Translation(x=1, name=""), lambda: A.Compose([], name=3), lambda: A.Menu(["a"], name=1)):
+        with pytest.raises(TypeError, match="name"):
+            make()

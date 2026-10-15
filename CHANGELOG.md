@@ -24,6 +24,9 @@ All notable changes to Blendmentation. The format follows
   graph as connected cards, with bars of how often each augmentation runs and sets each
   value, expected and observed, and marks the differences larger than chance. It is one
   file, opened in any browser without internet.
+- Every augmentation and `augmentations.Compose` takes an optional `name`, e.g.
+  `Translation(x=1, name="slide sideways")`, shown in the graph (`describe()`), in
+  `export.augmentation_stats` and as the card title in `export.augmentation_report`.
 
 ### Changed
 
