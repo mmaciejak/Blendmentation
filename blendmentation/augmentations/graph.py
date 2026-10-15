@@ -16,7 +16,7 @@ from typing import Any, Optional
 # attributes that hold state, or that the graph shows in another way (children,
 # probabilities, values), left out of a node's settings
 STATE = {"applied", "actual", "actual_x", "actual_y", "actual_z", "results", "_applied", "_objects", "augmentations",
-         "p", "otherwise", "weights", "inputs", "by_kind", "color", "name"}
+         "p", "otherwise", "inputs", "by_kind", "color", "name"}
 
 
 def plain(value: Any) -> Any:
@@ -61,7 +61,7 @@ def settings(node: Any) -> dict[str, Any]:
     for name, value in vars(node).items():
         if name in STATE or name.startswith("__") or holds_augmentation(value):
             continue
-        if name == "data_path" and value is None:
+        if name in ("data_path", "weights") and value is None:
             continue
         found[name] = plain(value)
     return found
@@ -129,6 +129,11 @@ def describe_node(node: Any, node_id: str, reached: float, seen: dict[int, str],
     if kids:
         entry["children"] = [describe_node(child, f"{node_id}.{index}", applied * share, seen, nodes)
                              for index, (child, share) in enumerate(kids)]
+        if hasattr(node, "weights"):  # a OneOf: each child's weight and share of the picks
+            weights = node.weights if node.weights is not None else [1] * len(kids)
+            for item, (_, share), weight in zip(entry["children"], kids, weights):
+                item["weight"] = plain(weight)
+                item["share"] = probability(share)
     return entry
 
 

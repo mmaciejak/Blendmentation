@@ -299,7 +299,8 @@ class Compose:
         - `ignores_object`: it changes the same thing for every object (an absolute data
           path, `Seed`), so only its last call counts;
         - `children`; an augmentation used twice is described once, the second time
-          only as `same_as` its first id.
+          only as `same_as` its first id. The children of a `OneOf` have `weight` (1
+          each without `weights`) and `share`, the fraction of its picks they get.
 
         Returns:
             The `Compose` as the root node, plain values JSON can store.

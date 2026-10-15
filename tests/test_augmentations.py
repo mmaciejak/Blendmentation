@@ -1725,6 +1725,11 @@ def test_describe(cube):
     assert node("0")["type"] == "Compose" and node("0")["applied"] == 0.8
     chain = node("0.0.0")
     assert (chain["reached"], chain["applied"], chain["skipped"]) == (0.2, 0.1, 0.1)
+    assert node("0.0")["settings"] == {"weights": [1, 3]}, "the weights are shown"
+    assert (chain["weight"], chain["share"]) == (1, 0.25) and node("0.0.1")["share"] == 0.75
+    equal = A.Compose([A.OneOf([A.Rotation(z=1), A.Rotation(z=2), A.Rotation(z=3)])]).describe()["children"][0]
+    assert "weights" not in equal["settings"]
+    assert [(child["weight"], child["share"]) for child in equal["children"]] == [(1, 0.333333333333)] * 3
     assert node("0.0.0.1")["settings"] == {"x": 0, "y": 0, "z": [0, 90, 45]}
     menu = node("0.0.1")
     assert (menu["reached"], menu["applied"]) == (0.6, 0.3) and menu["ignores_object"] is True

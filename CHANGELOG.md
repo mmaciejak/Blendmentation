@@ -12,7 +12,8 @@ All notable changes to Blendmentation. The format follows
   augmentation in it, nested ones in `OneOf`, `Chain`, `Node` and `Modifier` included, with
   the probability that it is reached and that it runs per object, its `otherwise` value,
   and for a `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
-  `Visibility`, the probability of each value.
+  `Visibility`, the probability of each value. The branches of a `OneOf` have their weight
+  and share of its picks.
 - `generating.Augmentations({"name": compose, ...})` records in every label what each
   augmentation did for each object (`applied`, whether its `p` let it run, and `value`,
   what it set, the `otherwise` value included), under `augmentations`, and saves the graph
@@ -22,7 +23,8 @@ All notable changes to Blendmentation. The format follows
   datapoints `BBox` skipped are not in the dataset, so the gap shows what they changed.
 - `export.augmentation_report(path)` writes `augmentations.html`, a page that draws the
   graph as connected cards, with bars of how often each augmentation runs and sets each
-  value, expected and observed, and marks the differences larger than chance. It is one
+  value, expected and observed, and marks the differences larger than chance. The lines
+  out of a `OneOf` show each branch's weight and share. It is one
   file, opened in any browser without internet.
 - `augmentations.graph_preview(composes, path, show=False)` draws the graph of augmentation
   `Compose`s on the same HTML page, before generating, with the probability of each
