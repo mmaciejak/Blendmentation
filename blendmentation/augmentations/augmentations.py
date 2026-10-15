@@ -210,9 +210,14 @@ class Augmentation:
     describe only the last call. A `Compose` calls each augmentation once per object,
     so after `Compose([aug])([a, b, c])` they hold what happened to `c`; the values for
     `a` and `b` were overwritten. `results` keeps them for every object: each call
-    stores its `actual` under the object's name (`None` for a call without an object,
-    e.g. an absolute data path), and `Translation`, `Rotation` and `Scale` store
-    `(x, y, z)`. A skipped call stores what it set: its `otherwise` value, or `None`
+    stores its `actual` under the object's name, and `Translation`, `Rotation` and
+    `Scale` store
+    `(x, y, z)`. A call without an object, and every call of an augmentation that
+    doesn't use the object (an absolute data path, `Seed`, or a `OneOf` or `Chain` of
+    only those), stores it under `None`: in a `Compose` over several objects it runs
+    once per object on the same value, so `results` holds only the last one, the one
+    kept. With `data_path`, an augmentation that changes an object stores it under that
+    object's name. A skipped call stores what it set: its `otherwise` value, or `None`
     when it left the value unchanged. A `Compose` call clears
     `results` first; direct calls add to it, so clear it yourself
     (`aug.results.clear()`) when you call an augmentation in your own loop.
@@ -269,7 +274,18 @@ class Augmentation:
             self.apply(obj)
         else:
             self.skip(obj)
-        self.results[None if obj is None else obj.name] = self._result()
+        self.results[self._result_key(obj)] = self._result()
+
+    @property
+    def ignores_object(self) -> bool:
+        """Whether it changes the same thing whatever object it is called with (an
+        absolute data path, `Seed`): its `results` are then stored under None, so a
+        `Compose` over several objects leaves only the last value, the one kept."""
+        return False
+
+    def _result_key(self, obj: Optional[Object]) -> Optional[str]:
+        """The key of a call in `results`."""
+        return None if obj is None or self.ignores_object else obj.name
 
     def _result(self) -> Any:
         """The value stored in `results` for the last call."""
@@ -286,9 +302,14 @@ class Augmentation:
         raise NotImplementedError
 
 
+def is_absolute(data_path: Any) -> bool:
+    """Whether a data path is absolute (starting with `bpy.`)."""
+    return isinstance(data_path, str) and data_path.startswith(("bpy.", "bpy["))
+
+
 def check_object_path(data_path: Optional[str]) -> Optional[str]:
     """None, or an absolute data path (starting with `bpy.`)."""
-    if data_path is not None and (not isinstance(data_path, str) or not data_path.startswith(("bpy.", "bpy["))):
+    if data_path is not None and not is_absolute(data_path):
         raise ValueError(f"data_path must be an absolute path to an object, e.g. "
                          f"'bpy.data.objects[\"Camera\"]', got {data_path!r}")
     return data_path
@@ -304,6 +325,13 @@ class ObjectAugmentation(Augmentation):
     def __init__(self, p: float = 1.0, otherwise: Any = None, data_path: Optional[str] = None):
         super().__init__(p, otherwise)
         self.data_path = check_object_path(data_path)
+
+    @property
+    def ignores_object(self) -> bool:
+        return self.data_path is not None
+
+    def _result_key(self, obj: Optional[Object]) -> Optional[str]:
+        return None if obj is None else obj.name  # with data_path, the object at it
 
     def __call__(self, obj: Optional[Object] = None, p: Optional[float] = None) -> None:
         """Applies the augmentation with probability `p` to the object, or to the object
@@ -367,6 +395,10 @@ class OneOf(Augmentation):
         check_weights(weights, len(augmentations), "augmentation")
         self.augmentations = augmentations
         self.weights = weights
+
+    @property
+    def ignores_object(self) -> bool:
+        return all(getattr(augmentation, "ignores_object", False) for augmentation in self.augmentations)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = random.choices(range(len(self.augmentations)), weights=self.weights)[0]
@@ -435,6 +467,10 @@ class Chain(Augmentation):
         if not augmentations:
             raise ValueError("Give at least one augmentation")
         self.augmentations = augmentations
+
+    @property
+    def ignores_object(self) -> bool:
+        return all(getattr(augmentation, "ignores_object", False) for augmentation in self.augmentations)
 
     def apply(self, obj: Optional[Object]) -> None:
         for augmentation in self.augmentations:
@@ -801,7 +837,7 @@ class Seed(Augmentation):
 
     It works on the node group, not on the object passed by `Compose`, so it can be
     called as `seed()`. In a `Compose` it runs once per object, and the last seeds are
-    kept.
+    kept; `results` holds only those, under `None`.
 
     Args:
         node_group: the node group, e.g. `bpy.data.node_groups["Geometry Nodes"]`, or
@@ -834,6 +870,10 @@ class Seed(Augmentation):
         super().__init__(p, check_otherwise(otherwise, valid, "an int"))
         bpy_a.check_seed_group(node_group)
         self.node_group = node_group
+
+    @property
+    def ignores_object(self) -> bool:
+        return True
 
     def apply(self, obj: Optional[Object] = None) -> None:
         self.actual = bpy_a.seeds(self.node_group)
@@ -1337,6 +1377,10 @@ class PathAugmentation(Augmentation):
     data_path: Optional[str]
     color = False
 
+    @property
+    def ignores_object(self) -> bool:
+        return is_absolute(self.data_path)
+
     def path(self) -> str:
         if self.data_path is None:
             raise ValueError(f"{type(self).__name__} has no data path: give it one, or use it as an "
@@ -1371,7 +1415,7 @@ class Number(PathAugmentation):
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
         `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
-        and the last value set is kept.
+        and the last value set is kept; `results` holds only that one, under `None`.
 
     Example:
         ```python
@@ -1425,7 +1469,7 @@ class Vector(PathAugmentation):
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
         `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
-        and the last value set is kept.
+        and the last value set is kept; `results` holds only that one, under `None`.
 
     Example:
         ```python
@@ -1488,7 +1532,8 @@ class Boolean(PathAugmentation):
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
-        `aug()`. In a `Compose` it runs once per object the `Compose` is called with.
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
+        and the last value set is kept; `results` holds only that one, under `None`.
 
     Example:
         ```python
@@ -1549,7 +1594,8 @@ class Menu(PathAugmentation):
 
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
-        `aug()`. In a `Compose` it runs once per object the `Compose` is called with.
+        `aug()`. In a `Compose` it runs once per object the `Compose` is called with,
+        and the last value set is kept; `results` holds only that one, under `None`.
 
     Example:
         ```python
@@ -1663,7 +1709,11 @@ class InputAugmentation:
         finally:
             augmentation.data_path = None  # it is the Node's, given again on the next call
         self.applied, self.actual = augmentation.applied, augmentation.actual
-        self.results[None if obj is None else obj.name] = self.actual
+        self.results[None if obj is None or self.ignores_object else obj.name] = self.actual
+
+    @property
+    def ignores_object(self) -> bool:
+        raise NotImplementedError
 
 
 class NodeInput(InputAugmentation):
@@ -1672,6 +1722,10 @@ class NodeInput(InputAugmentation):
     def __init__(self, key: Union[str, int], data_path: str, spec: Any):
         super().__init__(key, spec)
         self.data_path = data_path
+
+    @property
+    def ignores_object(self) -> bool:
+        return is_absolute(self.data_path)
 
     def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
         return self.data_path, bpy_a.socket_type(obj, self.data_path)
@@ -1687,6 +1741,10 @@ class ModifierInput(InputAugmentation):
         super().__init__(key, spec)
         self.modifier = modifier
 
+    @property
+    def ignores_object(self) -> bool:
+        return is_absolute(self.modifier)
+
     def resolve(self, obj: Optional[Object]) -> tuple[str, str]:
         return bpy_a.modifier_input(obj, self.modifier, self.key)
 
@@ -1701,6 +1759,10 @@ class InputsAugmentation(Augmentation):
             raise ValueError("Give at least one input")
         self.inputs = inputs
         self.augmentations: list[InputAugmentation] = []
+
+    @property
+    def ignores_object(self) -> bool:
+        return all(augmentation.ignores_object for augmentation in self.augmentations)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = {}
@@ -1779,7 +1841,7 @@ class Node(InputsAugmentation):
     !!! info "With an absolute path"
         A path starting with `bpy.` doesn't use the object, so it can be called alone,
         `node()`. In a `Compose` it runs once per object the `Compose` is called with,
-        and the last values set are kept.
+        and the last values set are kept; `results` holds only those, under `None`.
 
     Tip:
         `Node` is the same as a `Chain` of `Number`, `Vector`, `Boolean` and `Menu`

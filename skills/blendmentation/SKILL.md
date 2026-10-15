@@ -350,7 +350,9 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 - **What an augmentation did**: `aug.actual` (`actual_x/y/z`) and `aug.applied` describe
   only the last call, so after a `Compose` call only its last object. `aug.results` is
   `{object name: actual}` for every object of the last `Compose` call (`(x, y, z)` for
-  `Translation`/`Rotation`/`Scale`). Save it in the label with `generator({"key": aug.results})`.
+  `Translation`/`Rotation`/`Scale`). An augmentation that doesn't use the object (absolute
+  data path, `Seed`) stores only its last value, the one kept, under `None` (`"null"` in the
+  JSON). Save it in the label with `generator({"key": aug.results})`.
 - **`Visibility(p=0.5)`** shows the object in the render with probability `p` and hides
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,

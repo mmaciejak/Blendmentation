@@ -6,6 +6,14 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `results` of an augmentation that doesn't use the object it is called with (an absolute
+  data path in `Number`, `Vector`, `Boolean`, `Menu`, `Node` or `Modifier`, `Seed`, or a
+  `OneOf` or `Chain` of only those) holds one entry, under `None`, with the last value set.
+  In a `Compose` over several objects it runs once per object on the same value, and
+  `results` used to list a value per object although only the last one was kept.
+
 ### Fixed
 
 - `augmentations.Menu`, `MaterialSlot` and `UVMap` reject negative weights. Before, they

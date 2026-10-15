@@ -1290,6 +1290,31 @@ def test_results(cube):
     assert list(lift.results) == [None] and lift.results[None] == lift.actual
 
 
+def test_results_ignoring_object(cube):
+    """Augmentations that don't use the object run once per object of a Compose on the
+    same value: results holds only the last value, the one kept, under None."""
+    objs = [cube(f"Cube.{i}") for i in range(3)]
+    material, node, _ = node_group_node(objs[0])
+    energy = A.Number('bpy.data.lights["Sun"].energy', (1, 10))
+    bpy.data.lights.new("Sun", "SUN")
+    smart = A.Node('bpy.data.materials["Mat"].node_tree.nodes["Smart"]', {"Rust": A.Number((0, 1))})
+    seed = A.Seed(seed_group())
+    one_of = A.OneOf([A.Number('bpy.data.lights["Sun"].angle', (0, 1)), A.Seed(seed_group())])
+    chain = A.Chain([energy, A.Translation(x=1)])  # mixed: per object
+    target = A.Translation(x=1, data_path='bpy.data.objects["Cube.0"]')
+    relative = A.Number("location[2]", (1, 2))
+    compose = A.Compose([energy, smart, seed, one_of, chain, target, relative])
+    with state.restoring():
+        compose(objs)
+        assert energy.results == {None: pytest.approx(bpy.data.lights["Sun"].energy)}
+        assert smart.results == {None: {"Rust": pytest.approx(node.inputs["Rust"].default_value)}}
+        assert smart.augmentations[0].results.keys() == {None}
+        assert list(seed.results) == [None] and list(one_of.results) == [None]
+        assert list(chain.results) == [obj.name for obj in objs]
+        assert list(target.results) == ["Cube.0"]  # with data_path: the object's name
+        assert list(relative.results) == [obj.name for obj in objs]
+
+
 def test_one_of(cube):
     obj = cube("Cube")
     children = [A.Translation(x=1), A.Rotation(z=90)]
