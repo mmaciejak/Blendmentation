@@ -162,8 +162,10 @@ def graph_preview(composes: Any, path: str, show: bool = False) -> str:
     Args:
         composes: augmentation `Compose`s: one, a list (ids `"0"`, `"1"`...) or a dict
             `{name: Compose}` (ids the names), as for `generating.Augmentations`.
-        path: the HTML file to write, or a folder to write `augmentations_preview.html`
-            to. `//` paths are relative to the .blend file.
+        path: the HTML file to write (ending in `.html`), or a folder to write
+            `augmentations_preview.html` to, made when it doesn't exist yet (e.g. the
+            generating path before the first datapoint). `//` paths are relative to the
+            .blend file.
         show: open the page in the web browser.
 
     Returns:
@@ -179,8 +181,9 @@ def graph_preview(composes: Any, path: str, show: bool = False) -> str:
     """
     roots = [graph.describe(compose, name) for name, compose in compose_roots(composes)]
     output = export.dataset_path(path)
-    if os.path.isdir(output):
+    if not output.lower().endswith((".html", ".htm")):
         output = os.path.join(output, "augmentations_preview.html")
+    os.makedirs(os.path.dirname(output), exist_ok=True)
     export.write_report(output, "Augmentations preview", None, roots)
     if show:
         webbrowser.open(pathlib.Path(output).as_uri())

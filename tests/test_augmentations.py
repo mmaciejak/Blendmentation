@@ -3,6 +3,7 @@ import colorsys
 import functools
 import json
 import math
+import os
 import re
 import random
 
@@ -1806,6 +1807,9 @@ def test_graph_preview(tmp_path, monkeypatch):
     # a folder: augmentations_preview.html in it; a list: ids "0", "1"
     output = A.graph_preview([objects_aug, camera_aug], str(tmp_path))
     assert output == str(tmp_path / "augmentations_preview.html") and len(opened) == 1
+    # a folder that doesn't exist yet, e.g. the generating path before the first datapoint
+    output = A.graph_preview(objects_aug, str(tmp_path / "dataset"))
+    assert output == str(tmp_path / "dataset" / "augmentations_preview.html") and os.path.isfile(output)
     for bad, error in ((A.Rotation(z=1), TypeError), ([], ValueError), ({1: objects_aug}, TypeError)):
         with pytest.raises(error):
             A.graph_preview(bad, str(tmp_path))
