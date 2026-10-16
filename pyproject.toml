@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blendmentation"
-version = "0.10.2"
+version = "0.11.0"
 description = "Synthetic, augmented training datasets from Blender scenes"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
