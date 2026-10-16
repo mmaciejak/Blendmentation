@@ -58,6 +58,12 @@ standing_aug = aug.Compose([
 
 ![Three renders of the standing milk carton](images/carton-standing.jpg){ .full-width }
 
+The transforms change the object from where it is, so a single number `v` is the range
+`(-v, v)`: `Rotation(z=180)` turns it by -180 to 180 degrees and `Translation(x=0.5)`
+moves it by up to 0.5 either way. `(low, high)` gives the range itself. Augmentations
+that set a value instead, like `FocalLength(50)` or `LookAt(target, distance=8)`, take a
+single number as that exact value.
+
 You can also control the chance of the whole `Compose` happening with `p`.
 
 ```python hl_lines="7"

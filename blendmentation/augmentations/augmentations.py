@@ -33,6 +33,13 @@ object as one augmentation, e.g. to pick between whole sequences in a `OneOf`.
 each outcome per object; `graph_preview` draws it on an HTML page before generating, and
 `generating.Augmentations` saves it and records what happened in every label.
 
+Ranges are `(low, high)`, and most also take `(low, high, step)` for one of low,
+low + step, ... high. A single number means one of two things. Where an augmentation
+changes a value from where it is (`Translation`, `Rotation`, `Scale`, the `defocus` of
+`DepthOfField`), a number `v` is the range `(-v, v)`: `Rotation(z=180)` is any heading.
+Where it sets a value (`LookAt`, `FocalLength`, `DepthOfField`'s `f_stop`,
+`SimpleMaterial`, `PlaceOnCurve`), a number is that exact value: `FocalLength(50)`.
+
 `Number`, `Vector`, `Boolean` and `Menu` change any value by its data path. A path
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
 Path. Any other path is relative to the augmented object, e.g. `data.energy`.

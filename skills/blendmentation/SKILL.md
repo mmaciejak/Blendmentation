@@ -348,7 +348,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   The object augmentations (transforms, `Visibility`, `ShadowCatcher`, `KeepAbove`, `PlaceOn`, `LookAt`,
   `PlaceOnCurve`, `FocalLength`, `DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) take
   `data_path='bpy.data.objects["Camera"]'` to always change that object instead of the
-  one they are called with, so they also run alone: `aug()`. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
+  one they are called with, so they also run alone: `aug()`. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number: `v` is `(-v, v)` where the augmentation changes a value from where it is (`Translation`/`Rotation`/`Scale`, `DepthOfField(defocus=)`), and the exact value where it sets one (`LookAt`, `FocalLength`, `f_stop`, `SimpleMaterial`, `PlaceOnCurve`);
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
