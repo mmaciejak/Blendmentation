@@ -85,7 +85,7 @@ def test_restoring(scene, cube):
             ]),
             A.Modifier('modifiers["GN"]', {"Density": A.Number((5, 10))}),
             A.Visibility(p=0),
-            A.ShadowCatcher(),
+            A.ShadowCatcher(p=1),
             A.KeepAbove(floor, margin=1),
         ])([obj])
         A.Compose([

@@ -939,14 +939,14 @@ class ShadowCatcher(ObjectAugmentation):
     Example:
         ```python
         floor_aug = augmentations.Compose([augmentations.ShadowCatcher()])
-        floor_aug([floor])   # only the shadows on it are rendered
+        floor_aug([floor])   # only shadows in half of the images, the floor in the others
 
-        # only shadows in half of the images, the floor in the others
-        augmentations.ShadowCatcher(p=0.5, data_path='bpy.data.objects["Floor"]')()
+        # always only the shadows on it
+        augmentations.ShadowCatcher(p=1, data_path='bpy.data.objects["Floor"]')()
         ```
     """
 
-    def __init__(self, p: float = 1.0, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
+    def __init__(self, p: float = 0.5, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
                          name=name)

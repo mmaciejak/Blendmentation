@@ -16,7 +16,7 @@ All notable changes to Blendmentation. The format follows
   are prefixes, number the images in order so the ids stay unique.
   `export.augmentation_stats`, `skip_stats` and `augmentation_report` take a `prefix`
   to read one run.
-- `augmentations.ShadowCatcher(p=1.0, otherwise=False)` makes an object a shadow catcher
+- `augmentations.ShadowCatcher(p=0.5, otherwise=False)` makes an object a shadow catcher
   (Cycles) with probability `p`, and a normal object otherwise, e.g. a floor that renders
   only the shadows on it over a transparent film or a `generating.Background`.
 - Every label JSON and every line of `skipped.jsonl` starts with `"version"`, the

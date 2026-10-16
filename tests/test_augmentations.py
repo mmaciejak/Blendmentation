@@ -134,7 +134,8 @@ def test_visibility(cube):
 
 def test_shadow_catcher(cube):
     obj = cube("Floor")
-    on = A.ShadowCatcher()
+    assert A.ShadowCatcher().p == 0.5
+    on = A.ShadowCatcher(p=1)
     on(obj)
     assert on.applied is True and on.actual is True and obj.is_shadow_catcher and not obj.hide_render
     off = A.ShadowCatcher(p=0)
@@ -1681,7 +1682,7 @@ def test_object_data_path(scene, cube):
         A.Rotation(z=(30, 30), data_path=path),
         A.Scale(x=(50, 50), data_path=path),
         A.Visibility(p=0, data_path=path),
-        A.ShadowCatcher(data_path=path),
+        A.ShadowCatcher(p=1, data_path=path),
         A.KeepAbove(floor, margin=5, data_path=path),
         A.PlaceOn(floor, data_path=path),
         A.MaterialSlot([1], data_path=path),

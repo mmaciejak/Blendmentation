@@ -377,7 +377,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,
   and they don't block keypoints.
-- **`ShadowCatcher(p=1)`** makes the object (a floor) a Cycles shadow catcher with
+- **`ShadowCatcher(p=0.5)`** makes the object (a floor) a Cycles shadow catcher with
   probability `p`, a normal object otherwise (`is_shadow_catcher`): with a transparent
   film only the shadows on it are rendered, over a `Background`. Other engines ignore it.
   The labels don't change: it still hides what is behind it.
