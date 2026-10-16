@@ -174,7 +174,7 @@ def test_set(scene):
 
 
 def test_restoring_aov_node(cube):
-    """In blender 4.0 an AOV Output node's name is its AOV name, not its key in the node tree."""
+    """A node is set back when its path uses its key in the node tree."""
     obj = cube("Cube")
     material = new_material(obj, "Mat")
     add_aov(material, "Albedo", "VALUE", 0.25)

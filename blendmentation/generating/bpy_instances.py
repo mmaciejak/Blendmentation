@@ -71,12 +71,6 @@ def mesh_coords(obj_eval):
     return coords.reshape(-1, 3)
 
 
-def socket(sockets, name):
-    """The socket of a node by name. Blender 4.0 nodes have one socket per data type with
-    the same name, only the one of the node's data type is enabled."""
-    return next(socket for socket in sockets if socket.name == name and socket.enabled)
-
-
 def node_group(name):
     """New geometry nodes group with a geometry input and output."""
     tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
@@ -94,7 +88,7 @@ def index_id_nodes():
     store.domain = "INSTANCE"
     store.inputs["Name"].default_value = "id"
     link(nodes.new("NodeGroupInput").outputs[0], store.inputs["Geometry"])
-    link(nodes.new("GeometryNodeInputIndex").outputs[0], socket(store.inputs, "Value"))
+    link(nodes.new("GeometryNodeInputIndex").outputs[0], store.inputs["Value"])
     link(store.outputs["Geometry"], nodes.new("NodeGroupOutput").inputs[0])
     return tree
 

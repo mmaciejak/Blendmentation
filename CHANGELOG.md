@@ -20,6 +20,11 @@ All notable changes to Blendmentation. The format follows
   (Cycles) with probability `p`, and a normal object otherwise, e.g. a floor that renders
   only the shadows on it over a transparent film or a `generating.Background`.
 
+### Changed
+
+- Blendmentation needs Blender 4.2 LTS or newer (it was 4.0), and Python 3.11 or newer
+  when used as a Python module or for the export alone.
+
 ### Removed
 
 - `generating.RotationMatrix` and the `rotation_matrices` label key. `generating.Pose`

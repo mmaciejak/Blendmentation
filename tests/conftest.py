@@ -79,7 +79,7 @@ def add_aov(material, name, kind, value):
     aov.name = name
     aov.type = kind
     node = material.node_tree.nodes.new("ShaderNodeOutputAOV")
-    setattr(node, "aov_name" if hasattr(node, "aov_name") else "name", name)
+    node.aov_name = name
     node.inputs["Value" if kind == "VALUE" else "Color"].default_value = value
     return aov
 

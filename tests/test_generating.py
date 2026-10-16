@@ -824,7 +824,8 @@ def test_background_exr_jpeg_and_seed(scene, cube, out):
     color = np.array(label(out)["background"]["color"])
     image = read_image(os.path.join(out, "000000.exr"))
     assert image.shape == (24, 32, 3)
-    assert image[0, 0] == pytest.approx(drawing.srgb_to_linear(color), abs=1e-5)
+    # Workbench in 4.2 leaves 0.0005 RGBA in empty transparent pixels (0 from 4.5)
+    assert image[0, 0] == pytest.approx(drawing.srgb_to_linear(color), abs=1e-3)
     # the same seed, the same background
     random.seed(3)
     assert G.Compose([G.Background({"color": 1}), G.Render("JPEG")], out, (32, 24))()

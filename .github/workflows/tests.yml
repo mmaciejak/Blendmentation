@@ -36,6 +36,10 @@ jobs:
           - bpy: "4.5"
             python: "3.11"
             requirement: "bpy==4.5.14"
+          # the oldest supported version
+          - bpy: "4.2"
+            python: "3.11"
+            requirement: "bpy==4.2.23"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -63,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12"]
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

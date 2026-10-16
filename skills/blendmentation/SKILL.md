@@ -61,7 +61,7 @@ Finding `REPO`:
 
 Don't `pip install` into Blender's Python as a side effect. If the user wants it
 installed, follow https://blendmentation.docs.csmx.eu/installation/ (it needs
-`--no-deps`, or a second numpy breaks Blender's). The library needs Blender 4.0 or newer,
+`--no-deps`, or a second numpy breaks Blender's). The library needs Blender 4.2 or newer,
 and only uses numpy and OpenImageIO, which ship with Blender.
 
 ## 2. Look at the scene before writing a pipeline

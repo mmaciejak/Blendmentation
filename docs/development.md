@@ -14,9 +14,9 @@ uv pip install -e ".[module,test]"
 Without `bpy`, only the tests that don't need Blender run, and the rest are skipped.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `main` or
-`dev` and every pull request: with `bpy` 5.x (Python 3.13) and `bpy` 4.5 (Python 3.11) on Linux
-with Mesa software rendering, and without Blender on Python 3.10 and 3.12. Blender 4.0
-has no `bpy` wheel, so it is only checked in the app.
+`dev` and every pull request: with `bpy` 5.x (Python 3.13), and `bpy` 4.5 and 4.2, the
+oldest supported version (Python 3.11), on Linux with Mesa software rendering, and
+without Blender on Python 3.11 and 3.12.
 
 ## Lint
 

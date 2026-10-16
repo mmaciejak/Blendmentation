@@ -9,21 +9,20 @@ description = "Synthetic, augmented training datasets from Blender scenes"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Maciej Maciejak", email = "contact@csmx.eu" }]
 keywords = ["blender", "synthetic data", "data augmentation", "computer vision", "dataset"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics :: 3D Rendering",
 ]
-# Blender bundles numpy with pip metadata (4.0: 1.23.5), so installing into Blender's python
+# Blender bundles numpy with pip metadata, so installing into Blender's python
 # downloads nothing. bpy and OpenImageIO are bundled too but invisible to pip, a dependency on
 # them would install a second copy (bpy is ~400 MB), so they are in the "module" extra
 dependencies = ["numpy>=1.23"]
@@ -55,7 +54,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]

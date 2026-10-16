@@ -24,7 +24,7 @@ from blendmentation.state import state
 
 Or install it as a Blender add-on: download `blendmentation-addon-<version>.zip` from the
 [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), then
-Edit > Preferences > Add-ons > Install from Disk (Install in Blender 4.0 and 4.1), and
+Edit > Preferences > Add-ons > Install from Disk, and
 enable "Blendmentation". Scripts then import it without the two `sys.path` lines, and the
 node editor gets a tool that writes `Node` augmentations for you (see
 [A smart material](#a-smart-material)).

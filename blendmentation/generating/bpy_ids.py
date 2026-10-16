@@ -107,13 +107,13 @@ def instance_id_nodes(lut, keep_own_geometry, hide_others):
     # instances past the lut get its last value, -1
     sample.clamp = True
     link(info.outputs["Geometry"], sample.inputs["Geometry"])
-    link(bpy_instances.socket(attribute.outputs, "Attribute"), bpy_instances.socket(sample.inputs, "Value"))
+    link(attribute.outputs["Attribute"], sample.inputs["Value"])
     link(nodes.new("GeometryNodeInputIndex").outputs[0], sample.inputs["Index"])
     store = nodes.new("GeometryNodeStoreNamedAttribute")
     store.data_type = "INT"
     store.domain = "INSTANCE"
     store.inputs["Name"].default_value = ID_ATTRIBUTE
-    link(bpy_instances.socket(sample.outputs, "Value"), bpy_instances.socket(store.inputs, "Value"))
+    link(sample.outputs["Value"], store.inputs["Value"])
     geometry = group_input.outputs[0]
     if hide_others and not keep_own_geometry:
         separate = nodes.new("GeometryNodeSeparateComponents")
@@ -125,7 +125,7 @@ def instance_id_nodes(lut, keep_own_geometry, hide_others):
         compare = nodes.new("FunctionNodeCompare")
         compare.data_type = "FLOAT"
         compare.operation = "LESS_THAN"
-        link(bpy_instances.socket(sample.outputs, "Value"), compare.inputs[0])
+        link(sample.outputs["Value"], compare.inputs[0])
         compare.inputs[1].default_value = 0.5
         delete = nodes.new("GeometryNodeDeleteGeometry")
         delete.domain = "INSTANCE"
@@ -203,7 +203,7 @@ def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False)
                 objects[obj] = group_id
     with bpy_undo.temporary() as changes:
         if hide_others:
-            # hiding a source hides its instances in blender 4.0, the material hides what has no id
+            # hiding a source can hide its instances too, the material hides what has no id
             hide_in_render(changes, set(objects) | set(parents) | sources)
         for obj, group_id in objects.items():
             changes.set_item(obj, ID_ATTRIBUTE, float(group_id))

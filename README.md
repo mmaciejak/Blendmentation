@@ -33,7 +33,7 @@ Blendmentation does it itself.
 
 ## Requirements
 
-- Blender 4.0 or newer. It is tested on 4.0 and 5.2.
+- Blender 4.2 LTS or newer. It is tested on 4.2, 4.5 and 5.2.
 - Nothing else. The code runs in Blender's bundled Python, and uses `numpy` and
   `OpenImageIO`, which ship with Blender.
 

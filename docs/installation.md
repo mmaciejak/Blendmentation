@@ -16,8 +16,8 @@ three, since with two copies your scripts import whichever Blender finds first.
    [latest release](https://github.com/mmaciejak/Blendmentation/releases/latest), or
    zip the `blendmentation` folder of a clone yourself. (GitHub's "Download ZIP" of the
    repository doesn't work as an add-on: it has the repository folder on top.)
-2. In Blender, Edit > Preferences > Add-ons: in Blender 4.2 and newer, the arrow at the
-   top right > Install from Disk; in 4.0 and 4.1, Install. Pick the zip.
+2. In Blender, Edit > Preferences > Add-ons: the arrow at the top right > Install from
+   Disk. Pick the zip.
 3. Enable "Blendmentation" in the list.
 
 Blender copies the package to its add-ons folder, which is on `sys.path`, so scripts
