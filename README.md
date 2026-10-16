@@ -127,4 +127,4 @@ The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]
 
 ## License
 
-[GNU AGPL v3](LICENSE).
+[GNU AGPL v3 or later](LICENSE).
