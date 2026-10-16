@@ -232,7 +232,6 @@ def test_pass_not_supported_by_engine(scene, cube, out):
     [G.Render(), G.BBox([])],
     [G.Render(), G.BBox({"car": "not a list"})],
     [G.Render(), G.Segmentation({"car": []}, per="pixel")],
-    [G.Render(), G.RotationMatrix([])],
     [G.Render(), G.OutputField("x", "location")],
     [G.Render(), G.Keypoints(["not a dict"])],
     [G.Render(), G.BBox({}), G.BBoxImage("TIFF")],
@@ -660,13 +659,11 @@ def test_output_fields_and_rotation(scene, cube, out):
         G.OutputField("camera_matrix", "bpy.context.scene.camera.matrix_world"),
         G.OutputField("material", 'bpy.data.objects["Cube"].active_material'),
         G.OutputField("location", "location", objects=[obj]),
-        G.RotationMatrix([obj]),
     ]
     G.Compose(steps, out, (16, 12))()
     data = label(out)
     assert data["energy"] == 123.0 and data["engine"] == "BLENDER_WORKBENCH" and data["material"] == "Mat"
     assert len(data["camera_matrix"]) == 4 and data["location"] == {"Cube": [1.0, 2.0, 3.0]}
-    assert data["rotation_matrices"][0]["object"] == "Cube"
     with pytest.raises(ValueError, match="does not resolve"):
         G.Compose([G.OutputField("shape", "data.shape_keys.key_blocks[0].value", objects=[obj])], out, (16, 12))()
 

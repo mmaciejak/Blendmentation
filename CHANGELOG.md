@@ -20,6 +20,12 @@ All notable changes to Blendmentation. The format follows
   (Cycles) with probability `p`, and a normal object otherwise, e.g. a floor that renders
   only the shadows on it over a transparent film or a `generating.Background`.
 
+### Removed
+
+- `generating.RotationMatrix` and the `rotation_matrices` label key. `generating.Pose`
+  gives each instance's rotation relative to the camera (`R`, in OpenCV camera axes,
+  scale removed) with its translation.
+
 ## [0.10.2] - 2026-10-15
 
 ### Changed

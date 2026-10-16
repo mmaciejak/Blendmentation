@@ -265,12 +265,6 @@ def iou_conflict(boxes, limits):
     return None
 
 
-def rotation_to_camera(camera, obj):
-    """Object rotation relative to the camera as a 3x3 matrix, with scale removed."""
-    relative = camera.matrix_world.inverted() @ obj.matrix_world
-    return [list(row) for row in relative.to_3x3().normalized()]
-
-
 def check_aovs(scene, view_layer, aovs, aov_format):
     """Raises if the AOVs cannot be rendered."""
     if aov_format not in AOV_FORMATS:
@@ -671,20 +665,6 @@ def bboxes(frame, classes, settings, allow_empty=False):
                 return False
     frame.add("bboxes", entries)
     return True
-
-
-def check_objects(objects, step_name):
-    if not isinstance(objects, (list, tuple)) or not objects:
-        raise TypeError(f"{step_name} needs a list of objects")
-
-
-def rotation_matrices(frame, objects):
-    """Adds {"object", "rotation_matrix"} relative to the camera of every object
-    to the labels under "rotation_matrices"."""
-    frame.add(
-        "rotation_matrices",
-        [{"object": obj.name, "rotation_matrix": rotation_to_camera(frame.camera, obj)} for obj in objects],
-    )
 
 
 # blender cameras look down -z with y up, OpenCV cameras look down +z with y down

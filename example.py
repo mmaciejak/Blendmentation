@@ -189,7 +189,6 @@ image_generator = generating.Compose(
         # no file for empty masks; full_masks adds masks that ignore occlusion (for BOP)
         generating.Segmentation(classes, per="both", skip_empty=True, full_masks=True),
         generating.SegmentationImage(opacity=0.5),  # extra image with the masks drawn on it
-        generating.RotationMatrix([obj1, obj2]),
         generating.Pose(classes),  # 6D pose in OpenCV camera axes
         generating.CameraData(),
         generating.Keypoints({

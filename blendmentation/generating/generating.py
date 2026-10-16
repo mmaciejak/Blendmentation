@@ -2,7 +2,7 @@
 JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
-`Pose`, `RotationMatrix`, `OutputField`, `CameraData`, `Keypoints`, `Augmentations`), so a datapoint skipped
+`Pose`, `OutputField`, `CameraData`, `Keypoints`, `Augmentations`), so a datapoint skipped
 by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
 then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
 `SegmentationImage`. All steps share one render, except that `Segmentation` with EEVEE or
@@ -311,34 +311,6 @@ class BBox(Step):
 
     def __call__(self, frame):
         return bpy_g.bboxes(frame, self.classes, self._settings(), self.allow_empty)
-
-
-class RotationMatrix(Step):
-    """Adds the rotation of every object relative to the camera to the label, as a 3x3
-    matrix with the scale removed, in Blender's camera axes (x right, y up, looking down
-    -z). For the full 6D pose in OpenCV axes, use `Pose`.
-
-    In the label JSON: `"rotation_matrices": [{"object", "rotation_matrix"}]`.
-
-    Args:
-        objects: objects to save the rotation of.
-
-    Example:
-        ```python
-        generating.RotationMatrix([car_1, car_2])
-        ```
-    """
-
-    stage = 0
-
-    def __init__(self, objects: Sequence[Object]):
-        self.objects = objects
-
-    def check(self):
-        bpy_g.check_objects(self.objects, "RotationMatrix")
-
-    def __call__(self, frame):
-        bpy_g.rotation_matrices(frame, self.objects)
 
 
 class Pose(Step):

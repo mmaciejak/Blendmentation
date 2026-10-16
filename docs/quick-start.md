@@ -1032,7 +1032,6 @@ steps = [
     ),
     # copy of the image with the masks drawn
     gen.SegmentationImage(),
-    gen.RotationMatrix([car_1, car_2]),
     # 6D pose of every instance, OpenCV camera axes
     gen.Pose(classes),
     gen.CameraData(),
