@@ -258,7 +258,7 @@ def coco(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[
                 annotation["area"] = int(mask.sum())
             annotations.append(annotation)
 
-    output = output or os.path.join(path, "coco.json")
+    output = os.path.join(path, "coco.json") if output is None else dataset_path(output)
     data = {
         "images": images,
         "annotations": annotations,
@@ -336,7 +336,7 @@ def yolo(path: str, *, classes: Optional[Sequence[str]] = None, bbox_from: Liter
     return yaml
 
 
-def voc(path: str, output_dir: Optional[str] = None, *, bbox_from: Literal["label", "mask"] = "label") -> str:
+def voc(path: str, output: Optional[str] = None, *, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
 
     Boxes touching the image border are marked `truncated`.
@@ -353,7 +353,7 @@ def voc(path: str, output_dir: Optional[str] = None, *, bbox_from: Literal["labe
 
     Args:
         path: generating path with the `<index>.json` labels.
-        output_dir: folder for the XML files. None = `<path>/Annotations`.
+        output: folder for the XML files. None = `<path>/Annotations`.
         bbox_from: `"label"` for the boxes of the `BBox` step, around the whole object
             including hidden parts (amodal), or `"mask"` for the extent of the visible
             pixels in the instance masks (modal, as in Pascal VOC itself), which needs
@@ -375,8 +375,8 @@ def voc(path: str, output_dir: Optional[str] = None, *, bbox_from: Literal["labe
     """
     check_bbox_from(bbox_from)
     path = dataset_path(path)
-    output_dir = output_dir or os.path.join(path, "Annotations")
-    os.makedirs(output_dir, exist_ok=True)
+    output = os.path.join(path, "Annotations") if output is None else dataset_path(output)
+    os.makedirs(output, exist_ok=True)
 
     for _, label in load_labels(path):
         width, height = label["resolution"]
@@ -402,8 +402,8 @@ def voc(path: str, output_dir: Optional[str] = None, *, bbox_from: Literal["labe
                 ElementTree.SubElement(box, tag).text = str(min(max(int(round(value)), 1), limit))
         ElementTree.indent(root)
         stem = os.path.splitext(label["image"])[0]
-        ElementTree.ElementTree(root).write(os.path.join(output_dir, f"{stem}.xml"))
-    return output_dir
+        ElementTree.ElementTree(root).write(os.path.join(output, f"{stem}.xml"))
+    return output
 
 
 def read_depth(path, file_name):
@@ -528,7 +528,7 @@ def bop(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[s
     check_scales(labels)
     with_masks = any(label.get("full_masks") or label.get("masks") for _, label in labels)
 
-    output = output or os.path.join(path, "bop")
+    output = os.path.join(path, "bop") if output is None else dataset_path(output)
     scene_dir = os.path.join(output, split, f"{scene_id:06d}")
     folders = ["rgb"] + (["mask", "mask_visib"] if with_masks else [])
     if any(label.get("passes", {}).get("Depth") for _, label in labels):

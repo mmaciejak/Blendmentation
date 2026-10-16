@@ -85,7 +85,7 @@ def test_yolo_and_voc_visible_boxes(dataset):
         assert [float(v) for v in line[1:]] == pytest.approx(
             [(x_min + x_max) / 640, (y_min + y_max) / 480, (x_max - x_min) / 320, (y_max - y_min) / 240], abs=1e-5)
 
-    directory = export.voc(dataset, output_dir=os.path.join(dataset, "visible"), bbox_from="mask")
+    directory = export.voc(dataset, output=os.path.join(dataset, "visible"), bbox_from="mask")
     objects = ElementTree.parse(os.path.join(directory, "000000.xml")).getroot().findall("object")
     assert [o.find("name").text for o in objects] == ["car", "car", "table"]
     assert [o.find("truncated").text for o in objects] == ["0", "1", "0"]

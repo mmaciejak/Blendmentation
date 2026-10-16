@@ -35,6 +35,9 @@ All notable changes to Blendmentation. The format follows
   `Render(file_format)`, `export.coco(path, output)`. Write the rest as keywords:
   `Rotation(z=90, p=0.5)`, `BBox(classes, max_truncation=0.3)`,
   `export.yolo(path, bbox_from="mask")`.
+- `export.voc` takes `output` instead of `output_dir`, like `coco` and `bop`. The
+  `output` of `coco`, `voc` and `bop` can be a `//` path, relative to the .blend file,
+  like `path`.
 
 ### Removed
 
