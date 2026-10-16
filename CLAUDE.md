@@ -55,7 +55,7 @@ The docs site (MkDocs Material + mkdocstrings, `mkdocs.yml`) is built from `docs
 
 Each subpackage under `blendmentation/` is split into two layers:
 
-- **Public API module** (`augmentations.py`, `generating.py`, `state.py`): user-facing classes that only hold configuration and delegate the actual work.
+- **Public API module** (`augmentations.py`, `generating.py`, `state.py`): user-facing classes that only hold configuration and delegate the actual work. Only the main arguments are positional; options (`p`, `otherwise`, `data_path`, `name`, settings) come after a `*`, so new ones can be added anywhere.
 - **`bpy_*` module** (`bpy_augmentations.py`, `bpy_generating.py`): plain functions that do the real Blender (`bpy`) manipulation. The public classes call these via a module alias (`bpy_a`, `bpy_g`). `state.py` uses the shared `blendmentation/bpy_undo.py`.
 
 Keep this split: Blender-specific logic goes in the `bpy_*` modules, and the public classes stay thin. `blendmentation/bpy_paths.py` is shared by augmentations and generating. It parses data paths like `bpy.data.materials["Mat"].node_tree.nodes["X"].inputs[2].default_value` into attribute/item steps without `eval`, then gets or sets the value and calls `update_tag()` on the owning datablock. Paths starting with `bpy.` are absolute; any other path is relative to an object. `blendmentation/bpy_camera.py` has `focus_distance` (Blender's effective focus distance), shared by `DepthOfField` and `CameraData`. `blendmentation/values.py` (no `bpy`) has the value checks every subpackage uses: `is_number` (not `bool`) and `is_point` (a list or tuple of 3 numbers).

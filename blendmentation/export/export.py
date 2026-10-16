@@ -183,7 +183,7 @@ def label_boxes(path, label, bbox_from):
             for class_name, objects, _, mask in visible_instances(path, label, need_masks=True)]
 
 
-def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]] = None,
+def coco(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[str]] = None,
          bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes a COCO detection and instance segmentation JSON.
 
@@ -269,7 +269,7 @@ def coco(path: str, output: Optional[str] = None, classes: Optional[Sequence[str
     return output
 
 
-def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
+def yolo(path: str, *, classes: Optional[Sequence[str]] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes YOLO detection labels.
 
     Writes `<index>.txt` next to every image, with one `class x_center y_center width
@@ -336,7 +336,7 @@ def yolo(path: str, classes: Optional[Sequence[str]] = None, bbox_from: Literal[
     return yaml
 
 
-def voc(path: str, output_dir: Optional[str] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
+def voc(path: str, output_dir: Optional[str] = None, *, bbox_from: Literal["label", "mask"] = "label") -> str:
     """Writes Pascal VOC XML annotations, one file per image, with 1-based pixel bboxes.
 
     Boxes touching the image border are marked `truncated`.
@@ -454,7 +454,7 @@ def check_scales(labels):
                 )
 
 
-def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]] = None, scene_id: int = 0,
+def bop(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[str]] = None, scene_id: int = 0,
         split: str = "train_pbr", depth_scale: float = 1.0) -> str:
     """Writes the dataset as one scene of a BOP dataset, for 6D pose estimation.
 
@@ -657,7 +657,7 @@ def augmentation_records(path, prefix=""):
     return records
 
 
-def augmentation_stats(path: str, graph_file: str = "augmentations.json", prefix: str = "") -> dict[str, dict]:
+def augmentation_stats(path: str, *, graph_file: str = "augmentations.json", prefix: str = "") -> dict[str, dict]:
     """Compares what the augmentations did over a dataset with what their graph expects.
 
     Reads the graph `generating.Augmentations` saved and the `augmentations` record of
@@ -762,7 +762,7 @@ def skipped_lines(path, prefix=""):
         return [json.loads(line) for line in file if line.strip()]
 
 
-def skip_stats(path: str, prefix: str = "") -> dict:
+def skip_stats(path: str, *, prefix: str = "") -> dict:
     """Counts the datapoints `generating.BBox` skipped, by reason and class.
 
     Reads `skipped.jsonl`, which `generating.Augmentations` writes for every skipped
@@ -802,7 +802,7 @@ def skip_stats(path: str, prefix: str = "") -> dict:
     return {"kept": len(augmentation_records(path, prefix)), "skipped": len(lines), "reasons": ordered}
 
 
-def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json",
+def augmentation_report(path: str, output: Optional[str] = None, *, graph_file: str = "augmentations.json",
                         prefix: str = "") -> str:
     """Writes an HTML page with the augmentation graph and how the dataset followed it.
 
@@ -842,8 +842,8 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     output = os.path.join(path, f"{prefix}augmentations.html") if output is None else dataset_path(output)
     title = f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}{f' ({prefix})' if prefix else ''}"
     write_report(output, title, path, load_graph(path, graph_file, prefix),
-                 augmentation_stats(path, graph_file, prefix), len(augmentation_records(path, prefix)),
-                 skip_stats(path, prefix))
+                 augmentation_stats(path, graph_file=graph_file, prefix=prefix),
+                 len(augmentation_records(path, prefix)), skip_stats(path, prefix=prefix))
     return output
 
 

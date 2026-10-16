@@ -27,6 +27,14 @@ All notable changes to Blendmentation. The format follows
 
 - Blendmentation needs Blender 4.2 LTS or newer (it was 4.0), and Python 3.11 or newer
   when used as a Python module or for the export alone.
+- Only the main arguments can be passed by position; the options are keyword-only, so
+  new ones can be added later without breaking scripts. For example `Translation(x, y,
+  z)`, `Number(data_path, value_range)`, `Menu(data_path, options, weights)`,
+  `OneOf(augmentations, weights)`, `KeepAbove(surface, margin)`, `LookAt(target)`,
+  `Visibility(p)`, `generating.Compose(steps, path, resolution)`, `BBox(classes)`,
+  `Render(file_format)`, `export.coco(path, output)`. Write the rest as keywords:
+  `Rotation(z=90, p=0.5)`, `BBox(classes, max_truncation=0.3)`,
+  `export.yolo(path, bbox_from="mask")`.
 
 ### Removed
 

@@ -928,7 +928,7 @@ def test_augmentations_step_errors(scene, out, augmentations, graph_file, error)
     if augmentations is None:
         augmentations = A.Compose([A.Rotation(z=1)])
     with pytest.raises(error):
-        G.Compose([G.Augmentations(augmentations, graph_file)], out, (16, 12))()
+        G.Compose([G.Augmentations(augmentations, graph_file=graph_file)], out, (16, 12))()
 
 
 def test_skipped_datapoints(scene, cube, out):

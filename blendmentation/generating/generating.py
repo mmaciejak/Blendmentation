@@ -117,7 +117,7 @@ class Compose:
         ```
     """
 
-    def __init__(self, steps: Sequence[Step], path: str, resolution: tuple[int, int], prefix: str = ""):
+    def __init__(self, steps: Sequence[Step], path: str, resolution: tuple[int, int], *, prefix: str = ""):
         for step in steps:
             if not isinstance(step, Step):
                 raise TypeError(
@@ -291,7 +291,7 @@ class BBox(Step):
     def __init__(
         self,
         classes: Classes,
-        iou_deconflict: Optional[float] = None,
+        *, iou_deconflict: Optional[float] = None,
         max_truncation: Optional[float] = None,
         max_occlusion: Optional[float] = None,
         allow_empty: bool = False,
@@ -379,7 +379,7 @@ class OutputField(Step):
 
     stage = 0
 
-    def __init__(self, name: str, data_path: str, objects: Optional[Sequence[Object]] = None):
+    def __init__(self, name: str, data_path: str, *, objects: Optional[Sequence[Object]] = None):
         self.name = name
         self.data_path = data_path
         self.objects = objects
@@ -447,7 +447,7 @@ class Augmentations(Step):
 
     stage = 0
 
-    def __init__(self, augmentations: Any, graph_file: Optional[str] = "augmentations.json"):
+    def __init__(self, augmentations: Any, *, graph_file: Optional[str] = "augmentations.json"):
         self.augmentations = augmentations
         self.graph_file = graph_file
 
@@ -581,7 +581,7 @@ class Background(Step):
     def __init__(
         self,
         weights: Optional[dict[Literal["color", "white_noise", "color_noise", "image"], float]] = None,
-        noise_size: tuple[float, float] = (1, 8),
+        *, noise_size: tuple[float, float] = (1, 8),
         images_path: Optional[str] = None,
     ):
         self.weights = weights
@@ -651,7 +651,7 @@ class AOVToImage(Step):
     stage = 3
 
     def __init__(
-        self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
+        self, names: Sequence[str], *, file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
     ):
         self.names = names
         self.file_format = file_format
@@ -694,7 +694,7 @@ class Passes(Step):
     stage = 3
 
     def __init__(
-        self, names: Sequence[str], file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
+        self, names: Sequence[str], *, file_format: Literal["OPEN_EXR", "PNG"] = "OPEN_EXR", skip_empty: bool = False
     ):
         self.names = names
         self.file_format = file_format
@@ -733,7 +733,7 @@ class BBoxImage(Step):
 
     stage = 3
 
-    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", line_width: int = 2, show_class: bool = True):
+    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", *, line_width: int = 2, show_class: bool = True):
         self.file_format = file_format
         self.line_width = line_width
         self.show_class = show_class
@@ -815,7 +815,7 @@ class Segmentation(Step):
     def __init__(
         self,
         classes: Classes,
-        per: Literal["instance", "class", "both"] = "instance",
+        *, per: Literal["instance", "class", "both"] = "instance",
         skip_empty: bool = False,
         full_masks: bool = False,
     ):
@@ -859,7 +859,7 @@ class SegmentationImage(Step):
 
     stage = 5
 
-    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", opacity: float = 0.5, line_width: int = 2,
+    def __init__(self, file_format: Literal["PNG", "JPEG"] = "PNG", *, opacity: float = 0.5, line_width: int = 2,
                  show_class: bool = True):
         self.file_format = file_format
         self.opacity = opacity

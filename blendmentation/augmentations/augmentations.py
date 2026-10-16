@@ -155,7 +155,7 @@ def compose_roots(augmentations: Any) -> list[tuple[str, Compose]]:
     return roots
 
 
-def graph_preview(composes: Any, path: str, show: bool = False) -> str:
+def graph_preview(composes: Any, path: str, *, show: bool = False) -> str:
     """Draws what augmentation `Compose`s can do on an HTML page, before generating.
 
     The same page as `export.augmentation_report`, without a dataset: a flowchart where
@@ -251,7 +251,7 @@ class Compose:
         ```
     """
 
-    def __init__(self, augmentations: list[Callable[[Object], Any]], p: float = 1.0, name: Optional[str] = None):
+    def __init__(self, augmentations: list[Callable[[Object], Any]], *, p: float = 1.0, name: Optional[str] = None):
         self.augmentations = augmentations
         self.p = check_p(p)
         self.name = check_name(name)
@@ -558,7 +558,7 @@ class OneOf(Augmentation):
     """
 
     def __init__(self, augmentations: list[Callable[[Object], Any]],
-                 weights: Optional[Sequence[float]] = None, p: float = 1.0, name: Optional[str] = None):
+                 weights: Optional[Sequence[float]] = None, *, p: float = 1.0, name: Optional[str] = None):
         super().__init__(p, name=name)
         if not augmentations:
             raise ValueError("Give at least one augmentation")
@@ -638,7 +638,7 @@ class Chain(Augmentation):
         ```
     """
 
-    def __init__(self, augmentations: list[Callable[[Optional[Object]], Any]], p: float = 1.0,
+    def __init__(self, augmentations: list[Callable[[Optional[Object]], Any]], *, p: float = 1.0,
                  name: Optional[str] = None):
         super().__init__(p, name=name)
         if not augmentations:
@@ -656,7 +656,7 @@ class Chain(Augmentation):
                        else getattr(augmentation, "actual", None) for augmentation in self.augmentations]
 
     @staticmethod
-    def shape_keys_template(obj: Object, prefix: str = "augmentations.", relative: bool = True) -> str:
+    def shape_keys_template(obj: Object, *, prefix: str = "augmentations.", relative: bool = True) -> str:
         """Writes the source of a `Chain` that sets the value of every shape key of an
         object, to paste into a script and edit.
 
@@ -740,7 +740,7 @@ class AxisAugmentation(ObjectAugmentation):
             each object, by name, None when skipped.
     """
 
-    def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, p: float = 1.0,
+    def __init__(self, x: Offset = 0, y: Offset = 0, z: Offset = 0, *, p: float = 1.0,
                  data_path: Optional[str] = None, name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         self.x = check_offset(x, "x")
@@ -891,7 +891,7 @@ class Visibility(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, p: float = 0.5, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
+    def __init__(self, p: float = 0.5, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
                          name=name)
@@ -946,7 +946,7 @@ class ShadowCatcher(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, p: float = 1.0, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
+    def __init__(self, p: float = 1.0, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
                          name=name)
@@ -1009,7 +1009,7 @@ class KeepAbove(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
+    def __init__(self, surface: Object, margin: float = 0.0, *, p: float = 1.0, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
@@ -1070,7 +1070,7 @@ class PlaceOn(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
+    def __init__(self, surface: Object, margin: float = 0.0, *, p: float = 1.0, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
@@ -1121,7 +1121,7 @@ class Seed(Augmentation):
         ```
     """
 
-    def __init__(self, node_group: NodeTree, p: float = 1.0, otherwise: Optional[int] = None,
+    def __init__(self, node_group: NodeTree, *, p: float = 1.0, otherwise: Optional[int] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, int) and not isinstance(otherwise, bool)
         super().__init__(p, check_otherwise(otherwise, valid, "an int"), name=name)
@@ -1180,7 +1180,7 @@ class LookAt(ObjectAugmentation):
     def __init__(
         self,
         target: Target,
-        distance: Optional[RangeOrValue] = None,
+        *, distance: Optional[RangeOrValue] = None,
         elevation: Optional[RangeOrValue] = None,
         azimuth: Optional[RangeOrValue] = None,
         roll: Optional[RangeOrValue] = None,
@@ -1259,7 +1259,7 @@ class PlaceOnCurve(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, curve: Object, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0,
+    def __init__(self, curve: Object, *, align: bool = False, position: RangeOrValue = (0.0, 1.0), p: float = 1.0,
                  data_path: Optional[str] = None, name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         bpy_a.check_curve(curve)
@@ -1319,7 +1319,7 @@ class FocalLength(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, focal_length: RangeOrValue, target: Optional[Target] = None, keep_size: bool = False,
+    def __init__(self, focal_length: RangeOrValue, *, target: Optional[Target] = None, keep_size: bool = False,
                  size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None,
                  data_path: Optional[str] = None, name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"), data_path, name=name)
@@ -1396,7 +1396,7 @@ class DepthOfField(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, target: Optional[Target] = None, f_stop: Optional[RangeOrValue] = None,
+    def __init__(self, target: Optional[Target] = None, *, f_stop: Optional[RangeOrValue] = None,
                  defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None,
                  data_path: Optional[str] = None, name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"), data_path,
@@ -1490,7 +1490,7 @@ class MaterialSlot(ObjectAugmentation):
     """
 
     def __init__(self, slots: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
-                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
+                 *, p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
         super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path, name=name)
@@ -1559,7 +1559,7 @@ class UVMap(ObjectAugmentation):
     """
 
     def __init__(self, uv_maps: Optional[Sequence[Union[int, str]]] = None, weights: Optional[Sequence[float]] = None,
-                 p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
+                 *, p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
         super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path, name=name)
@@ -1617,7 +1617,7 @@ class SimpleMaterial(ObjectAugmentation):
     def __init__(
         self,
         material_id: str,
-        hue: Optional[RangeOrValue] = None,
+        *, hue: Optional[RangeOrValue] = None,
         saturation: Optional[RangeOrValue] = None,
         value: Optional[RangeOrValue] = None,
         roughness: Optional[RangeOrValue] = None,
@@ -1715,7 +1715,7 @@ class Number(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, Range, None] = None, value_range: Optional[Range] = None,
-                 p: float = 1.0, otherwise: Optional[float] = None, name: Optional[str] = None):
+                 *, p: float = 1.0, otherwise: Optional[float] = None, name: Optional[str] = None):
         super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"), name=name)
         self.data_path, value_range = split_path(data_path, value_range)
         self.value_range = check_range(value_range, "value_range")
@@ -1775,7 +1775,7 @@ class Vector(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, tuple[Bound, Bound], None] = None,
-                 value_range: Optional[tuple[Bound, Bound]] = None, p: float = 1.0,
+                 value_range: Optional[tuple[Bound, Bound]] = None, *, p: float = 1.0,
                  otherwise: Optional[Bound] = None, name: Optional[str] = None):
         valid = is_number(otherwise) or (
             isinstance(otherwise, Sequence) and not isinstance(otherwise, str)
@@ -1834,7 +1834,7 @@ class Boolean(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, float, None] = None, p: Optional[float] = None,
-                 otherwise: Optional[bool] = False, name: Optional[str] = None):
+                 *, otherwise: Optional[bool] = False, name: Optional[str] = None):
         data_path, p = split_path(data_path, p)
         super().__init__(0.5 if p is None else p,
                          check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), name=name)
@@ -1901,7 +1901,7 @@ class Menu(PathAugmentation):
     """
 
     def __init__(self, data_path: Union[str, Sequence[Any], None] = None, options: Optional[Sequence[Any]] = None,
-                 weights: Optional[Sequence[float]] = None, p: float = 1.0, otherwise: Any = None,
+                 weights: Optional[Sequence[float]] = None, *, p: float = 1.0, otherwise: Any = None,
                  name: Optional[str] = None):
         super().__init__(p, otherwise, name=name)
         if not (data_path is None or isinstance(data_path, str)) and options is not None:
@@ -2187,14 +2187,14 @@ class Node(InputsAugmentation):
         ```
     """
 
-    def __init__(self, node: str, inputs: dict[Union[str, int], Any], p: float = 1.0, name: Optional[str] = None):
+    def __init__(self, node: str, inputs: dict[Union[str, int], Any], *, p: float = 1.0, name: Optional[str] = None):
         super().__init__(inputs, p, name=name)
         self.node = node
         self.augmentations = [NodeInput(key, f"{node}.inputs[{input_key(key)}].default_value", spec)
                               for key, spec in inputs.items()]
 
     @staticmethod
-    def template(node: Union[str, BpyNode], obj: Optional[Object] = None, prefix: str = "augmentations.",
+    def template(node: Union[str, BpyNode], obj: Optional[Object] = None, *, prefix: str = "augmentations.",
                  relative: bool = False) -> str:
         """Writes the source of a `Node` that sets every input of a node, to paste into a
         script and edit.
@@ -2379,13 +2379,14 @@ class Modifier(InputsAugmentation):
         ```
     """
 
-    def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], p: float = 1.0, name: Optional[str] = None):
+    def __init__(self, modifier: str, inputs: dict[Union[str, int], Any], *, p: float = 1.0,
+                 name: Optional[str] = None):
         super().__init__(inputs, p, name=name)
         self.modifier = modifier
         self.augmentations = [ModifierInput(key, modifier, spec) for key, spec in inputs.items()]
 
     @staticmethod
-    def template(modifier: Union[str, BpyModifier], obj: Optional[Object] = None, prefix: str = "augmentations.",
+    def template(modifier: Union[str, BpyModifier], obj: Optional[Object] = None, *, prefix: str = "augmentations.",
                  relative: bool = True) -> str:
         """Writes the source of a `Modifier` that sets every input of a geometry nodes
         modifier, or every setting of another modifier, to paste into a script and edit.
