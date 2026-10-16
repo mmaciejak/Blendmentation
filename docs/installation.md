@@ -24,9 +24,9 @@ Blender copies the package to its add-ons folder, which is on `sys.path`, so scr
 import it without any setup:
 
 ```python
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
 ```
 
 It also adds a tool for writing `Node` augmentations: select a node in a node editor (a
@@ -125,9 +125,9 @@ your script and import the modules as a package:
 import sys
 sys.path.append("/path/to/Blendmentation")
 
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
 ```
 
 Run the script from Blender's Scripting tab, or headless:
@@ -155,9 +155,9 @@ Blender adds to `sys.path`. On macOS, for Blender 4.2:
 Then import it in any script:
 
 ```python
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
 ```
 
 ## As a Python module, without the Blender app
@@ -187,9 +187,9 @@ as inside Blender, except that you open the `.blend` file yourself:
 
 ```python
 import bpy
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
 
 bpy.ops.wm.open_mainfile(filepath="scene.blend")   # "//" output paths are relative to this file
 # ... same augmentations, generating Compose and state.restoring() loop as below ...

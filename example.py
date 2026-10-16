@@ -35,10 +35,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import bpy  # noqa: E402
 
-from blendmentation.augmentations import augmentations  # noqa: E402
-from blendmentation.export import export  # noqa: E402
-from blendmentation.generating import generating  # noqa: E402
-from blendmentation.state import state  # noqa: E402
+from blendmentation import augmentations, export, generating, state  # noqa: E402
 
 obj1 = bpy.data.objects["Part.001"]
 obj2 = bpy.data.objects["Part.002"]

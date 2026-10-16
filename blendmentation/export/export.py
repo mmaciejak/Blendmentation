@@ -32,6 +32,9 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
 from typing import Literal, Optional
 
+# the public API, also importable as `from blendmentation import export`
+__all__ = ["coco", "yolo", "voc", "bop", "augmentation_stats", "skip_stats", "augmentation_report"]
+
 # <prefix><index>.json, a prefix doesn't end with a digit
 LABEL = re.compile(r"^(.*\D)?(\d+)\.json$")
 # written by generating.Augmentations for every datapoint a step skipped, after the prefix

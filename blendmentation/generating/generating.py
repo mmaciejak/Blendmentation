@@ -32,6 +32,12 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from . import bpy_generating as bpy_g
 
+# the public API, also importable as `from blendmentation import generating`
+__all__ = [
+    "Compose", "Instances", "BBox", "Pose", "OutputField", "Augmentations", "CameraData", "Keypoints", "Background",
+    "Render", "AOVToImage", "Passes", "BBoxImage", "Segmentation", "SegmentationImage",
+]
+
 if TYPE_CHECKING:
     from bpy.types import (  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
         Collection,

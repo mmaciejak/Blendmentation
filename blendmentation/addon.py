@@ -17,7 +17,7 @@ class BlendmentationPreferences(bpy.types.AddonPreferences):
     prefix: bpy.props.StringProperty(  # type: ignore[valid-type]
         name="Prefix",
         description="Written before Node, Modifier, Chain, Number, Vector, Boolean and Menu in the templates, "
-                    "e.g. aug. for 'from blendmentation.augmentations import augmentations as aug'",
+                    "e.g. aug. for 'from blendmentation import augmentations as aug'",
         default=DEFAULT_PREFIX,
     )
 

@@ -16,10 +16,10 @@ import sys
 sys.path.append("/path/to/Blendmentation")  # the cloned folder
 
 import bpy
-from blendmentation.augmentations import augmentations as aug
-from blendmentation.export import export
-from blendmentation.generating import generating as gen
-from blendmentation.state import state
+from blendmentation import augmentations as aug
+from blendmentation import export
+from blendmentation import generating as gen
+from blendmentation import state
 ```
 
 Or install it as a Blender add-on: download `blendmentation-addon-<version>.zip` from the

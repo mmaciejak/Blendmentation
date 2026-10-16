@@ -60,6 +60,13 @@ from ..export import export
 from ..values import check_weights, is_number
 from . import bpy_augmentations as bpy_a, graph
 
+# the public API, also importable as `from blendmentation import augmentations`
+__all__ = [
+    "graph_preview", "Compose", "Augmentation", "OneOf", "Chain", "Translation", "Rotation", "Scale", "Visibility",
+    "ShadowCatcher", "KeepAbove", "PlaceOn", "Seed", "LookAt", "PlaceOnCurve", "FocalLength", "DepthOfField",
+    "MaterialSlot", "UVMap", "SimpleMaterial", "Number", "Vector", "Boolean", "Menu", "Node", "Modifier",
+]
+
 if TYPE_CHECKING:
     from bpy.types import (  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
         Modifier as BpyModifier,
@@ -680,7 +687,7 @@ class Chain(Augmentation):
         Args:
             obj: object with shape keys (a mesh, curve or lattice).
             prefix: written before `Chain` and `Number`, e.g. `"aug."` after
-                `from blendmentation.augmentations import augmentations as aug`.
+                `from blendmentation import augmentations as aug`.
             relative: paths relative to the object; False: absolute paths through it.
 
         Returns:
@@ -2245,7 +2252,7 @@ class Node(InputsAugmentation):
                 path relative to `obj` makes a relative template.
             obj: object a relative path starts from.
             prefix: written before `Node`, `Number`, `Vector`, `Boolean` and `Menu`, e.g. `"aug."` after
-                `from blendmentation.augmentations import augmentations as aug`.
+                `from blendmentation import augmentations as aug`.
             relative: for a node, write its path relative to `obj`.
 
         Returns:
@@ -2428,7 +2435,7 @@ class Modifier(InputsAugmentation):
             obj: object a relative path starts from.
             prefix: written before `Modifier`, `Number`, `Vector`, `Boolean` and
                 `Menu`, e.g. `"aug."` after
-                `from blendmentation.augmentations import augmentations as aug`.
+                `from blendmentation import augmentations as aug`.
             relative: for a modifier, write its path relative to its object; False:
                 absolute.
 

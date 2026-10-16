@@ -10,7 +10,7 @@ Blendmentation is a Python library for generating synthetic, augmented training 
 
 ## Running
 
-Packaging and the ruff config are in `pyproject.toml`; lint with `.venv/bin/ruff check .` (CI runs it; E501 at 120 columns, not in tests). The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage of every feature; its docstring lists the scene it expects. It adds its own folder to `sys.path`. Import the modules as a package (`from blendmentation.augmentations import augmentations`), because they import their `bpy_*` sibling relatively.
+Packaging and the ruff config are in `pyproject.toml`; lint with `.venv/bin/ruff check .` (CI runs it; E501 at 120 columns, not in tests). The code depends on `bpy`, `mathutils`, `numpy` and `OpenImageIO` and is meant to run inside Blender's bundled Python (e.g. Blender's scripting tab, or `blender --background scene.blend --python example.py`). `example.py` shows the intended usage of every feature; its docstring lists the scene it expects. It adds its own folder to `sys.path`. Import the modules as a package (`from blendmentation import augmentations`: each subpackage's `__init__` star-imports its module, whose `__all__` is the public API; `from blendmentation.augmentations import augmentations` still works), because they import their `bpy_*` sibling relatively. `tests/test_api.py` checks the re-exports.
 
 **Tests** are in `tests/` (pytest) and run with `bpy` as a Python module:
 ```sh

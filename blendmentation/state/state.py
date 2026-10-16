@@ -15,6 +15,9 @@ from typing import Any
 
 from .. import bpy_undo
 
+# the public API, also importable as `from blendmentation import state`
+__all__ = ["restoring", "set"]
+
 
 @contextmanager
 def restoring() -> Iterator[None]:

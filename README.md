@@ -43,10 +43,10 @@ A scene with two cars, "Car.001" and "Car.002", using the material "CarPaint":
 
 ```python
 import bpy
-from blendmentation.augmentations import augmentations as aug
-from blendmentation.export import export
-from blendmentation.generating import generating as gen
-from blendmentation.state import state
+from blendmentation import augmentations as aug
+from blendmentation import export
+from blendmentation import generating as gen
+from blendmentation import state
 
 cars = [bpy.data.objects["Car.001"], bpy.data.objects["Car.002"]]
 classes = {"car": cars}

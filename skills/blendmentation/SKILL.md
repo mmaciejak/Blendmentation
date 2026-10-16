@@ -46,7 +46,7 @@ for name in [name for name in sys.modules if name == "blendmentation" or name.st
     del sys.modules[name]
 
 import blendmentation
-from blendmentation.generating import generating
+from blendmentation import generating
 print("blendmentation:", blendmentation.__file__, "| Blender", bpy.app.version_string, "| file:", bpy.data.filepath or "(unsaved)")
 ```
 
@@ -74,10 +74,10 @@ import sys
 REPO = "/absolute/path/to/Blendmentation"
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
-from blendmentation.export import export
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
+from blendmentation import export
 ```
 
 Inspect what the dataset can use:
@@ -131,9 +131,9 @@ changed back. Nothing has to be listed or saved first.
 
 ```python
 import bpy
-from blendmentation.augmentations import augmentations
-from blendmentation.generating import generating
-from blendmentation.state import state
+from blendmentation import augmentations
+from blendmentation import generating
+from blendmentation import state
 
 car_1, car_2 = bpy.data.objects["Car.001"], bpy.data.objects["Car.002"]
 plant = bpy.data.objects["Plant"]                         # in no class
@@ -280,7 +280,7 @@ pipeline and loop to a script (with the `sys.path` lines), and run
 Export reads the labels, so run it once at the end, over the whole folder:
 
 ```python
-from blendmentation.export import export
+from blendmentation import export
 export.coco("/absolute/output/folder")   # coco.json, masks as RLE if Segmentation ran
 export.yolo("/absolute/output/folder")   # <index>.txt next to the images, classes.txt, dataset.yaml
 # coco/yolo/voc: bbox_from="label" (default) = BBox boxes around the whole object, hidden parts
