@@ -231,7 +231,7 @@ def pipeline():
         image_generator({"lift": keep_above.results})
 
 
-for i in range(n_datapoints):
+for _ in range(n_datapoints):
     pipeline()
 
 # training-ready annotations next to the images

@@ -4,8 +4,8 @@ import functools
 import json
 import math
 import os
-import re
 import random
+import re
 
 import pytest
 
@@ -15,8 +15,11 @@ from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
 from blendmentation import bpy_paths  # noqa: E402
-from blendmentation.augmentations import augmentations as A  # noqa: E402
-from blendmentation.augmentations import bpy_augmentations, graph  # noqa: E402
+from blendmentation.augmentations import (  # noqa: E402
+    augmentations as A,
+    bpy_augmentations,
+    graph,
+)
 from blendmentation.state import state  # noqa: E402
 from conftest import new_material  # noqa: E402
 

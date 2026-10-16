@@ -18,6 +18,15 @@ GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `
 with Mesa software rendering, and without Blender on Python 3.10 and 3.12. Blender 4.0
 has no `bpy` wheel, so it is only checked in the app.
 
+## Lint
+
+[Ruff](https://docs.astral.sh/ruff/) checks the code (its settings are in
+`pyproject.toml`, it is in the `dev` extra), and CI runs it too:
+
+```sh
+.venv/bin/ruff check .        # --fix sorts the imports
+```
+
 ## Branches
 
 `main` always holds the latest release, because the installation instructions clone it

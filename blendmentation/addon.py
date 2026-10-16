@@ -1,7 +1,8 @@
 """The Blender add-on: operators that copy a Node template of the active node (node
 editor), or a shape keys Chain template of the active object or a Modifier template of
-its active modifier (3D viewport) to the clipboard, in a Blendmentation tab in the sidebar of both. Only imported by register(),
-so importing the package doesn't register anything."""
+its active modifier (3D viewport) to the clipboard, in a Blendmentation tab in the
+sidebar of both. Only imported by register(), so importing the package doesn't register
+anything."""
 
 import bpy
 
@@ -15,8 +16,8 @@ class BlendmentationPreferences(bpy.types.AddonPreferences):
 
     prefix: bpy.props.StringProperty(  # type: ignore[valid-type]
         name="Prefix",
-        description="Written before Node, Modifier, Chain, Number, Vector, Boolean and Menu in the templates, e.g. aug. for "
-                    "'from blendmentation.augmentations import augmentations as aug'",
+        description="Written before Node, Modifier, Chain, Number, Vector, Boolean and Menu in the templates, "
+                    "e.g. aug. for 'from blendmentation.augmentations import augmentations as aug'",
         default=DEFAULT_PREFIX,
     )
 
@@ -80,7 +81,8 @@ def copy_shape_keys_template(obj, window_manager, prefix=DEFAULT_PREFIX, relativ
 
 
 class OBJECT_OT_blendmentation_copy_shape_keys_template(bpy.types.Operator):
-    """Copy an augmentations.Chain(...) with a Number for every shape key of the active object, to paste into a script"""
+    """Copy an augmentations.Chain(...) with a Number for every shape key of the active object, to paste into a
+    script"""
 
     bl_idname = "object.blendmentation_copy_shape_keys_template"
     bl_label = "Copy Shape Keys Template"
@@ -134,7 +136,8 @@ def active_modifier(context):
 
 
 class OBJECT_OT_blendmentation_copy_modifier_template(bpy.types.Operator):
-    """Copy an augmentations.Modifier(...) with every input or setting of the active modifier and its range, to paste into a script"""
+    """Copy an augmentations.Modifier(...) with every input or setting of the active modifier and its range, to paste
+    into a script"""
 
     bl_idname = "object.blendmentation_copy_modifier_template"
     bl_label = "Copy Modifier Template"
@@ -181,7 +184,8 @@ class VIEW3D_PT_blendmentation(bpy.types.Panel):
     bl_category = "Blendmentation"
 
     def draw(self, context):
-        draw_buttons(self.layout, "Copy Shape Keys Template", OBJECT_OT_blendmentation_copy_shape_keys_template.bl_idname)
+        draw_buttons(self.layout, "Copy Shape Keys Template",
+                     OBJECT_OT_blendmentation_copy_shape_keys_template.bl_idname)
         draw_buttons(self.layout, "Copy Modifier Template (active modifier)",
                      OBJECT_OT_blendmentation_copy_modifier_template.bl_idname)
 

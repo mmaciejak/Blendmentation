@@ -8,7 +8,6 @@ import bpy
 from .. import bpy_undo
 from . import bpy_images, bpy_instances
 
-
 # instance attribute and custom property holding the ids in the id render of instances
 ID_ATTRIBUTE = "blendmentation_id"
 

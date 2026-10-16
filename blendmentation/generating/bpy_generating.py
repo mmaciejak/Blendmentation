@@ -12,10 +12,10 @@ from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
 from .. import bpy_camera, bpy_paths, bpy_undo
-from ..augmentations import augmentations as augs
-from ..augmentations import graph
+from ..augmentations import augmentations as augs, graph
 from ..values import is_number, is_point
 from . import bpy_ids, bpy_images, bpy_instances, drawing
+
 # raises when OpenImageIO is missing
 from .bpy_images import oiio
 
@@ -49,7 +49,8 @@ def split_class(class_name, value):
         return value, {}
     unknown = sorted(set(value) - {"instances", *CLASS_SETTINGS})
     if unknown:
-        raise ValueError(f"Class '{class_name}' has unknown keys {unknown}, allowed: instances, {', '.join(CLASS_SETTINGS)}")
+        raise ValueError(
+            f"Class '{class_name}' has unknown keys {unknown}, allowed: instances, {', '.join(CLASS_SETTINGS)}")
     if "instances" not in value:
         raise ValueError(f"Class '{class_name}' is a dict, so it needs an 'instances' list")
     settings = {name: value[name] for name in CLASS_SETTINGS if name in value}
@@ -380,7 +381,8 @@ def save_masks(ids, instances, path, stem, per, skip_empty=False, previous=(), f
     if per in ("instance", "both"):
         for number, (class_name, group) in enumerate(instances):
             file_name = mask_file(f"mask_{safe(class_name)}_{start + number}", ids == number + 1)
-            entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name, "per": "instance"})
+            entries.append({"class": class_name, "objects": [obj.name for obj in group], "mask": file_name,
+                            "per": "instance"})
     if per in ("class", "both"):
         for class_name in dict.fromkeys(class_name for class_name, _ in instances):
             numbers = [number for number, (name, _) in enumerate(instances) if name == class_name]
@@ -730,7 +732,8 @@ def output_field(frame, name, data_path, objects):
         try:
             values[obj.name] = to_json(bpy_paths.get_value(data_path, obj))
         except (AttributeError, KeyError, IndexError, TypeError) as error:
-            raise ValueError(f"Output field '{name}': '{data_path}' does not resolve on '{obj.name}' ({error})")
+            raise ValueError(
+                f"Output field '{name}': '{data_path}' does not resolve on '{obj.name}' ({error})") from error
     frame.label[name] = values
 
 
@@ -831,7 +834,8 @@ def background_images(weights, images_path):
         if name.lower().endswith(BACKGROUND_IMAGE_EXTENSIONS)
     )
     if not images:
-        raise ValueError(f"Background images_path '{images_path}' has no {', '.join(BACKGROUND_IMAGE_EXTENSIONS)} images")
+        raise ValueError(
+            f"Background images_path '{images_path}' has no {', '.join(BACKGROUND_IMAGE_EXTENSIONS)} images")
     return images
 
 
@@ -1072,7 +1076,8 @@ def camera_data(frame):
 
 def check_keypoints(points):
     if not isinstance(points, dict) or not points:
-        raise TypeError("Keypoints needs a dict {name: object | (object, vertex index | vertex group | bone) | (x, y, z)}")
+        raise TypeError(
+            "Keypoints needs a dict {name: object | (object, vertex index | vertex group | bone) | (x, y, z)}")
 
 
 def keypoint_location(source, depsgraph):

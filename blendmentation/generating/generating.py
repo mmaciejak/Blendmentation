@@ -32,11 +32,15 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from . import bpy_generating as bpy_g
 
 if TYPE_CHECKING:
-    from bpy.types import Collection, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import (  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+        Collection,
+        Object,
+    )
 
 #: an object, a sublist of objects labeled as one instance, or the instances of an object's geometry nodes
 InstanceList = Sequence[Union["Object", Sequence["Object"], "Instances"]]
-#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ..., "max_truncation": ..., "max_occlusion": ...}}
+#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ...,
+#: "max_truncation": ..., "max_occlusion": ...}}
 Classes = Mapping[str, Union[InstanceList, Mapping[str, Any]]]
 #: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
 KeypointSource = Union["Object", tuple["Object", Union[int, str]], tuple[float, float, float]]
@@ -120,7 +124,8 @@ class Compose:
                 )
         for preview, source in ((BBoxImage, BBox), (SegmentationImage, Segmentation)):
             if any(isinstance(step, preview) for step in steps) and not any(isinstance(step, source) for step in steps):
-                raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, add {source.__name__} to the steps")
+                raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, "
+                                 f"add {source.__name__} to the steps")
         if not isinstance(prefix, str):
             raise TypeError(f"prefix must be a string, got {prefix!r}")
         if "/" in prefix or "\\" in prefix or prefix[-1:].isdigit():
@@ -561,10 +566,10 @@ class Background(Step):
     The output color must be RGBA. The background is composited over the render's
     alpha, so it shows where the render is transparent (Render Properties > Film >
     Transparent, or alpha from the compositor) and an opaque render hides it: a
-    pipeline can switch transparency per datapoint. The labels (masks, boxes), AOVs and passes don't change. The image is then saved
-    opaque as RGB: 8-bit for PNG and JPEG, 32-bit float for EXR (the background
-    converted from sRGB to linear). The backgrounds come from Python's `random`, so
-    `random.seed()` makes them reproducible.
+    pipeline can switch transparency per datapoint. The labels (masks, boxes), AOVs and
+    passes don't change. The image is then saved opaque as RGB: 8-bit for PNG and JPEG,
+    32-bit float for EXR (the background converted from sRGB to linear). The backgrounds
+    come from Python's `random`, so `random.seed()` makes them reproducible.
 
     In the label JSON: `"background": {"mode", ...}` with `"color": [r, g, b]` (0-255),
     `"noise_size"` (pixels) or `"image"` (path relative to `images_path`).

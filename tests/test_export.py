@@ -175,7 +175,7 @@ def test_bop(out, cube):
     scene.render.engine = "CYCLES"
     scene.unit_settings.scale_length = 0.5  # half a meter per blender unit
     target = cube("target")
-    wall = cube("wall", (0.5, -3, 0))  # in no class, covers the right half of the target
+    cube("wall", (0.5, -3, 0))  # in no class, covers the right half of the target
     hidden = cube("hidden", (-3, 0, 0))
     hidden.hide_render = True
     classes = {"box": [target, hidden]}

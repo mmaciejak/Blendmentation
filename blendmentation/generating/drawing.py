@@ -3,7 +3,6 @@ images, and the backgrounds. Plain numpy, Blender's OpenImageIO has no text rend
 
 import numpy as np
 
-
 # preview colors, one per class in order of appearance
 CLASS_COLORS = (
     (230, 25, 75), (60, 180, 75), (0, 130, 200), (255, 225, 25), (245, 130, 48),

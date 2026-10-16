@@ -4,7 +4,6 @@ from the depsgraph, for `Instances` in the classes."""
 import bpy
 import numpy as np
 
-
 # persistent_id of a depsgraph instance is its path through the nested instances, innermost
 # first, padded with this value
 INSTANCE_PATH_END = 2**31 - 1
@@ -37,7 +36,8 @@ def instance_sources(of):
 
 def check_instances(class_name, spec):
     if not isinstance(spec.parent, bpy.types.Object):
-        raise TypeError(f"Class '{class_name}': Instances needs the object that makes the instances, got {spec.parent!r}")
+        raise TypeError(
+            f"Class '{class_name}': Instances needs the object that makes the instances, got {spec.parent!r}")
     instance_sources(spec.of)
 
 

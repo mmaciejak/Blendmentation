@@ -519,7 +519,8 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
     """
     path = dataset_path(path)
     labels = load_labels(path)
-    missing = [label["image"] for _, label in labels if "poses" not in label or "intrinsics" not in label.get("camera", {})]
+    missing = [label["image"] for _, label in labels
+               if "poses" not in label or "intrinsics" not in label.get("camera", {})]
     if missing:
         raise ValueError(f"BOP needs Pose and CameraData with a perspective camera, missing in {missing[:5]}")
     names = class_names(labels, classes, keys=("poses",))
@@ -572,7 +573,7 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
                    for entry in label.get("masks", []) if entry.get("per", "instance") == "instance"}
         full = {(entry["class"], tuple(entry["objects"])): entry["mask"] for entry in label.get("full_masks", [])}
 
-        def load(file_name):
+        def load(file_name, height=height, width=width):
             import numpy as np
 
             return np.zeros((height, width), dtype=bool) if file_name is None else read_mask(path, file_name)
@@ -816,9 +817,9 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     frame) is marked. The datapoints `BBox` skipped are counted by reason (truncation,
     IoU, occlusion) and class, and a card's "skips" bar, centered on 0, shows how much
     more (red, right, +) or less (green, left, −) often the datapoint was skipped when the
-    augmentation ran than when it didn't, which shows the augmentations that cause skips. Clicking a card shows its settings and
-    numbers. The page is one
-    file that needs no internet, to open in any browser.
+    augmentation ran than when it didn't, which shows the augmentations that cause skips.
+    Clicking a card shows its settings and numbers. The page is one file that needs no
+    internet, to open in any browser.
 
     Args:
         path: the generating path, with a `generating.Augmentations` step's output.
@@ -840,8 +841,9 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     path = dataset_path(path)
     output = os.path.join(path, f"{prefix}augmentations.html") if output is None else dataset_path(output)
     title = f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}{f' ({prefix})' if prefix else ''}"
-    write_report(output, title, path, load_graph(path, graph_file, prefix), augmentation_stats(path, graph_file, prefix),
-                 len(augmentation_records(path, prefix)), skip_stats(path, prefix))
+    write_report(output, title, path, load_graph(path, graph_file, prefix),
+                 augmentation_stats(path, graph_file, prefix), len(augmentation_records(path, prefix)),
+                 skip_stats(path, prefix))
     return output
 
 

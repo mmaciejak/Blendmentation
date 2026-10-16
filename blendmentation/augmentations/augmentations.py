@@ -5,8 +5,9 @@ augmentation takes `p`, the probability that it runs, drawn per object; a call c
 override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
-`ShadowCatcher`, `FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
-last object; `results` holds the values for every object, by name. Augment inside
+`ShadowCatcher`, `FocalLength` and `DepthOfField` also take `otherwise`, a value to set
+when they don't run. Each call overwrites them, so after a `Compose` call they describe
+only the last object; `results` holds the values for every object, by name. Augment inside
 `with state.restoring():`, which sets everything back when the datapoint is done.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
 geometry nodes setup), each with its own `Number`, `Vector`, `Boolean` or `Menu`
@@ -57,11 +58,15 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from ..export import export
 from ..values import check_weights, is_number
-from . import bpy_augmentations as bpy_a
-from . import graph
+from . import bpy_augmentations as bpy_a, graph
 
 if TYPE_CHECKING:
-    from bpy.types import Modifier as BpyModifier, Node as BpyNode, NodeTree, Object  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+    from bpy.types import (  # pyright: ignore[reportMissingModuleSource]  (bpy.types only exists at runtime)
+        Modifier as BpyModifier,
+        Node as BpyNode,
+        NodeTree,
+        Object,
+    )
 
 #: a number v samples from (-v, v), a pair (low, high) from (low, high), a triple
 #: (low, high, step) picks one of low, low + step, ... up to high
@@ -2088,7 +2093,7 @@ class Node(InputsAugmentation):
     | Float, Int | [`Number`][blendmentation.augmentations.augmentations.Number]`((min, max))` or `((min, max, step))` |
     | Vector | [`Vector`][blendmentation.augmentations.augmentations.Vector]`((min, max))` |
     | Rotation | `Vector((min, max))` of the X, Y, Z angles in radians |
-    | Color | `Vector((min, max))`: a number or 3 values set red, green and blue and keep alpha, so `(0, 1)` is any color; 4 values set alpha too |
+    | Color | `Vector((min, max))`: 1 or 3 values set RGB and keep alpha (`(0, 1)`: any color), 4 set alpha too |
     | Boolean | [`Boolean`][blendmentation.augmentations.augmentations.Boolean]`(p=...)`, the probability of True |
     | Menu | [`Menu`][blendmentation.augmentations.augmentations.Menu]`([options])`, or `Menu()` for every option |
 
@@ -2205,7 +2210,10 @@ class Node(InputsAugmentation):
         | Rotation | `Vector((v, v))` with the current X, Y, Z angles in radians |
         | Color | `Vector((0.0, 1.0))`: any color, alpha kept |
         | Boolean | `Boolean(p=0.5)` |
-        | Menu | `Menu([...])` with every option: a Menu Switch's, or a group input's that leads to one. A built-in node's menu (e.g. Transform Geometry's Mode) is a `Warning!` comment, since Python can't list its options: add `Menu([...])` yourself |
+        | Menu | `Menu([...])` with every option: a Menu Switch's, or a group input's that leads to one |
+
+        A built-in node's menu (e.g. Transform Geometry's Mode) is a `Warning!` comment,
+        since Python can't list its options: add `Menu([...])` yourself.
 
         The min and max of a Float, Int or Vector are those of the socket: for a group
         node, Min and Max of the input in the group's interface; for other nodes, the

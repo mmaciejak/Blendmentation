@@ -277,7 +277,8 @@ def look_at(obj, target, distance, elevation, azimuth, roll, focal_length):
     center = target_center(target)
     offset = obj.matrix_world.translation - center
     current_distance = offset.length
-    current_elevation = math.degrees(math.asin(max(-1.0, min(1.0, offset.z / current_distance)))) if current_distance else 0.0
+    current_elevation = (math.degrees(math.asin(max(-1.0, min(1.0, offset.z / current_distance))))
+                         if current_distance else 0.0)
     current_azimuth = math.degrees(math.atan2(offset.y, offset.x))
 
     applied = {
@@ -332,7 +333,8 @@ def curve_segments(curve):
         mesh = curve_eval.to_mesh()
         try:
             if mesh.polygons:
-                raise ValueError(f"Curve '{curve.name}' evaluates to faces (e.g. a geometry nodes modifier), not a line")
+                raise ValueError(
+                    f"Curve '{curve.name}' evaluates to faces (e.g. a geometry nodes modifier), not a line")
             matrix = curve_eval.matrix_world
             vertices = [matrix @ vertex.co for vertex in mesh.vertices]
             # blender converts each spline to a chain of edges in its direction
@@ -515,7 +517,8 @@ def world_mesh(obj, depsgraph):
     """World coordinates of the evaluated object's vertices, and its faces. Objects
     without geometry (empties, cameras...) are a point at their origin, without faces."""
     obj_eval = obj.evaluated_get(depsgraph)
-    mesh = obj_eval.to_mesh() if obj.type in {"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD"} else None
+    geometry = {"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD"}
+    mesh = obj_eval.to_mesh() if obj.type in geometry else None
     if mesh is None:
         return [obj_eval.matrix_world.translation.copy()], []
     try:
@@ -570,7 +573,8 @@ def rest_offset(obj, surface, margin):
             if bottom is None:
                 continue
             top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
-            offset = max(offset if offset is not None else -math.inf, (vertex.z if top is None else top) + margin - bottom)
+            lift = (vertex.z if top is None else top) + margin - bottom
+            offset = max(offset if offset is not None else -math.inf, lift)
     return offset
 
 
@@ -1186,7 +1190,10 @@ def modifier_template(modifier, obj=None, prefix="augmentations.", relative=True
         path = f"modifiers[{template_string(modifier.name)}]" if relative else node_path(modifier)
     if relative and obj is None:
         obj = owner
-    rows = node_modifier_rows(modifier, prefix) if modifier.type == "NODES" else modifier_property_rows(modifier, prefix)
+    if modifier.type == "NODES":
+        rows = node_modifier_rows(modifier, prefix)
+    else:
+        rows = modifier_property_rows(modifier, prefix)
     if not rows:
         raise ValueError(f"Modifier '{modifier.name}' has no inputs or settings to set")
     # the modifier on and off: a hint, randomizing it in every template would be a surprise
