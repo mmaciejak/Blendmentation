@@ -2,7 +2,10 @@
 
 Run it once after generating, on the generating path. It reads the `<index>.json`
 labels; only datapoints with an image (a `Render` step) and with bboxes or instance
-masks are exported (with poses for BOP). It works without Blender. COCO with masks,
+masks are exported (with poses for BOP). Labels of every `prefix` (`run1_000012.json`,
+from `generating.Compose(prefix=...)`) are read, so runs merged into one folder export
+together. Image ids are the datapoint indices, or, when any label has a prefix, the
+position of the label sorted by prefix and index, so they stay unique. It works without Blender. COCO with masks,
 `bbox_from="mask"` and BOP with masks or depth need numpy and OpenImageIO, which come
 with Blender.
 
@@ -29,8 +32,9 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
 from typing import Literal, Optional
 
-LABEL = re.compile(r"^(\d+)\.json$")
-# written by generating.Augmentations for every datapoint a step skipped
+# <prefix><index>.json, a prefix doesn't end with a digit
+LABEL = re.compile(r"^(.*\D)?(\d+)\.json$")
+# written by generating.Augmentations for every datapoint a step skipped, after the prefix
 SKIPPED_FILE = "skipped.jsonl"
 
 
@@ -43,17 +47,28 @@ def dataset_path(path):
     return os.path.abspath(path)
 
 
-def load_labels(path):
-    """Returns (index, label) of every datapoint with an image, sorted by index."""
-    labels = []
+def label_files(path, prefix=None):
+    """(prefix, index, file name) of every label file, sorted by prefix and index; with a
+    prefix only the ones with it ("" for none)."""
+    files = []
     for name in os.listdir(path):
         match = LABEL.match(name)
-        if match:
-            with open(os.path.join(path, name)) as file:
-                label = json.load(file)
-            if "image" in label:
-                labels.append((int(match.group(1)), label))
-    return sorted(labels, key=lambda item: item[0])
+        if match and (prefix is None or (match.group(1) or "") == prefix):
+            files.append((match.group(1) or "", int(match.group(2)), name))
+    return sorted(files)
+
+
+def load_labels(path):
+    """Returns (image id, label) of every datapoint with an image, sorted by prefix and
+    index. The id is the index, or the position when any label has a prefix."""
+    labels = []
+    for prefix, index, name in label_files(path):
+        with open(os.path.join(path, name)) as file:
+            label = json.load(file)
+        if "image" in label:
+            labels.append((prefix, index, label))
+    prefixed = any(prefix for prefix, _, _ in labels)
+    return [(number if prefixed else index, label) for number, (_, index, label) in enumerate(labels)]
 
 
 def class_names(labels, classes, keys=("bboxes", "masks")):
@@ -447,7 +462,7 @@ def bop(path: str, output: Optional[str] = None, classes: Optional[Sequence[str]
     `scene_gt.json`; with masks also `mask/`, `mask_visib/` and `scene_gt_info.json`,
     and with a `Depth` pass `depth/`. `<output>/camera.json` gets the first image's
     camera, and `<output>/obj_ids.json` the class name of every `obj_id`. Image ids
-    are the datapoint indices, and `obj_id`s number the classes from 1. Instances
+    are the datapoint indices (numbered in order with prefixes), and `obj_id`s number the classes from 1. Instances
     hidden in the render are left out. Distances are converted to mm with the camera's
     `unit_scale`.
 
@@ -625,25 +640,23 @@ def graph_nodes(node, root, parents_reach, nodes):
         graph_nodes(child, root, always, nodes)
 
 
-def load_graph(path, graph_file):
-    with open(os.path.join(path, graph_file)) as file:
+def load_graph(path, graph_file, prefix=""):
+    with open(os.path.join(path, prefix + graph_file)) as file:
         return json.load(file)["augmentations"]
 
 
-def augmentation_records(path):
-    """The "augmentations" record of every label that has one, by index."""
+def augmentation_records(path, prefix=""):
+    """The "augmentations" record of every label with the prefix that has one, by index."""
     records = []
-    for name in os.listdir(path):
-        match = LABEL.match(name)
-        if match:
-            with open(os.path.join(path, name)) as file:
-                record = json.load(file).get("augmentations")
-            if record is not None:
-                records.append((int(match.group(1)), record))
-    return [record for _, record in sorted(records, key=lambda item: item[0])]
+    for _, _, name in label_files(path, prefix):
+        with open(os.path.join(path, name)) as file:
+            record = json.load(file).get("augmentations")
+        if record is not None:
+            records.append(record)
+    return records
 
 
-def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dict[str, dict]:
+def augmentation_stats(path: str, graph_file: str = "augmentations.json", prefix: str = "") -> dict[str, dict]:
     """Compares what the augmentations did over a dataset with what their graph expects.
 
     Reads the graph `generating.Augmentations` saved and the `augmentations` record of
@@ -662,6 +675,8 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
     Args:
         path: the generating path.
         graph_file: file name of the graph, as given to `generating.Augmentations`.
+        prefix: the `prefix` of the generating `Compose`: only its labels, graph and
+            skipped datapoints are read.
 
     Returns:
         `{id: {"type", "name", "expected", "observed", "applied", "calls", "skipped",
@@ -684,13 +699,13 @@ def augmentation_stats(path: str, graph_file: str = "augmentations.json") -> dic
         ```
     """
     path = dataset_path(path)
-    roots = load_graph(path, graph_file)
+    roots = load_graph(path, graph_file, prefix)
     nodes = {}
     for root in roots:
         graph_nodes(root, root["id"], True, nodes)
     ids = [node_id for node_id, node in nodes.items() if "same_as" not in node]
-    stats = count_records(augmentation_records(path), nodes, ids)
-    skipped = count_records([line["augmentations"] for line in skipped_lines(path)], nodes, ids)
+    stats = count_records(augmentation_records(path, prefix), nodes, ids)
+    skipped = count_records([line["augmentations"] for line in skipped_lines(path, prefix)], nodes, ids)
     result = {}
     for node_id, stat in stats.items():
         node = nodes[node_id]
@@ -737,16 +752,16 @@ def count_records(records, nodes, ids):
     return stats
 
 
-def skipped_lines(path):
-    """The lines of <path>/skipped.jsonl, {"skip", "augmentations"} each; [] without it."""
-    file_path = os.path.join(path, SKIPPED_FILE)
+def skipped_lines(path, prefix=""):
+    """The lines of <path>/<prefix>skipped.jsonl, {"skip", "augmentations"} each; [] without it."""
+    file_path = os.path.join(path, prefix + SKIPPED_FILE)
     if not os.path.exists(file_path):
         return []
     with open(file_path) as file:
         return [json.loads(line) for line in file if line.strip()]
 
 
-def skip_stats(path: str) -> dict:
+def skip_stats(path: str, prefix: str = "") -> dict:
     """Counts the datapoints `generating.BBox` skipped, by reason and class.
 
     Reads `skipped.jsonl`, which `generating.Augmentations` writes for every skipped
@@ -754,6 +769,8 @@ def skip_stats(path: str) -> dict:
 
     Args:
         path: the generating path.
+        prefix: the `prefix` of the generating `Compose`: only its `skipped.jsonl` and
+            labels are read.
 
     Returns:
         `{"kept", "skipped", "reasons": {reason: {"count", "classes": {class: count}}}}`,
@@ -771,7 +788,7 @@ def skip_stats(path: str) -> dict:
     """
     path = dataset_path(path)
     reasons = {}
-    lines = skipped_lines(path)
+    lines = skipped_lines(path, prefix)
     for line in lines:
         skip = line.get("skip") or {}
         reason = reasons.setdefault(skip.get("reason", "unknown"), {"count": 0, "classes": {}})
@@ -781,10 +798,11 @@ def skip_stats(path: str) -> dict:
         if name is not None:
             reason["classes"][name] = reason["classes"].get(name, 0) + 1
     ordered = dict(sorted(reasons.items(), key=lambda item: -item[1]["count"]))
-    return {"kept": len(augmentation_records(path)), "skipped": len(lines), "reasons": ordered}
+    return {"kept": len(augmentation_records(path, prefix)), "skipped": len(lines), "reasons": ordered}
 
 
-def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json") -> str:
+def augmentation_report(path: str, output: Optional[str] = None, graph_file: str = "augmentations.json",
+                        prefix: str = "") -> str:
     """Writes an HTML page with the augmentation graph and how the dataset followed it.
 
     The augmentations are drawn as a flowchart: the steps of a `Compose` or `Chain` run
@@ -804,8 +822,9 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
 
     Args:
         path: the generating path, with a `generating.Augmentations` step's output.
-        output: file to write, `<path>/augmentations.html` by default.
+        output: file to write, `<path>/<prefix>augmentations.html` by default.
         graph_file: file name of the graph, as given to `generating.Augmentations`.
+        prefix: the `prefix` of the generating `Compose`: the report covers that run.
 
     Returns:
         The path of the HTML file.
@@ -819,10 +838,10 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
         ```
     """
     path = dataset_path(path)
-    output = os.path.join(path, "augmentations.html") if output is None else dataset_path(output)
-    write_report(output, f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}", path,
-                 load_graph(path, graph_file), augmentation_stats(path, graph_file), len(augmentation_records(path)),
-                 skip_stats(path))
+    output = os.path.join(path, f"{prefix}augmentations.html") if output is None else dataset_path(output)
+    title = f"Augmentations: {os.path.basename(path.rstrip(os.sep)) or path}{f' ({prefix})' if prefix else ''}"
+    write_report(output, title, path, load_graph(path, graph_file, prefix), augmentation_stats(path, graph_file, prefix),
+                 len(augmentation_records(path, prefix)), skip_stats(path, prefix))
     return output
 
 

@@ -27,8 +27,9 @@ PREVIEW_FORMATS = {"PNG": ".png", "JPEG": ".jpg"}
 MAX_PASS_INDEX = 32767
 BACKGROUND_MODES = ("color", "white_noise", "color_noise", "image")
 BACKGROUND_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".tga")
-# output files start with the datapoint index: 000012.png, 000012_mask_car_0.png, 000012_Albedo.exr
-INDEX = re.compile(r"^(\d+)(?:[_.]|$)")
+# output files start with the prefix and the datapoint index: 000012.png, 000012_mask_car_0.png,
+# run1_000012_Albedo.exr
+INDEX = r"^{}(\d+)(?:[_.]|$)"
 
 
 CLASS_SETTINGS = ("iou_deconflict", "max_truncation", "max_occlusion")
@@ -95,9 +96,10 @@ def class_settings(classes, defaults):
     return {name: {**defaults, **split_class(name, value)[1]} for name, value in classes.items()}
 
 
-def next_index(path):
-    """Returns the first free image index in the output directory."""
-    taken = [int(match.group(1)) for match in map(INDEX.match, os.listdir(path)) if match]
+def next_index(path, prefix=""):
+    """Returns the first free image index of the files starting with prefix in the output directory."""
+    pattern = re.compile(INDEX.format(re.escape(prefix)))
+    taken = [int(match.group(1)) for match in map(pattern.match, os.listdir(path)) if match]
     return max(taken, default=-1) + 1
 
 
@@ -337,15 +339,16 @@ def aov_channel_names(count):
     return ("Y",) if count == 1 else tuple("RGBA"[:count])
 
 
-def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), full=None, previous_full=()):
+def save_masks(ids, instances, path, stem, per, skip_empty=False, previous=(), full=None, previous_full=()):
     """Saves black and white mask PNGs of the visible pixels, per instance as
-    <path>/<index>_mask_<class>_<n>.png and/or per class as <path>/<index>_class_<class>.png,
-    and the full masks as <path>/<index>_mask_<class>_<n>_full.png, with the class name
+    <path>/<stem>_mask_<class>_<n>.png and/or per class as <path>/<stem>_class_<class>.png,
+    and the full masks as <path>/<stem>_mask_<class>_<n>_full.png, with the class name
     sanitized for file names. A name that is already taken gets _2, _3, ... before the
     extension.
 
     Args:
         ids (np.ndarray): id image of the instances, from `render_ids`
+        stem (str): start of the file names, the prefix and the datapoint index
         instances (list): (class name, [objects]) pairs
         per (str): "instance", "class" or "both"
         skip_empty (bool): don't write empty masks, their "mask" is None
@@ -364,9 +367,9 @@ def save_masks(ids, instances, path, index, per, skip_empty=False, previous=(), 
     def mask_file(name, mask):
         if skip_empty and not mask.any():
             return None
-        file_name, copy = f"{index:06d}_{name}.png", 2
+        file_name, copy = f"{stem}_{name}.png", 2
         while file_name in taken:
-            file_name, copy = f"{index:06d}_{name}_{copy}.png", copy + 1
+            file_name, copy = f"{stem}_{name}_{copy}.png", copy + 1
         taken.add(file_name)
         return bpy_images.write_mask(path, file_name, mask)
 
@@ -424,13 +427,15 @@ class Frame:
     The beauty render happens at most once, steps that need it reuse the render result.
     """
 
-    def __init__(self, scene, path, index, width, height, temp_dir, changes):
+    def __init__(self, scene, path, index, width, height, temp_dir, changes, prefix=""):
         self.scene = scene
         self.camera = scene.camera
         self.view_layer = bpy.context.view_layer
         self.depsgraph = bpy.context.evaluated_depsgraph_get()
         self.path = path
         self.index = index
+        # start of every file name of the datapoint and of the graph and skipped files
+        self.prefix = prefix
         self.width = width
         self.height = height
         self.temp_dir = temp_dir
@@ -481,7 +486,7 @@ class Frame:
         return groups
 
     def file_name(self, suffix):
-        return f"{self.index:06d}{suffix}"
+        return f"{self.prefix}{self.index:06d}{suffix}"
 
     def add(self, key, entries):
         """Appends entries to a list in the labels, so several steps can add to it."""
@@ -738,7 +743,7 @@ def check_augmentations(augmentations, graph_file):
 
 def record_augmentations(frame, augmentations, graph_file):
     """Adds what each augmentation did to the labels under "augmentations", and writes
-    their graph to <path>/<graph_file> when it changed."""
+    their graph to <path>/<prefix><graph_file> when it changed."""
     roots = augs.compose_roots(augmentations)
     frame.label["augmentations"] = augmentation_record(roots)
     write_graph(frame, roots, graph_file)
@@ -753,20 +758,20 @@ def augmentation_record(roots):
 
 def record_skip(frame, augmentations, graph_file):
     """Appends why the datapoint was skipped and what each augmentation did to
-    <path>/skipped.jsonl, one JSON object per line: {"skip": {...}, "augmentations": {...}}."""
+    <path>/<prefix>skipped.jsonl, one JSON object per line: {"skip": {...}, "augmentations": {...}}."""
     roots = augs.compose_roots(augmentations)
     line = {"skip": frame.skip, "augmentations": augmentation_record(roots)}
-    with open(os.path.join(frame.path, SKIPPED_FILE), "a") as file:
+    with open(os.path.join(frame.path, frame.prefix + SKIPPED_FILE), "a") as file:
         file.write(json.dumps(line) + "\n")
     write_graph(frame, roots, graph_file)
 
 
 def write_graph(frame, roots, graph_file):
-    """Writes the graph of the augmentations to <path>/<graph_file> when it changed."""
+    """Writes the graph of the augmentations to <path>/<prefix><graph_file> when it changed."""
     if graph_file is None:
         return
     text = json.dumps({"augmentations": [graph.describe(compose, name) for name, compose in roots]}, indent=2)
-    file_path = os.path.join(frame.path, graph_file)
+    file_path = os.path.join(frame.path, frame.prefix + graph_file)
     if os.path.exists(file_path):
         with open(file_path) as file:
             if file.read() == text:
@@ -781,7 +786,7 @@ def check_render(file_format):
 
 
 def render_image(frame, file_format):
-    """Renders the image to <path>/<index>.<ext>. Over a background it is written as RGB,
+    """Renders the image to <path>/<prefix><index>.<ext>. Over a background it is written as RGB,
     8 bit for PNG and JPEG, 32 bit float for EXR."""
     file_name = frame.file_name(RENDER_FORMATS[file_format])
     file_path = os.path.join(frame.path, file_name)
@@ -891,7 +896,7 @@ def background(frame, weights, noise_size, images_path, images):
 
 
 def aov_images(frame, names, file_format, skip_empty=False):
-    """Saves the AOVs to <path>/<index>_<aov>.<ext>, from the beauty render.
+    """Saves the AOVs to <path>/<prefix><index>_<aov>.<ext>, from the beauty render.
     With skip_empty, an empty AOV isn't written and its file is None."""
     files = {}
     for name in names:
@@ -917,7 +922,7 @@ def prepare_passes(frame, names):
 
 
 def render_passes(frame, names, file_format, skip_empty=False):
-    """Saves the built-in passes to <path>/<index>_<pass>.<ext>, from the beauty render.
+    """Saves the built-in passes to <path>/<prefix><index>_<pass>.<ext>, from the beauty render.
     With skip_empty, an empty pass isn't written and its file is None."""
     files = {}
     for name in names:
@@ -944,7 +949,7 @@ def text_scale(frame):
 
 
 def write_preview(frame, pixels, suffix, file_format, label_key):
-    """Writes 8 bit pixels to <path>/<index><suffix>.<ext> and adds the file to the labels."""
+    """Writes 8 bit pixels to <path>/<prefix><index><suffix>.<ext> and adds the file to the labels."""
     if file_format == "JPEG":
         pixels = pixels[:, :, :3]
     file_name = frame.file_name(f"{suffix}{PREVIEW_FORMATS[file_format]}")
@@ -954,7 +959,7 @@ def write_preview(frame, pixels, suffix, file_format, label_key):
 
 def bbox_image(frame, file_format, line_width, show_class):
     """Saves a copy of the beauty render with the bboxes of the labels drawn on it, to
-    <path>/<index>_bboxes.<ext>. Reuses the render, the main image stays clean."""
+    <path>/<prefix><index>_bboxes.<ext>. Reuses the render, the main image stays clean."""
     if "bboxes" not in frame.label:
         raise RuntimeError("BBoxImage draws the bboxes of a BBox step, add BBox to the steps")
     pixels = frame.beauty_pixels()
@@ -972,7 +977,7 @@ def bbox_image(frame, file_format, line_width, show_class):
 
 def segmentation_image(frame, file_format, opacity, line_width, show_class):
     """Saves a copy of the beauty render with the masks of the labels drawn over it in
-    their class color, each instance outlined, to <path>/<index>_segmentation.<ext>."""
+    their class color, each instance outlined, to <path>/<prefix><index>_segmentation.<ext>."""
     if "masks" not in frame.label:
         raise RuntimeError("SegmentationImage draws the masks of a Segmentation step, add Segmentation to the steps")
     pixels = frame.beauty_pixels()
@@ -1258,21 +1263,23 @@ def segmentation(frame, classes, per, skip_empty=False, full=False):
     # the visible masks first, they may read the beauty render that the full masks replace
     ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)
     full = full_masks(frame, groups) if full else None
-    entries, full_entries = save_masks(ids, instances, frame.path, frame.index, per, skip_empty,
+    entries, full_entries = save_masks(ids, instances, frame.path, frame.file_name(""), per, skip_empty,
                                        frame.label.get("masks", []), full, frame.label.get("full_masks", []))
     frame.add("masks", entries)
     if full is not None:
         frame.add("full_masks", full_entries)
 
 
-def generate(path, resolution, steps, custom_dict=None):
-    """Generates one datapoint: runs the steps in order and writes the labels to <path>/<index>.json
+def generate(path, resolution, steps, custom_dict=None, prefix=""):
+    """Generates one datapoint: runs the steps in order and writes the labels to
+    <path>/<prefix><index>.json
 
     Args:
         path (str): output directory, "" or relative paths are relative to the .blend file
         resolution (tuple): (width, height) in pixels
         steps (list): generating steps, called with the Frame, a step returning False skips the datapoint
         custom_dict (dict): extra key and values saved in the labels
+        prefix (str): start of every file name, the index counts the files with it
 
     Returns:
         bool: True if the datapoint was generated, False if a step skipped it
@@ -1297,7 +1304,7 @@ def generate(path, resolution, steps, custom_dict=None):
         changes.set_many(scene.render, {"resolution_x": width, "resolution_y": height, "resolution_percentage": 100})
         bpy.context.view_layer.update()
 
-        frame = Frame(scene, path, next_index(path), width, height, temp_dir, changes)
+        frame = Frame(scene, path, next_index(path, prefix), width, height, temp_dir, changes, prefix)
         for step in steps:
             step.prepare(frame)
         for step in steps:

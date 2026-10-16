@@ -828,6 +828,30 @@ For the masks and visible fractions, add
 `gen.Passes(["Depth"])` with Cycles or EEVEE. The 3D model of each class
 (`models/obj_<obj_id>.ply`, in mm) is not written; export it from Blender.
 
+### Merging runs
+
+With a `prefix`, every file of a run starts with it, and the indices count per prefix.
+Runs on other machines, or with other scenes or settings, can then write to one folder,
+or be copied into one later, without overwriting each other. The exports read every
+prefix and number the images in order.
+
+```python hl_lines="4"
+generator = gen.Compose(
+    [gen.Render(), gen.BBox(classes)],
+    path="//dataset",
+    prefix="run1_",  # run1_000000.png, run1_000000.json, ...
+    resolution=(640, 480),
+)
+
+# ... generate, and copy the other runs' files into //dataset ...
+
+# all runs together
+export.coco("//dataset")
+```
+
+`export.augmentation_report`, `augmentation_stats` and `skip_stats` take the `prefix`
+of one run, since each run has its own augmentation graph (`run1_augmentations.json`).
+
 ## Full example
 
 The scene here has two cars and a table made of two objects, a plant "Plant" that is in no
@@ -1018,7 +1042,10 @@ steps = [
         "camera": camera_aug,
     }),
 ]
-generator = gen.Compose(steps, path="//dataset", resolution=(640, 480))
+# prefix: every file starts with it, so runs can be merged
+generator = gen.Compose(
+    steps, path="//dataset", resolution=(640, 480), prefix="run1_"
+)
 
 # the graph of the augmentations, before generating;
 # show=True opens it in the browser
@@ -1050,11 +1077,11 @@ export.yolo("//dataset", bbox_from="mask")
 # 6D pose: poses, masks, depth
 export.bop("//dataset")
 # how often each augmentation ran, against the graph
-stats = export.augmentation_stats("//dataset")
+stats = export.augmentation_stats("//dataset", prefix="run1_")
 for node_id, node in stats.items():
     print(node_id, node["type"], node["expected"], node["observed"])
 # why BBox skipped datapoints, by reason and class
-print(export.skip_stats("//dataset"))
-# the same drawn: dataset/augmentations.html
-export.augmentation_report("//dataset")
+print(export.skip_stats("//dataset", prefix="run1_"))
+# the same drawn: dataset/run1_augmentations.html
+export.augmentation_report("//dataset", prefix="run1_")
 ```

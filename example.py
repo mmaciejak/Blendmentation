@@ -51,6 +51,8 @@ world = bpy.context.scene.world
 scatter = bpy.data.node_groups["Scatter"]
 pebbles = bpy.data.collections["Pebbles"]
 output_path = "//dataset"
+# every file starts with it (run1_000000.png...), so runs with other prefixes can share the folder
+run_prefix = "run1_"
 n_datapoints = 100
 
 # kept in a variable to read what it did to each part, see pipeline()
@@ -200,6 +202,7 @@ image_generator = generating.Compose(
     ],
     path=output_path,
     resolution=(460, 460),
+    prefix=run_prefix,
 )
 
 
@@ -238,10 +241,10 @@ export.bop(output_path)
 
 # how often each augmentation ran over the dataset, against the probabilities of the graph:
 # the datapoints BBox skipped are not in it
-for node_id, node in export.augmentation_stats(output_path).items():
+for node_id, node in export.augmentation_stats(output_path, prefix=run_prefix).items():
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
 # why BBox skipped datapoints: cut by the frame, overlapping boxes, hidden by the clutter
-skips = export.skip_stats(output_path)
+skips = export.skip_stats(output_path, prefix=run_prefix)
 print(skips["skipped"], "skipped:", {reason: info["count"] for reason, info in skips["reasons"].items()})
-# the same drawn as a graph, in augmentations.html next to the dataset (open it in a browser)
-export.augmentation_report(output_path)
+# the same drawn as a graph, in run1_augmentations.html next to the dataset (open it in a browser)
+export.augmentation_report(output_path, prefix=run_prefix)

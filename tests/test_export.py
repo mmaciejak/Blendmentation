@@ -348,3 +348,25 @@ def test_skip_stats(tmp_path):
     page = open(export.augmentation_report(str(tmp_path))).read()
     data = json.loads(re.search(r"const DATA = (.*);\n", page).group(1).replace("<\\/", "</"))
     assert data["skips"]["skipped"] == 3 and data["stats"]["a.0"]["skipped"]["applied"] == 2
+
+
+def test_prefixed_labels(tmp_path):
+    """Labels of every prefix are exported, numbered in order so the ids stay unique."""
+    box = {"class": "car", "objects": ["car"], "bbox": [0, 0, 2, 2]}
+    for name in ("000000", "000001", "run_000000", "run-b_000003"):
+        (tmp_path / f"{name}.json").write_text(json.dumps({"resolution": [4, 4], "image": f"{name}.png", "bboxes": [box]}))
+    (tmp_path / "coco2.json").write_text("{}")  # read as prefix "coco", but no image
+    (tmp_path / "notes.json").write_text("{}")
+    labels = export.load_labels(str(tmp_path))
+    assert [(number, label["image"]) for number, label in labels] == [
+        (0, "000000.png"), (1, "000001.png"), (2, "run-b_000003.png"), (3, "run_000000.png")]
+    coco = json.load(open(export.coco(str(tmp_path))))
+    assert [image["id"] for image in coco["images"]] == [0, 1, 2, 3]
+    assert [annotation["image_id"] for annotation in coco["annotations"]] == [0, 1, 2, 3]
+    export.yolo(str(tmp_path))
+    assert (tmp_path / "run_000000.txt").exists() and (tmp_path / "run-b_000003.txt").exists()
+    assert [name for _, _, name in export.label_files(str(tmp_path), "run_")] == ["run_000000.json"]
+
+    os.remove(tmp_path / "run_000000.json")
+    os.remove(tmp_path / "run-b_000003.json")  # without prefixes, the ids are the indices
+    assert [number for number, _ in export.load_labels(str(tmp_path))] == [0, 1]

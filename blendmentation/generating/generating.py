@@ -12,7 +12,8 @@ masks that ignore occlusion. `Pose` saves the 6D pose of every instance, and wit
 masks, `CameraData` and the `Depth` pass, `export.bop` writes a BOP dataset.
 `Background` puts a random color, noise or image behind the render and the preview
 images. `Augmentations` records what the augmentations did in every label and saves
-their graph, with the probability of each outcome, next to the dataset.
+their graph, with the probability of each outcome, next to the dataset. A `prefix` on
+`Compose` starts every file name with it, so several runs can share one folder.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
@@ -75,16 +76,28 @@ class Compose:
     before anything renders, and the scene's resolution and output settings are
     restored afterwards.
 
+    With a `prefix`, every file starts with it: `run1_000012.png`, `run1_000012.json`,
+    `run1_000012_mask_car_0.png`, and the `Augmentations` files `run1_augmentations.json`
+    and `run1_skipped.jsonl`. The index counts only the files with the same prefix, so
+    runs with different prefixes (other machines, scenes or settings) can write to one
+    folder, or be copied into one later, without overwriting each other. The exports read
+    every prefix and number the images in order; `export.augmentation_stats`,
+    `export.skip_stats` and `export.augmentation_report` take the prefix of one run.
+
     Args:
         steps: generating steps, in any order.
         path: folder to save the files to. `//` paths are relative to the .blend file,
             and `""` is its folder.
         resolution: `(width, height)` of the images in pixels.
+        prefix: start of every file name, e.g. `"run1_"`. It can't contain a path
+            separator or end with a digit, which would run into the index.
 
     Raises:
-        TypeError: an item of `steps` is not a generating step.
+        TypeError: an item of `steps` is not a generating step, or `prefix` is not a
+            string.
         ValueError: a `BBoxImage` without a `BBox` step, or a `SegmentationImage`
-            without a `Segmentation` step.
+            without a `Segmentation` step, or a `prefix` with a path separator or a
+            digit at its end.
 
     Example:
         ```python
@@ -93,12 +106,13 @@ class Compose:
             [generating.Render(), generating.BBox(classes), generating.Segmentation(classes)],
             path="//dataset",
             resolution=(640, 480),
+            prefix="run1_",   # run1_000000.png, run1_000000.json, ...
         )
         generator()
         ```
     """
 
-    def __init__(self, steps: Sequence[Step], path: str, resolution: tuple[int, int]):
+    def __init__(self, steps: Sequence[Step], path: str, resolution: tuple[int, int], prefix: str = ""):
         for step in steps:
             if not isinstance(step, Step):
                 raise TypeError(
@@ -107,9 +121,14 @@ class Compose:
         for preview, source in ((BBoxImage, BBox), (SegmentationImage, Segmentation)):
             if any(isinstance(step, preview) for step in steps) and not any(isinstance(step, source) for step in steps):
                 raise ValueError(f"{preview.__name__} draws the output of a {source.__name__} step, add {source.__name__} to the steps")
+        if not isinstance(prefix, str):
+            raise TypeError(f"prefix must be a string, got {prefix!r}")
+        if "/" in prefix or "\\" in prefix or prefix[-1:].isdigit():
+            raise ValueError(f"prefix can't contain / or \\ or end with a digit, got {prefix!r}; e.g. 'run1_'")
         self.steps = sorted(steps, key=lambda step: step.stage)
         self.path = path
         self.resolution = resolution
+        self.prefix = prefix
 
     def __call__(self, custom_dict: Optional[dict[str, Any]] = None) -> bool:
         """Generates one datapoint.
@@ -121,7 +140,7 @@ class Compose:
             False if the datapoint was skipped, e.g. by `BBox(iou_deconflict=...)`,
                 otherwise True.
         """
-        return bpy_g.generate(self.path, self.resolution, self.steps, custom_dict)
+        return bpy_g.generate(self.path, self.resolution, self.steps, custom_dict, self.prefix)
 
     def preview(self, scaling_factor: float, custom_dict: Optional[dict[str, Any]] = None) -> bool:
         """Generates one datapoint at a reduced resolution, for a quick look.
@@ -134,7 +153,7 @@ class Compose:
             False if the datapoint was skipped, otherwise True.
         """
         resolution = tuple(int(size / scaling_factor) for size in self.resolution)
-        return bpy_g.generate(self.path, resolution, self.steps, custom_dict)
+        return bpy_g.generate(self.path, resolution, self.steps, custom_dict, self.prefix)
 
 
 class Instances:
@@ -401,7 +420,7 @@ class Augmentations(Step):
     included. The graph (`augmentations.Compose.describe`) goes to
     `<path>/augmentations.json`, rewritten when the augmentations change, so it
     describes the latest ones. A datapoint `BBox` skips has no label: its line in
-    `<path>/skipped.jsonl` says why and what the augmentations did, so
+    `<path>/skipped.jsonl` (both starting with the `Compose`'s `prefix`) says why and what the augmentations did, so
     `export.augmentation_stats`, `export.skip_stats` and `export.augmentation_report`
     show what the skips took out of the dataset.
 

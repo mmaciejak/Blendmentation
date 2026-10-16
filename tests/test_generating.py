@@ -969,3 +969,52 @@ def test_skipped_datapoints(scene, cube, out):
 
 def label_files(out):
     return [name for name in os.listdir(out) if name[0].isdigit() and name.endswith(".json")]
+
+
+def test_prefix(cube, out):
+    """Runs with different prefixes share a folder: every file starts with the prefix, and
+    each prefix counts its own indices."""
+    from blendmentation.augmentations import augmentations as A
+    from blendmentation.export import export
+    from blendmentation.state import state
+
+    car = cube("car")
+    classes = {"car": [car]}
+    aug = A.Compose([A.Rotation(z=(5, 5))], name="objects")
+
+    def run(prefix, **settings):
+        steps = [G.Render(), G.BBox(classes, **settings), G.Segmentation(classes, per="both"), G.BBoxImage(),
+                 G.Augmentations({"objects": aug})]
+        with state.restoring():
+            aug([car])
+            return G.Compose(steps, out, (64, 48), prefix=prefix)()
+
+    assert run("") and run("") and run("a_") and run("b-")
+    names = set(os.listdir(out))
+    for stem in ("000000", "000001", "a_000000", "b-000000"):
+        assert {f"{stem}.png", f"{stem}.json", f"{stem}_bboxes.png", f"{stem}_mask_car_0.png",
+                f"{stem}_class_car.png"} <= names
+    assert {"augmentations.json", "a_augmentations.json", "b-augmentations.json"} <= names
+    with open(os.path.join(out, "a_000000.json")) as file:
+        prefixed = json.load(file)
+    assert prefixed["image"] == "a_000000.png" and prefixed["bbox_image"] == "a_000000_bboxes.png"
+    assert prefixed["masks"][0]["mask"] == "a_000000_mask_car_0.png" and label(out, 0)["image"] == "000000.png"
+    assert bpy_generating.next_index(out, "a_") == 1 and bpy_generating.next_index(out) == 2
+
+    car.location.x = 3.6  # across the right edge of the frame
+    assert run("a_", max_truncation=0) is False
+    assert os.path.exists(os.path.join(out, "a_skipped.jsonl")) and not os.path.exists(os.path.join(out, "skipped.jsonl"))
+    assert export.skip_stats(out, prefix="a_") == {"kept": 1, "skipped": 1, "reasons": {
+        "max_truncation": {"count": 1, "classes": {"car": 1}}}}
+    assert export.skip_stats(out)["kept"] == 2
+    assert export.augmentation_stats(out, prefix="b-")["objects"]["calls"] == 1
+    assert export.augmentation_report(out, prefix="a_") == os.path.join(out, "a_augmentations.html")
+    coco = json.load(open(export.coco(out)))
+    assert [image["id"] for image in coco["images"]] == [0, 1, 2, 3]
+    assert [image["file_name"] for image in coco["images"]] == ["000000.png", "000001.png", "a_000000.png", "b-000000.png"]
+
+    for prefix in ("run1", "a/b_", "a\\b_"):
+        with pytest.raises(ValueError, match="prefix"):
+            G.Compose([G.Render()], out, (64, 48), prefix=prefix)
+    with pytest.raises(TypeError, match="prefix"):
+        G.Compose([G.Render()], out, (64, 48), prefix=None)  # type: ignore[arg-type]

@@ -213,6 +213,7 @@ generator = generating.Compose(
     ],
     path="/absolute/output/folder",
     resolution=(640, 480),
+    prefix="",                                  # e.g. "run1_": every file starts with it, runs can share a folder
 )
 ```
 
@@ -289,6 +290,7 @@ for node_id, node in export.augmentation_stats("/absolute/output/folder").items(
     print(node_id, node["type"], "expected", node["expected"], "observed", node["observed"])
 print(export.skip_stats("/absolute/output/folder"))   # why BBox skipped datapoints, by reason and class
 print(export.augmentation_report("/absolute/output/folder"))   # augmentations.html: the graph drawn, give the user the path
+# exports read every prefix (ids numbered in order); stats/report take one run's: prefix="run1_"
 ```
 
 ## Steps and options at a glance

@@ -6,6 +6,17 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `generating.Compose(..., prefix="run1_")` starts every file of the dataset with the
+  prefix: images, masks, passes, AOVs, previews, label JSONs, and the `Augmentations`
+  graph and `skipped.jsonl`. The index counts only the files with the same prefix, so
+  runs with different prefixes can write to one folder, or be merged into one later.
+  `export.coco`, `yolo`, `voc` and `bop` read the labels of every prefix and, when there
+  are prefixes, number the images in order so the ids stay unique.
+  `export.augmentation_stats`, `skip_stats` and `augmentation_report` take a `prefix`
+  to read one run.
+
 ## [0.10.2] - 2026-10-15
 
 ### Changed
