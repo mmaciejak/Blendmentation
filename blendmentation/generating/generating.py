@@ -14,6 +14,7 @@ masks, `CameraData` and the `Depth` pass, `export.bop` writes a BOP dataset.
 images. `Augmentations` records what the augmentations did in every label and saves
 their graph, with the probability of each outcome, next to the dataset. A `prefix` on
 `Compose` starts every file name with it, so several runs can share one folder.
+Every label JSON starts with `"version"`, the Blendmentation version that wrote it.
 
 `BBox` and `Segmentation` take classes as `{class name: [instances]}`, where an
 instance is an object, or a sublist of objects labeled as one:
@@ -139,7 +140,8 @@ class Compose:
         """Generates one datapoint.
 
         Args:
-            custom_dict: extra keys and values to save in the label.
+            custom_dict: extra keys and values to save in the label (not `"version"`,
+                which is always the Blendmentation version).
 
         Returns:
             False if the datapoint was skipped, e.g. by `BBox(iou_deconflict=...)`,
@@ -152,7 +154,8 @@ class Compose:
 
         Args:
             scaling_factor: the resolution is divided by this factor.
-            custom_dict: extra keys and values to save in the label.
+            custom_dict: extra keys and values to save in the label (not `"version"`,
+                which is always the Blendmentation version).
 
         Returns:
             False if the datapoint was skipped, otherwise True.
@@ -410,7 +413,7 @@ class Augmentations(Step):
     changes the same thing for every object (an absolute data path, `Seed`) has a single
     entry under `"null"`, its last call.
 
-    In `skipped.jsonl`, one JSON object per skipped datapoint: `{"skip": {"reason",
+    In `skipped.jsonl`, one JSON object per skipped datapoint: `{"version", "skip": {"reason",
     "class", "objects", "value", "limit"}, "augmentations": {...}}`, where the reason is
     the `BBox` setting (`"max_truncation"`, `"iou_deconflict"` or `"max_occlusion"`),
     `value` what was measured (the truncated fraction, the IoU or the occluded fraction)

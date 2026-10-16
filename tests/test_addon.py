@@ -18,6 +18,9 @@ def bl_info():
 def test_bl_info_version():
     version = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M).group(1)
     assert ".".join(map(str, bl_info()["version"])) == version, "bl_info's version must match pyproject.toml"
+    import blendmentation
+
+    assert blendmentation.__version__ == version
 
 
 def test_register():

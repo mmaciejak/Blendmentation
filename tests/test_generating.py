@@ -10,6 +10,7 @@ bpy = pytest.importorskip("bpy")
 from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
+import blendmentation  # noqa: E402
 from blendmentation.generating import bpy_generating, bpy_images, drawing, generating as G  # noqa: E402
 from conftest import add_aov, label, new_material, read_image  # noqa: E402
 
@@ -647,7 +648,7 @@ def test_class_dict_errors(scene, out, value, match):
         G.Compose([G.BBox({"x": value})], out, (64, 48))()
 
 
-def test_output_fields_and_rotation(scene, cube, out):
+def test_output_fields_and_version(scene, cube, out):
     obj = cube("Cube", (1, 2, 3))
     material = new_material(obj, "Mat")
     obj.active_material = material
@@ -660,8 +661,9 @@ def test_output_fields_and_rotation(scene, cube, out):
         G.OutputField("material", 'bpy.data.objects["Cube"].active_material'),
         G.OutputField("location", "location", objects=[obj]),
     ]
-    G.Compose(steps, out, (16, 12))()
+    G.Compose(steps, out, (16, 12))({"version": "mine", "note": 1})
     data = label(out)
+    assert list(data)[0] == "version" and data["version"] == blendmentation.__version__ and data["note"] == 1
     assert data["energy"] == 123.0 and data["engine"] == "BLENDER_WORKBENCH" and data["material"] == "Mat"
     assert len(data["camera_matrix"]) == 4 and data["location"] == {"Cube": [1.0, 2.0, 3.0]}
     with pytest.raises(ValueError, match="does not resolve"):
@@ -947,6 +949,7 @@ def test_skipped_datapoints(scene, cube, out):
     far = cube("far", (3.6, 0, 0))  # across the right edge of the frame
     line = skipped([far], max_truncation=0)
     assert line["skip"]["reason"] == "max_truncation" and line["skip"]["class"] == "car"
+    assert line["version"] == blendmentation.__version__
     assert line["skip"]["objects"] == ["far"] and line["skip"]["limit"] == 0 and 0 < line["skip"]["value"] < 1
     assert line["augmentations"]["objects.0"] == {"far": {"applied": True, "value": [0.0, 0.0, 5.0]}}
     assert os.path.exists(os.path.join(out, "augmentations.json")) and not label_files(out)

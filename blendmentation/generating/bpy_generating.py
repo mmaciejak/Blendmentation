@@ -11,7 +11,7 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 
-from .. import bpy_camera, bpy_paths, bpy_undo
+from .. import __version__, bpy_camera, bpy_paths, bpy_undo
 from ..augmentations import augmentations as augs, graph
 from ..values import is_number, is_point
 from . import bpy_ids, bpy_images, bpy_instances, drawing
@@ -743,7 +743,7 @@ def record_skip(frame, augmentations, graph_file):
     """Appends why the datapoint was skipped and what each augmentation did to
     <path>/<prefix>skipped.jsonl, one JSON object per line: {"skip": {...}, "augmentations": {...}}."""
     roots = augs.compose_roots(augmentations)
-    line = {"skip": frame.skip, "augmentations": augmentation_record(roots)}
+    line = {"version": __version__, "skip": frame.skip, "augmentations": augmentation_record(roots)}
     with open(os.path.join(frame.path, frame.prefix + SKIPPED_FILE), "a") as file:
         file.write(json.dumps(line) + "\n")
     write_graph(frame, roots, graph_file)
@@ -1299,11 +1299,11 @@ def generate(path, resolution, steps, custom_dict=None, prefix=""):
                     other.skipped(frame)
                 return False
 
-    label = frame.label
-    if custom_dict:
-        label.update(custom_dict)
+    # the version first, and not overwritten by the custom keys
+    label = {"version": __version__, **frame.label, **(custom_dict or {})}
+    label["version"] = __version__
     # an image alone needs no label file
-    if set(label) - {"resolution", "image"}:
+    if set(label) - {"version", "resolution", "image"}:
         with open(os.path.join(path, frame.file_name(".json")), "w") as file:
             json.dump(label, file, indent=2)
     return True

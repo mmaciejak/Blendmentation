@@ -15,6 +15,8 @@ bl_info = {
     "category": "Node",
 }
 
+__version__ = ".".join(map(str, bl_info["version"]))
+
 # when bpy is used as a python module (pip install bpy), mathutils and the other
 # blender modules can only be imported after bpy, so import it before any submodule
 try:

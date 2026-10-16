@@ -19,6 +19,9 @@ All notable changes to Blendmentation. The format follows
 - `augmentations.ShadowCatcher(p=1.0, otherwise=False)` makes an object a shadow catcher
   (Cycles) with probability `p`, and a normal object otherwise, e.g. a floor that renders
   only the shadows on it over a transparent film or a `generating.Background`.
+- Every label JSON and every line of `skipped.jsonl` starts with `"version"`, the
+  Blendmentation version that wrote it, and `blendmentation.__version__` gives the
+  installed version.
 
 ### Changed
 
