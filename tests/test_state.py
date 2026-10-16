@@ -54,6 +54,7 @@ def test_restoring(scene, cube):
         "rotation": lambda: plain(obj.rotation_euler),
         "scale": lambda: plain(obj.scale),
         "hide_render": lambda: obj.hide_render,
+        "shadow catcher": lambda: obj.is_shadow_catcher,
         "base color": lambda: plain(principled.inputs["Base Color"].default_value),
         "roughness": lambda: principled.inputs["Roughness"].default_value,
         "shape key": lambda: obj.data.shape_keys.key_blocks["Key 1"].value,
@@ -84,6 +85,7 @@ def test_restoring(scene, cube):
             ]),
             A.Modifier('modifiers["GN"]', {"Density": A.Number((5, 10))}),
             A.Visibility(p=0),
+            A.ShadowCatcher(),
             A.KeepAbove(floor, margin=1),
         ])([obj])
         A.Compose([

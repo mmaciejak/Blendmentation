@@ -810,8 +810,8 @@ def augmentation_report(path: str, output: Optional[str] = None, graph_file: str
     share) and they join again, and lines are as thick as the probability that they are
     reached. Each card has a bar with how often it runs,
     expected (the graph) and observed (the dataset, `augmentation_stats`), and for a
-    `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a
-    `Visibility`, one per value. A difference more than 3 standard errors from
+    `Menu`, `MaterialSlot` or `UVMap` with its options listed, a `Boolean`, a
+    `Visibility` or a `ShadowCatcher`, one per value. A difference more than 3 standard errors from
     chance (e.g. moved objects skipped more often by `BBox` because they leave the
     frame) is marked. The datapoints `BBox` skipped are counted by reason (truncation,
     IoU, occlusion) and class, and a card's "skips" bar, centered on 0, shows how much

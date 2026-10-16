@@ -950,6 +950,9 @@ floor_aug = aug.Compose([
         'modifiers["Scatter"]',
         {"Density": aug.Number((5, 20))},
     ),
+    # in Cycles, a third of the time only the shadows on the
+    # floor are rendered, over the background
+    aug.ShadowCatcher(p=0.3),
 ])
 # a new random value for every seed in the node group
 scatter_seed = aug.Seed(scatter)

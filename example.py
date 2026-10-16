@@ -121,6 +121,9 @@ floor_transforms = augmentations.Compose([
     augmentations.Modifier('modifiers["Scatter"]', {
         "Density": augmentations.Number((5, 20)),  # more or fewer pebbles
     }),
+    # in Cycles, 30% of the time the floor is a shadow catcher: only the shadows on it are
+    # rendered, over the background (a normal floor otherwise, and in EEVEE)
+    augmentations.ShadowCatcher(p=0.3),
 ])
 
 # the clutter is in the render 60% of the time, the bboxes, masks and keypoints follow.

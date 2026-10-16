@@ -177,6 +177,7 @@ floor_aug = augmentations.Compose([                        # the inputs shown on
     augmentations.Modifier('modifiers["Scatter"]', {      # by name, in every Blender version
         "Density": augmentations.Number((5, 20)),
     }),
+    augmentations.ShadowCatcher(p=0.3),  # Cycles: only the shadows on the floor, 30% of the time
 ])
 camera_aug = augmentations.Compose([
     augmentations.OneOf([
@@ -331,7 +332,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   passes don't change; the image is saved opaque RGB.
 - **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
-- **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `KeepAbove`, `LookAt`, `PlaceOnCurve`,
+- **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `ShadowCatcher`, `KeepAbove`, `LookAt`, `PlaceOnCurve`,
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
   `Boolean`, `Menu`, `Node` (many inputs of one node, e.g. a smart material's or a
   geometry nodes group node, not a modifier's inputs; `{input name: Number((low, high)) / Vector(...) / Boolean(p=) / Menu([...])}`
@@ -345,14 +346,14 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   render and active one; at most 8 per mesh), `OneOf` to pick
   one of several, and `Chain` to apply a list to one object as one augmentation (e.g. a
   `OneOf` option; `Chain.shape_keys_template(obj)` writes one for every shape key).
-  The object augmentations (transforms, `Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`,
+  The object augmentations (transforms, `Visibility`, `ShadowCatcher`, `KeepAbove`, `PlaceOn`, `LookAt`,
   `PlaceOnCurve`, `FocalLength`, `DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) take
   `data_path='bpy.data.objects["Camera"]'` to always change that object instead of the
   one they are called with, so they also run alone: `aug()`. Every one takes `p`, drawn per object; a call can override it, `aug(obj, p=0.5)` or `aug(p=0.5)` for an absolute path (a `Compose` call: `compose(objects, p=0.5)`). Ranges are `(low, high)` or a single number;
   `Translation`/`Rotation`/`Scale` and `Number` also take `(low, high, step)` for one of low, low + step, ... high
   (for whole turns `(0, 270, 90)`: 360 would repeat 0).
 - **`otherwise`** (`Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
-  `FocalLength`, `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
+  `ShadowCatcher`, `FocalLength`, `DepthOfField`): the value set when the augmentation doesn't run because of `p`, e.g.
   `Number(path, (0.5, 1), p=0.2, otherwise=0)`, `DepthOfField(car, p=0.5, otherwise=False)`
   (sharp in the other half). None keeps the value; `Boolean` and `Visibility` default to
   False (hidden). Not with `FocalLength(keep_size=True)`. A skipped `Compose` sets nothing.
@@ -377,6 +378,10 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   it otherwise (`hide_render`, the viewport is untouched). Bboxes leave hidden objects
   out (an instance with all of them hidden gets `None`), masks have no pixels for them,
   and they don't block keypoints.
+- **`ShadowCatcher(p=1)`** makes the object (a floor) a Cycles shadow catcher with
+  probability `p`, a normal object otherwise (`is_shadow_catcher`): with a transparent
+  film only the shadows on it are rendered, over a `Background`. Other engines ignore it.
+  The labels don't change: it still hides what is behind it.
 - **`KeepAbove(surface, margin=0)`** moves the object up along world Z, only when needed,
   until its lowest point is `margin` above the surface (evaluated meshes, uneven surfaces
   work). It checks the object where it is, so put it after every augmentation that moves

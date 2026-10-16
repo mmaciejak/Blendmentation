@@ -5,7 +5,7 @@ augmentation takes `p`, the probability that it runs, drawn per object; a call c
 override it, `aug(obj, p=0.5)`. After a
 call, `applied` says whether it ran and `actual` (or `actual_x/y/z`) holds the values
 it set. `Number`, `Vector`, `Boolean`, `Menu`, `MaterialSlot`, `UVMap`, `Visibility`,
-`FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
+`ShadowCatcher`, `FocalLength` and `DepthOfField` also take `otherwise`, a value to set when they don't run. Each call overwrites them, so after a `Compose` call they describe only the
 last object; `results` holds the values for every object, by name. Augment inside
 `with state.restoring():`, which sets everything back when the datapoint is done.
 `Node` sets the inputs of a node (e.g. the group node of a smart material or of a
@@ -20,6 +20,8 @@ object.
 `MaterialSlot` gives an object one of the materials in its own slots, and `UVMap` one
 of its UV maps.
 `Visibility` shows or hides objects in the render, and the labels follow it.
+`ShadowCatcher` makes an object (a floor) a shadow catcher, rendering only the shadows on
+it (Cycles).
 `KeepAbove`, placed after the transforms, lifts objects out of a floor or terrain;
 `PlaceOn` also lowers them, so they rest on it. `Seed` gives every seed in a node
 group (e.g. a geometry nodes scatter) its own random value. `PlaceOnCurve` moves a
@@ -34,8 +36,8 @@ each outcome per object; `graph_preview` draws it on an HTML page before generat
 starting with `bpy.` is absolute: right click a value in Blender > Copy Full Data
 Path. Any other path is relative to the augmented object, e.g. `data.energy`.
 The augmentations that change an object (`Translation`, `Rotation`, `Scale`,
-`Visibility`, `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`, `FocalLength`,
-`DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) change the object they are called
+`Visibility`, `ShadowCatcher`, `KeepAbove`, `PlaceOn`, `LookAt`, `PlaceOnCurve`,
+`FocalLength`, `DepthOfField`, `MaterialSlot`, `UVMap`, `SimpleMaterial`) change the object they are called
 with, or with `data_path='bpy.data.objects["Camera"]'` always that object, so they can
 also be called alone, `aug()`.
 Geometry nodes inputs moved in Blender 5, so their path depends on the version:
@@ -155,9 +157,9 @@ def graph_preview(composes: Any, path: str, show: bool = False) -> str:
     the steps of a `Compose` or `Chain` run left to right in a frame and a `OneOf` forks
     to its branches (with their weight and share), which join again. Each augmentation is
     a card with a bar of how often it runs per object and, for a `Menu`,
-    `MaterialSlot` or `UVMap` with its options listed, a `Boolean` or a `Visibility`,
-    one per value (`Compose.describe`). Check the probabilities of a pipeline before a
-    long run; after it, `export.augmentation_report` adds what the dataset did.
+    `MaterialSlot` or `UVMap` with its options listed, a `Boolean`, a `Visibility` or a
+    `ShadowCatcher`, one per value (`Compose.describe`). Check the probabilities of a
+    pipeline before a long run; after it, `export.augmentation_report` adds what the dataset did.
 
     Args:
         composes: augmentation `Compose`s: one, a list (ids `"0"`, `"1"`...) or a dict
@@ -298,8 +300,8 @@ class Compose:
           drawn), `skipped`: that it is called but doesn't run, `otherwise`: the value it
           sets then, `{value, probability}`;
         - `values`: for a `Menu`, `MaterialSlot` or `UVMap` with its options listed, a
-          `Boolean` or a `Visibility`, each value it can set, `{value, probability}`,
-          `otherwise` included;
+          `Boolean`, a `Visibility` or a `ShadowCatcher`, each value it can set,
+          `{value, probability}`, `otherwise` included;
         - `ignores_object`: it changes the same thing for every object (an absolute data
           path, `Seed`), so only its last call counts;
         - `children`; an augmentation used twice is described once, the second time
@@ -335,8 +337,9 @@ class Augmentation:
     It runs with probability `p`, drawn on every call, so once per object in a
     `Compose`. A skipped augmentation leaves the object unchanged, unless it has an
     `otherwise` value: then it sets that. `Number`, `Vector`, `Boolean`, `Menu`,
-    `MaterialSlot`, `UVMap`, `Visibility`, `FocalLength` and `DepthOfField` take `otherwise`; it is None (keep
-    the value) by default, except for `Boolean` (False) and `Visibility` (hidden).
+    `MaterialSlot`, `UVMap`, `Visibility`, `ShadowCatcher`, `FocalLength` and `DepthOfField` take
+    `otherwise`; it is None (keep the value) by default, except for `Boolean` (False),
+    `Visibility` (hidden) and `ShadowCatcher` (a normal object).
     A `Compose` skipped by its own `p` runs none of its augmentations, so their
     `otherwise` isn't set either.
 
@@ -896,6 +899,61 @@ class Visibility(ObjectAugmentation):
 
     def set_otherwise(self, obj: Optional[Object]) -> bool:
         return bpy_a.visibility(obj, self.otherwise)
+
+
+class ShadowCatcher(ObjectAugmentation):
+    """Makes the object a shadow catcher with probability `p`, otherwise a normal object.
+
+    It sets the object's Shadow Catcher option (Object Properties > Visibility,
+    `is_shadow_catcher`) both ways. A shadow catcher shows only the shadows and
+    reflections other objects cast on it, so with a transparent film (Render Properties
+    > Film > Transparent) a floor under the objects leaves their shadows over a
+    `generating.Background` or a photo composited later, and with `p` below 1 it is
+    sometimes a floor and sometimes only shadows. Only Cycles renders shadow catchers;
+    other engines render the object as usual.
+
+    The labels don't change: the object is still in the render, so it still hides what
+    is behind it in the masks, and it keeps its own bbox and masks when it is in the
+    classes.
+
+    Args:
+        p: probability that the object is a shadow catcher.
+        otherwise: what happens the rest of the time: False makes it a normal object,
+            None leaves the option unchanged.
+        data_path: absolute data path of an object to change instead of the one it is
+            called with, e.g. `'bpy.data.objects["Floor"]'`; then it can also be
+            called alone, `aug()`. None (the default): the object it is called with.
+        name: a name for it in the graph and the report (`Compose.describe`,
+            `export.augmentation_report`), e.g. `"floor or shadows"`. None: its class name.
+
+    Attributes:
+        actual (bool | None): whether the last call made the object a shadow catcher,
+            None when it left it unchanged. In a `Compose` that is the last object;
+            `results` has every object.
+
+    Example:
+        ```python
+        floor_aug = augmentations.Compose([augmentations.ShadowCatcher()])
+        floor_aug([floor])   # only the shadows on it are rendered
+
+        # only shadows in half of the images, the floor in the others
+        augmentations.ShadowCatcher(p=0.5, data_path='bpy.data.objects["Floor"]')()
+        ```
+    """
+
+    def __init__(self, p: float = 1.0, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
+                 name: Optional[str] = None):
+        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
+                         name=name)
+
+    def apply(self, obj: Optional[Object]) -> None:
+        self.actual = bpy_a.shadow_catcher(obj, True)
+
+    def _graph_values(self) -> list[tuple[Any, float]]:
+        return [(True, 1.0)]
+
+    def set_otherwise(self, obj: Optional[Object]) -> bool:
+        return bpy_a.shadow_catcher(obj, self.otherwise)
 
 
 class KeepAbove(ObjectAugmentation):

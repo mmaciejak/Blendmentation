@@ -501,6 +501,16 @@ def visibility(obj, visible):
     return visible
 
 
+def shadow_catcher(obj, enabled):
+    """Makes the object a shadow catcher (Cycles) or a normal object.
+
+    Returns:
+        bool: whether the object is a shadow catcher
+    """
+    bpy_undo.set_attr(obj, "is_shadow_catcher", enabled)
+    return enabled
+
+
 def world_mesh(obj, depsgraph):
     """World coordinates of the evaluated object's vertices, and its faces. Objects
     without geometry (empties, cameras...) are a point at their origin, without faces."""

@@ -129,6 +129,22 @@ def test_visibility(cube):
     assert 60 < sum(shown) < 140
 
 
+def test_shadow_catcher(cube):
+    obj = cube("Floor")
+    on = A.ShadowCatcher()
+    on(obj)
+    assert on.applied is True and on.actual is True and obj.is_shadow_catcher and not obj.hide_render
+    off = A.ShadowCatcher(p=0)
+    off(obj)
+    assert off.applied is False and off.actual is False and not obj.is_shadow_catcher
+    obj.is_shadow_catcher = True
+    keep = A.ShadowCatcher(p=0, otherwise=None)
+    keep(obj)
+    assert keep.actual is None and obj.is_shadow_catcher
+    describe = A.Compose([A.ShadowCatcher(p=0.25)]).describe()
+    assert [value["value"] for value in describe["children"][0]["values"]] == [True, False]
+
+
 def test_keep_above(cube):
     floor = cube("Floor", location=(0, 0, -1), size=4)  # top at z = 1
     obj = cube("Cube", location=(0, 0, 0))  # bottom at -0.5
@@ -1498,6 +1514,7 @@ def test_otherwise_objects_and_cameras(scene, cube):
     lambda: A.Vector("data.color", value_range=(0, 1), otherwise=(1, "a", 0)),
     lambda: A.Boolean("data.use_shadow", otherwise=1),
     lambda: A.Visibility(otherwise="hidden"),
+    lambda: A.ShadowCatcher(otherwise=1),
     lambda: A.FocalLength(50, otherwise=(24, 85)),
     lambda: A.FocalLength(50, target=(0, 0, 0), keep_size=True, otherwise=50),
     lambda: A.DepthOfField(otherwise=True),
@@ -1647,7 +1664,8 @@ def test_object_data_path(scene, cube):
 
     def state_of(obj):
         material = obj.material_slots[0].material
-        return (tuple(tuple(row) for row in obj.matrix_world), obj.hide_render, obj.active_material_index,
+        return (tuple(tuple(row) for row in obj.matrix_world), obj.hide_render, obj.is_shadow_catcher,
+                obj.active_material_index,
                 tuple(polygon.material_index for polygon in obj.data.polygons),
                 tuple(layer.active_render for layer in obj.data.uv_layers),
                 material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value)
@@ -1660,6 +1678,7 @@ def test_object_data_path(scene, cube):
         A.Rotation(z=(30, 30), data_path=path),
         A.Scale(x=(50, 50), data_path=path),
         A.Visibility(p=0, data_path=path),
+        A.ShadowCatcher(data_path=path),
         A.KeepAbove(floor, margin=5, data_path=path),
         A.PlaceOn(floor, data_path=path),
         A.MaterialSlot([1], data_path=path),
