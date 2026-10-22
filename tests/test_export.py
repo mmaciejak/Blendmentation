@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ElementTree
@@ -360,6 +361,80 @@ def test_bop(out, cube):
     generator()
     with pytest.raises(ValueError, match="one 3D model per class"):
         export.bop(out)
+
+
+def convex_hull(points):
+    """Corners of the convex hull of 2D points, counter-clockwise (monotone chain)."""
+    points = sorted(map(tuple, points))
+
+    def half(ordered):
+        kept = []
+        for x, y in ordered:
+            while len(kept) >= 2 and ((kept[-1][0] - kept[-2][0]) * (y - kept[-2][1])
+                                      - (kept[-1][1] - kept[-2][1]) * (x - kept[-2][0])) <= 0:
+                kept.pop()
+            kept.append((x, y))
+        return kept[:-1]
+
+    return np.array(half(points) + half(points[::-1]))
+
+
+@pytest.mark.parametrize("rotation", [(0.4, 0.7, 1.1), (1.9, -0.3, 2.6)])
+def test_bop_reads_back(out, cube, rotation):
+    """Read back as BOP tools use it: the model (in mm, scale applied) moved by cam_R_m2c
+    and cam_t_m2c and projected by cam_K (OpenCV pixel centers) is the full mask, and the
+    depth image is the model's Z, within the whole mm it holds."""
+    bpy = pytest.importorskip("bpy")
+    import OpenImageIO as oiio
+
+    from blendmentation.generating import generating as G
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.unit_settings.scale_length = 0.5
+    camera = scene.camera
+    camera.location, camera.rotation_euler = (0.7, -9, 1.5), (math.radians(82), 0, math.radians(4))
+    camera.data.shift_x, camera.data.shift_y = 0.04, -0.03
+    box = cube("box", (0.4, 0, 0.3))
+    box.rotation_euler, box.scale = rotation, (1.3, 1.3, 1.3)
+    classes = {"box": [box]}
+    steps = [G.Render(), G.Pose(classes), G.CameraData(), G.Passes(["Depth"]), G.Segmentation(classes, full_masks=True)]
+    assert G.Compose(steps, out, (320, 240))()
+    scene_dir = export.bop(out)
+
+    gt = read_json(os.path.join(scene_dir, "scene_gt.json"))["0"][0]
+    camera_info = read_json(os.path.join(scene_dir, "scene_camera.json"))["0"]
+    k = np.array(camera_info["cam_K"]).reshape(3, 3)
+    r, t = np.array(gt["cam_R_m2c"]).reshape(3, 3), np.array(gt["cam_t_m2c"])
+    model = np.array([tuple(v.co) for v in box.data.vertices]) * 1.3 * 500  # mm: scale 1.3, 0.5 m per unit
+    projected = (model @ r.T + t) @ k.T
+    hull = convex_hull(projected[:, :2] / projected[:, 2:])
+    rows, columns = np.mgrid[0:240, 0:320].astype(float)
+    drawn = np.ones((240, 320), dtype=bool)
+    for (ax, ay), (bx, by) in zip(hull, np.roll(hull, -1, axis=0)):
+        drawn &= (bx - ax) * (rows - ay) - (by - ay) * (columns - ax) > 0
+    full = export.read_mask(os.path.join(scene_dir, "mask"), "000000_000000.png")
+    assert (drawn == full).all()
+
+    # every visible pixel's depth is where its ray through K meets the model
+    depth = oiio.ImageBuf(os.path.join(scene_dir, "depth", "000000.png")).get_pixels(oiio.UINT16)[:, :, 0]
+    visible = export.read_mask(os.path.join(scene_dir, "mask_visib"), "000000_000000.png")
+    faces = [np.array([tuple(box.data.vertices[i].co) for i in polygon.vertices]) * 1.3 * 500 @ r.T + t
+             for polygon in box.data.polygons]
+    errors = []
+    for row, column in zip(*np.nonzero(visible)):
+        ray = np.linalg.solve(k, [column, row, 1.0])
+        hits = []
+        for corners in faces:
+            normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+            if abs(normal @ ray) > 1e-9:
+                z = normal @ corners[0] / (normal @ ray)
+                inside = [np.cross(corners[(i + 1) % 4] - corners[i], ray * z - corners[i]) @ normal >= -1e-6
+                          for i in range(4)]
+                if z > 0 and all(inside):
+                    hits.append(z)
+        errors.append(abs(depth[row, column] * camera_info["depth_scale"] - min(hits)))
+    assert np.median(errors) < 0.5 and max(errors) < 1.5
 
 
 def read_json(path):

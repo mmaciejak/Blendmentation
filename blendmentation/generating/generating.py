@@ -480,8 +480,13 @@ class CameraData(Step):
     `focus_distance` is the distance to the focal plane Blender uses, so with a focus
     object it is the distance to that object along the view axis.
     A perspective camera adds the lens, sensor size and fit and `intrinsics` (3x3 `K` in
-    pixels, top-left image origin, with sensor fit, lens shift and pixel aspect), an
-    orthographic one `ortho_scale`.
+    pixels, with sensor fit, lens shift and pixel aspect), an orthographic one
+    `ortho_scale`. `K` follows OpenCV (and BOP and BlenderProc): pixel centers are at
+    whole numbers, the top-left pixel's center is (0, 0), so a camera without shift has
+    its principal point at `((width - 1) / 2, (height - 1) / 2)`. Boxes and keypoint
+    positions are measured from the image's top-left corner instead (a pixel's center
+    is at + 0.5), as in COCO: a keypoint at `(x, y)` projects through `K` to
+    `(x - 0.5, y - 0.5)`.
 
     In the label JSON: `"camera": {...}`.
 

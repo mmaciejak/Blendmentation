@@ -153,13 +153,14 @@ def test_pose(scene, cube, out):
     assert pose["scale"] == pytest.approx([2, 2, 2])
     assert rotation @ rotation.T == pytest.approx(np.eye(3), abs=1e-6)
     # a corner of the mesh in the camera, projected with K, lands where blender projects it
+    # (K's pixel centers are whole numbers, blender's view coordinates count from the corner)
     corner = car.data.vertices[0].co
     in_camera = rotation @ (np.array(corner) * 2) + t
     k = np.array(camera["intrinsics"])
     pixel = (k @ in_camera)[:2] / in_camera[2]
     scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = 320, 240, 100
     view = world_to_camera_view(scene, scene.camera, car.matrix_world @ corner)
-    assert pixel == pytest.approx([view.x * 320, (1 - view.y) * 240], abs=1e-3)
+    assert pixel == pytest.approx([view.x * 320 - 0.5, (1 - view.y) * 240 - 0.5], abs=1e-3)
     # the same as the extrinsics applied to the world matrix
     extrinsics = np.array(camera["extrinsics_opencv"])
     assert t == pytest.approx(extrinsics[:, :3] @ np.array(car.matrix_world.translation) + extrinsics[:, 3], abs=1e-6)
@@ -731,8 +732,9 @@ def test_camera_data_projects_like_blender(scene, out, resolution, fit, shift, a
     for point in ((0, 0, 0), (1, 1, 1), (-1, 0.5, -1)):
         u, v, w = K @ Rt @ np.array([*point, 1.0])
         reference = world_to_camera_view(scene, camera, Vector(point))
-        assert u / w == pytest.approx(reference.x * resolution[0], abs=1e-2)
-        assert v / w == pytest.approx((1 - reference.y) * resolution[1], abs=1e-2)
+        # OpenCV pixel centers are whole numbers, Blender's view coordinates count from the corner
+        assert u / w == pytest.approx(reference.x * resolution[0] - 0.5, abs=1e-2)
+        assert v / w == pytest.approx((1 - reference.y) * resolution[1] - 0.5, abs=1e-2)
 
 
 def test_camera_data_ortho(scene, out):

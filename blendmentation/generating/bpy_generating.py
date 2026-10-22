@@ -1001,7 +1001,9 @@ def segmentation_image(frame, file_format, opacity, line_width, show_class):
 
 def camera_intrinsics(scene, camera_data, width, height):
     """3x3 intrinsic matrix K of a perspective camera, in pixels, for the OpenCV
-    camera convention (x right, y down, z forward) and top-left image origin."""
+    camera convention (x right, y down, z forward) with pixel centers at whole numbers
+    (the top-left pixel's center is (0, 0)), as OpenCV, BOP and BlenderProc: an
+    unshifted camera's principal point is ((width - 1) / 2, (height - 1) / 2)."""
     render = scene.render
     pixel_aspect = render.pixel_aspect_y / render.pixel_aspect_x
     sensor_fit = camera_data.sensor_fit
@@ -1011,8 +1013,8 @@ def camera_intrinsics(scene, camera_data, width, height):
     view_factor = width if sensor_fit == "HORIZONTAL" else pixel_aspect * height
     pixels_per_mm = camera_data.lens * view_factor / sensor_size
     return [
-        [pixels_per_mm, 0.0, width / 2 - camera_data.shift_x * view_factor],
-        [0.0, pixels_per_mm / pixel_aspect, height / 2 + camera_data.shift_y * view_factor / pixel_aspect],
+        [pixels_per_mm, 0.0, (width - 1) / 2 - camera_data.shift_x * view_factor],
+        [0.0, pixels_per_mm / pixel_aspect, (height - 1) / 2 + camera_data.shift_y * view_factor / pixel_aspect],
         [0.0, 0.0, 1.0],
     ]
 

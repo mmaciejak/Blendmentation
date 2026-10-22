@@ -6,6 +6,16 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The camera `intrinsics` of `generating.CameraData`, and so the `cam_K` of
+  `export.bop`, were half a pixel off in the OpenCV convention they follow (pixel
+  centers at whole numbers, as in BOP and BlenderProc): the principal point of a camera
+  without shift is now `((width - 1) / 2, (height - 1) / 2)`, not `(width / 2,
+  height / 2)`. A pose or point projected with `K` landed half a pixel right of and
+  below where it is in the image. Read back like the BOP toolkit does, the exported
+  poses now project exactly onto the masks.
+
 ## [0.12.0] - 2026-10-22
 
 ### Added
