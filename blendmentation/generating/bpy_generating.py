@@ -549,13 +549,19 @@ class Frame:
         """Id image of the groups with every other object hidden, so nothing occludes
         them: in Cycles from the Object Index pass of a 1 sample render (see
         `render_index_ids`), otherwise from the workbench (`ids`, shared with BBox occlusion)."""
-        if self.scene.render.engine != "CYCLES" or bpy_instances.has_instances(groups):
+        if not cycles_index(self.scene, groups):
             return self.ids(groups, hide_others=True)
-        key = (group_key(groups), "index")
+        return self.index_ids(groups, hide_others=True)
+
+    def index_ids(self, groups, hide_others):
+        """Id image of the groups from the Object Index pass of a sharp 1 sample Cycles
+        render (`render_index_ids`), rendered once per groups and hide_others."""
+        key = (group_key(groups), "index", hide_others)
         if key not in self.id_images:
             self.replace_render()
             file_path = os.path.join(self.temp_dir, f"ids_{len(self.id_images)}.exr")
-            self.id_images[key] = bpy_ids.render_index_ids(self.scene, self.view_layer, groups, file_path)
+            self.id_images[key] = bpy_ids.render_index_ids(self.scene, self.view_layer, groups, file_path,
+                                                           hide_others)
         return self.id_images[key]
 
     def multilayer(self):
@@ -1159,15 +1165,24 @@ def check_segmentation(classes, per):
     check_instance_renders(classes, "Segmentation")
 
 
+def cycles_index(scene, groups):
+    """Whether the ids of the groups can come from a Cycles Object Index pass: Cycles,
+    no geometry nodes instances (they share their source's pass index), and few enough
+    groups for the pass indices."""
+    return (scene.render.engine == "CYCLES" and not bpy_instances.has_instances(groups)
+            and len(groups) <= MAX_PASS_INDEX)
+
+
 def prepare_segmentation(frame, classes):
     """In Cycles, the masks come from the Object Index pass of the beauty render, which
     respects alpha (pass_alpha_threshold), displacement and hair: every instance gets its
-    id as pass index, all other objects 0. Other engines, a second Segmentation with other
+    id as pass index, all other objects 0. With motion blur or depth of field that pass
+    has random ids at blurred edges, so the masks come from a sharp 1 sample Cycles
+    render instead (`segmentation`). Other engines, a second Segmentation with other
     classes, or more instances than pass indices use the workbench id render, and
     geometry nodes instances the Cycles one of `render_instance_ids`."""
     groups = [group for _, group in to_instances(classes, frame)]
-    if (frame.scene.render.engine != "CYCLES" or frame.index_groups is not None or len(groups) > MAX_PASS_INDEX
-            or bpy_instances.has_instances(groups)):
+    if not cycles_index(frame.scene, groups) or frame.index_groups is not None or bpy_ids.blurred(frame.scene):
         return
     frame.set(frame.view_layer, "use_pass_object_index", True)
     for obj in bpy_ids.editable_objects():
@@ -1246,7 +1261,13 @@ def segmentation(frame, classes, per, skip_empty=False, full=False):
     instances = to_instances(classes, frame)
     groups = [group for _, group in instances]
     # the visible masks first, they may read the beauty render that the full masks replace
-    ids = index_pass_ids(frame) if frame.index_groups == group_key(groups) else frame.ids(groups)
+    if frame.index_groups == group_key(groups):
+        ids = index_pass_ids(frame)
+    elif cycles_index(frame.scene, groups) and bpy_ids.blurred(frame.scene):
+        # the beauty's Object Index pass would have random ids at blurred edges
+        ids = frame.index_ids(groups, hide_others=False)
+    else:
+        ids = frame.ids(groups)
     full = full_masks(frame, groups) if full else None
     entries, full_entries = save_masks(ids, instances, frame.path, frame.file_name(""), per, skip_empty,
                                        frame.label.get("masks", []), full, frame.label.get("full_masks", []))

@@ -182,6 +182,26 @@ def test_masks_occlusion_and_full_masks(scene, cube, out, renders):
     assert bpy.context.view_layer.material_override is None and not wall.hide_render
 
 
+def test_instance_masks_sharp_with_depth_of_field(scene, cube, out):
+    """The instance id render keeps one sample per pixel, at a random point of the lens
+    with depth of field, so it is rendered without it: the same masks as without."""
+    scene.render.engine = "CYCLES"
+    car = cube("car", size=0.8)
+    hidden_collection("sources", [car])
+    classes = {"car": [G.Instances(scatter("Scatter", car), of=car)]}
+    steps = [G.Segmentation(classes, full_masks=True)]
+    assert G.Compose(steps, out, (160, 120))()
+    dof = scene.camera.data.dof
+    dof.use_dof, dof.focus_distance, dof.aperture_fstop = True, 1.0, 0.1
+    assert G.Compose(steps, out, (160, 120))()
+    sharp, blurred = label(out, 0), label(out, 1)
+    for key in ("masks", "full_masks"):
+        for before, after in zip(sharp[key], blurred[key]):
+            pixels = mask(out, before["mask"])
+            assert pixels.any() and (pixels == mask(out, after["mask"])).all(), after["mask"]
+    assert dof.use_dof
+
+
 def test_cycles_beauty_and_unlabeled_instances(scene, cube, out):
     scene.render.engine = "CYCLES"
     car = cube("car", size=0.5)

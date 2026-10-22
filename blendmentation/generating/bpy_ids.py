@@ -30,6 +30,24 @@ def hide_in_render(changes, keep):
             changes.set(obj, "hide_render", True)
 
 
+def blurred(scene):
+    """Whether the render has motion blur or camera depth of field. Then the first
+    sample of a pixel, which the Object Index pass keeps, is at a random time or point
+    of the lens, and the ids at blurred edges are random."""
+    camera = scene.camera
+    dof = camera is not None and camera.type == "CAMERA" and camera.data.dof.use_dof
+    return bool(scene.render.use_motion_blur or dof)
+
+
+def sharpen(changes, scene):
+    """Turns off motion blur and camera depth of field, recorded in changes, so an id
+    render shows the objects where they are at the frame, with sharp edges."""
+    changes.set(scene.render, "use_motion_blur", False)
+    camera = scene.camera
+    if camera is not None and camera.type == "CAMERA":
+        changes.set(camera.data.dof, "use_dof", False)
+
+
 def render_ids(scene, groups, file_path, hide_others=False):
     """Renders every group of objects in a flat color encoding its id (1, 2, ...)
     with workbench, other objects in black so they still occlude, or hidden with hide_others.
@@ -63,17 +81,20 @@ def render_ids(scene, groups, file_path, hide_others=False):
     return bpy_images.read_ids(file_path, encoded=True)
 
 
-def render_index_ids(scene, view_layer, groups, file_path):
-    """Renders the groups with Cycles at 1 sample, every other object hidden, and reads
-    the group ids (1, 2, ...) from the Object Index pass, like `index_pass_ids`. The
-    multilayer render result is saved to file_path (an EXR).
+def render_index_ids(scene, view_layer, groups, file_path, hide_others=True):
+    """Renders the groups with Cycles at 1 sample, without motion blur and depth of
+    field, and reads the group ids (1, 2, ...) from the Object Index pass, like
+    `index_pass_ids`. With hide_others every other object is hidden, otherwise it is 0
+    and still occludes. The multilayer render result is saved to file_path (an EXR).
 
     Returns:
-        np.ndarray: (height, width) array of group ids, 0 = background
+        np.ndarray: (height, width) array of group ids, 0 = background or other objects
     """
     with bpy_undo.temporary() as changes:
-        hide_in_render(changes, {obj for group in groups for obj in group})
+        if hide_others:
+            hide_in_render(changes, {obj for group in groups for obj in group})
         changes.set_many(scene.render, {"use_compositing": False, "use_sequencer": False})
+        sharpen(changes, scene)
         # the pass is written by the first sample, it is not anti-aliased
         changes.set_many(scene.cycles, {"samples": 1, "use_denoising": False, "use_adaptive_sampling": False})
         changes.set(view_layer, "use_pass_object_index", True)
@@ -184,7 +205,8 @@ def instance_id_material(hide_others):
 
 def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False):
     """Renders the group ids of groups with instances (`InstanceMember`s) with Cycles at
-    1 sample and an emission material override, whatever the engine. A temporary geometry
+    1 sample, without motion blur and depth of field, and an emission material override,
+    whatever the engine. A temporary geometry
     nodes modifier on each parent stores the ids of its top-level instances as an instance
     attribute; objects get theirs as a custom property. Everything is restored afterwards.
     Without hide_others, all other objects and instances are 0 and still occlude;
@@ -226,7 +248,8 @@ def render_instance_ids(scene, view_layer, groups, file_path, hide_others=False)
         changes.add(partial(bpy.data.materials.remove, material))
 
         changes.set_many(scene.render, {"engine": "CYCLES", "film_transparent": True, "use_compositing": False,
-                                        "use_sequencer": False, "use_motion_blur": False})
+                                        "use_sequencer": False})
+        sharpen(changes, scene)
         changes.set_many(scene.cycles, {
             "samples": 1, "use_denoising": False, "use_adaptive_sampling": False,
             # one sample near the pixel center, the ids are not blended

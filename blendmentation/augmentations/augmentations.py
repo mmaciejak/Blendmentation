@@ -1367,6 +1367,9 @@ class DepthOfField(ObjectAugmentation):
     Focus is measured along the view axis from where the camera is when this runs, so
     put it after `LookAt` / `FocalLength` in a `Compose`.
 
+    Only the image is blurred: the labels (masks, boxes, keypoints) keep the sharp
+    outlines of the objects (see `generating.Segmentation`).
+
     `defocus` moves the focus off that distance by a random percent, added like a
     `Translation` offset: `defocus=10` focuses anywhere from 10 % nearer to 10 % farther,
     `(0, 20)` only farther (behind the target). It works from the target's distance, or

@@ -210,6 +210,45 @@ def test_full_masks(scene, cube, out, renders, engine):
     assert len(renders) == 2
 
 
+@pytest.mark.parametrize("blur", ["depth_of_field", "motion_blur"])
+def test_masks_sharp_with_blur(scene, cube, out, renders, blur):
+    """Cycles keeps a pixel's first sample in the Object Index pass, with depth of field or
+    motion blur at a random point of the lens or of the shutter, so the masks would be
+    speckled at blurred edges: they come from renders without the blur instead, the
+    same masks as without it, while the image keeps its blur."""
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 8
+    transparent(scene)  # no light: the blur shows in the alpha
+    near, far = cube("near", (-1.2, -6, 0)), cube("far", (1.5, 0, 0), 2.0)
+    classes = {"box": [near, far]}
+    steps = [G.Render(), G.Segmentation(classes, per="both", full_masks=True)]
+    if blur == "motion_blur":
+        # far moves along X, at frame 1 it is where the sharp render shows it
+        far.keyframe_insert("location", frame=0)
+        far.location.x = 2.5
+        far.keyframe_insert("location", frame=2)
+        scene.frame_set(1)
+    assert G.Compose(steps, out, (160, 120))()  # sharp, 000000
+    assert renders == ["CYCLES"] * 2  # the beauty with its Object Index pass, the full masks
+
+    dof = scene.camera.data.dof
+    if blur == "depth_of_field":
+        dof.use_dof, dof.focus_distance, dof.aperture_fstop = True, 1.0, 0.1
+    else:
+        scene.render.use_motion_blur = True
+    renders.clear()
+    assert G.Compose(steps, out, (160, 120))()  # blurred, 000001
+    assert renders == ["CYCLES"] * 3  # the beauty, the visible masks, the full masks
+    for name in ("mask_box_0", "mask_box_1", "class_box", "mask_box_0_full", "mask_box_1_full"):
+        sharp, blurred = mask(out, f"000000_{name}.png"), mask(out, f"000001_{name}.png")
+        assert sharp.any() and (sharp == blurred).all(), name
+    # the image is blurred, and the blur is back on
+    alpha = [read_image(os.path.join(out, f"00000{i}.png"), 3) for i in (0, 1)]
+    assert np.abs(alpha[0] - alpha[1]).max() > 0.2
+    assert dof.use_dof if blur == "depth_of_field" else scene.render.use_motion_blur
+    assert not bpy.context.view_layer.use_pass_object_index
+
+
 def test_preview_and_render_only(cube, out):
     cube("Cube")
     generator = G.Compose([G.Render()], out, (64, 48))

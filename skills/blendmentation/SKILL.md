@@ -304,7 +304,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `Background(weights=None, noise_size=(1, 8), images_path=None)` | random color, white/color noise or image behind the render and previews; `background` |
 | `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None, allow_empty=False)` | `bboxes`; the three settings skip the datapoint, `allow_empty` ignores instances out of view |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
-| `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False, full_masks=False)` | mask PNGs, `masks`; `full_masks`: unoccluded masks, `full_masks` |
+| `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False, full_masks=False)` | mask PNGs, `masks`; `full_masks`: unoccluded masks, `full_masks`; sharp also with depth of field or motion blur |
 | `AOVToImage(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |
 | `Passes(["Depth", "Normal"], skip_empty=False)` | render passes, enabled for you |
 | `Pose(classes)` | 6D pose of each instance: `R`, `t` (OpenCV camera axes, Blender units), `scale`; `poses` |

@@ -6,6 +6,16 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- In Cycles, with depth of field (e.g. from `augmentations.DepthOfField`) or motion blur,
+  the masks of `generating.Segmentation` had speckled edges as wide as the blur, and so
+  did the boxes made from them (`bbox_from="mask"` in `export.coco`, `yolo` and `voc`,
+  and `bbox_visib`, `bbox_obj` and `visib_fract` in `export.bop`). The masks, the full
+  masks and the masks of `Instances` are now rendered without the blur, sharp like in
+  EEVEE and Workbench, while the image keeps it. With blur, Cycles needs one extra
+  1 sample render for the masks.
+
 ## [0.11.0] - 2026-10-16
 
 ### Added

@@ -1002,7 +1002,8 @@ camera_aug = aug.Compose([
     # a dolly zoom; size: the cars end up 80 to 120 % of the size they had before
     aug.FocalLength((24, 85), target=[car_1, car_2], keep_size=True, size=(80, 120)),
     # blurred in half of the images, sharp in the others; focused up to 10 % in
-    # front of or behind the car, like a Translation offset
+    # front of or behind the car, like a Translation offset. Only the image is
+    # blurred, the masks and boxes keep the sharp outlines
     aug.DepthOfField(car_1, f_stop=(1.4, 5.6), defocus=10, p=0.5, otherwise=False),
 ])
 

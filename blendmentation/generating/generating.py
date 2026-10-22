@@ -775,7 +775,9 @@ class Segmentation(Step):
       (restored afterwards). A surface counts when its alpha is at least the view
       layer's Alpha Threshold (Passes > Data, default 0.5), so alpha-clipped materials
       (leaf cards, decals, fences) and shader displacement are right. Volumes are not
-      in the pass, so they neither get a mask nor hide anything.
+      in the pass, so they neither get a mask nor hide anything. With depth of field or
+      motion blur on, the masks come from one extra 1 sample Cycles render without them
+      instead (see the note on blur below).
     - **EEVEE and Workbench**: one extra, fast Workbench render, which draws every
       object solid: alpha-clipped and transparent parts are in the mask and hide what is
       behind them, and shader displacement is missing. EEVEE has no Object Index pass.
@@ -801,6 +803,17 @@ class Segmentation(Step):
         full_masks: also save the full mask of every instance, ignoring occlusion.
 
     Note:
+        Masks are sharp, also when the image is blurred by depth of field (the camera's
+        Depth of Field, e.g. from `augmentations.DepthOfField`) or motion blur (Render
+        Properties > Motion Blur): they show each object where it is at the frame, with
+        the outline it has in focus, like the boxes of `BBox`, the poses and the
+        keypoints. Most datasets label it that way (COCO, BOP), and the box of a blurred
+        object's mask (`bbox_from="mask"` in the export) then fits the object, not the blur.
+        In Cycles the Object Index pass keeps one sample per pixel, at a random point of
+        the lens or of the shutter, which would give speckled masks as wide as the blur;
+        so with blur, Blendmentation renders the masks again without it (depth of field
+        and motion blur off for that render only). The image keeps its blur.
+
         In Cycles, a second `Segmentation` with other classes in the same `Compose`, or
         more than 32767 instances, uses the Workbench render. The full masks are rendered
         like the visible ones: in Cycles from the Object Index pass of a 1 sample render,
