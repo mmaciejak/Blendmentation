@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-22
+
 ### Added
 
 - `export.yolo(path, task="segment")` writes the instance masks as polygons, in the
@@ -38,6 +40,8 @@ All notable changes to Blendmentation. The format follows
   masks and the masks of `Instances` are now rendered without the blur, sharp like in
   EEVEE and Workbench, while the image keeps it. With blur, Cycles needs one extra
   1 sample render for the masks.
+- The API reference on the docs site showed `check_fraction`, an internal helper. The
+  pages now show exactly the public names (each module's `__all__`).
 
 ## [0.11.0] - 2026-10-16
 
@@ -581,7 +585,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.11.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.0...dev
+[0.12.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.0...v0.10.1
