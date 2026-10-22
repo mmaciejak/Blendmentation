@@ -225,6 +225,13 @@ def coco(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[
         ValueError: an unknown `bbox_from`, `bbox_from="mask"` with an instance that
             has no instance mask, or a class in the labels missing from `classes`.
 
+    Note:
+        The output is tested with pycocotools: `COCO` loads it, every decoded mask,
+        `area` and box match the labels, and `COCOeval` scores the annotations against
+        themselves at AP 1 for `bbox` and `segm`. The masks are uncompressed RLE with
+        `iscrowd` 0, which pycocotools and Detectron2 read; a tool that expects
+        polygons for non-crowd objects has to convert them first.
+
     Example:
         ```python
         export.coco("//dataset", classes=["car", "table"])

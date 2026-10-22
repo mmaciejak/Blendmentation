@@ -145,15 +145,53 @@ def test_coco_skips_masks_not_written(out, cube):
     assert len(json.load(open(export.coco(out, output=os.path.join(out, "visible.json"), bbox_from="mask")))["annotations"]) == 2
 
 
-def test_coco_with_pycocotools(dataset):
+@pytest.mark.filterwarnings("ignore::DeprecationWarning:pycocotools")
+@pytest.mark.parametrize("bbox_from", ["label", "mask"])
+def test_coco_with_pycocotools(dataset, bbox_from):
+    """The whole export read by pycocotools: images, categories, every annotation's mask,
+    area and box, and COCOeval scoring the annotations against themselves at AP 1."""
     coco_api = pytest.importorskip("pycocotools.coco")
-    file_name = export.coco(dataset)
-    coco = coco_api.COCO(file_name)
-    label = load(dataset)
-    masks = {tuple(m["objects"]): m["mask"] for m in label["masks"] if m["per"] == "instance"}
-    for annotation in coco.loadAnns(coco.getAnnIds(imgIds=[0])):
-        reference = export.read_mask(dataset, masks[tuple(annotation["objects"])])
-        assert (coco.annToMask(annotation).astype(bool) == reference).all()
+    from pycocotools import cocoeval, mask as mask_utils
+
+    output = os.path.join(dataset, f"coco_{bbox_from}.json")
+    coco = coco_api.COCO(export.coco(dataset, output=output, bbox_from=bbox_from))
+    assert [image["file_name"] for image in coco.loadImgs(coco.getImgIds())] == [
+        "000000.png", "000001.png", "000002.png"]
+    assert all((image["width"], image["height"]) == (320, 240) for image in coco.imgs.values())
+    assert [category["name"] for category in coco.loadCats(coco.getCatIds())] == ["car", "table"]
+
+    results = []
+    for image_id in coco.getImgIds():
+        label = load(dataset, image_id)
+        masks = {tuple(m["objects"]): m["mask"] for m in label["masks"] if m["per"] == "instance"}
+        boxes = {tuple(b["objects"]): b["bbox"] for b in label["bboxes"]}
+        annotations = coco.loadAnns(coco.getAnnIds(imgIds=[image_id]))
+        # hidden has no visible pixels, far is out of frame
+        assert [a["objects"] for a in annotations] == [["car1"], ["car2"], ["top", "leg"]]
+        for annotation in annotations:
+            reference = export.read_mask(dataset, masks[tuple(annotation["objects"])])
+            assert (coco.annToMask(annotation).astype(bool) == reference).all()
+            rle = coco.annToRLE(annotation)
+            assert annotation["area"] == int(reference.sum()) == int(mask_utils.area(rle))
+            if bbox_from == "mask":
+                assert annotation["bbox"] == pytest.approx(mask_utils.toBbox(rle).tolist())
+            else:
+                x_min, y_min, x_max, y_max = boxes[tuple(annotation["objects"])]
+                assert annotation["bbox"] == pytest.approx([x_min, y_min, x_max - x_min, y_max - y_min])
+            results.append({"image_id": image_id, "category_id": annotation["category_id"],
+                            "bbox": annotation["bbox"], "segmentation": rle, "score": 1.0})
+
+    for iou_type in ("bbox", "segm"):
+        detections = [dict(result) for result in results]
+        if iou_type == "bbox":
+            for detection in detections:
+                del detection["segmentation"]
+        evaluation = cocoeval.COCOeval(coco, coco.loadRes(detections), iou_type)
+        evaluation.evaluate()
+        evaluation.accumulate()
+        evaluation.summarize()
+        assert evaluation.stats[0] == pytest.approx(1.0), iou_type  # AP at IoU 0.5:0.95
+        assert evaluation.stats[8] == pytest.approx(1.0), iou_type  # AR, 100 detections
 
 
 def decode_rle(segmentation):

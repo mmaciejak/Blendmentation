@@ -732,6 +732,19 @@ export.coco("//dataset")
 
 For boxes only, use `gen.BBox` in place of `gen.Segmentation`.
 
+The file loads with [pycocotools](https://pypi.org/project/pycocotools/) (`pip install
+pycocotools`), outside Blender, e.g. where you train. The masks are run-length encoded,
+and `annToMask` decodes one:
+
+```python
+from pycocotools.coco import COCO
+
+coco = COCO("dataset/coco.json")
+annotation = coco.loadAnns(coco.getAnnIds(imgIds=[0]))[0]
+mask = coco.annToMask(annotation)  # (height, width) array, 1 on the milk carton
+print(coco.loadCats(annotation["category_id"])[0]["name"], annotation["bbox"], annotation["area"])
+```
+
 ### YOLO
 
 Detection boxes, a `.txt` file next to every image and a `dataset.yaml` for Ultralytics.
