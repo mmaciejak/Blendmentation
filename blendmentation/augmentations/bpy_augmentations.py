@@ -674,11 +674,27 @@ SETTLE_STEPS = 8
 SETTLE_TOLERANCE = 1e-5
 
 
+def has_drivers(owner):
+    animation = getattr(owner, "animation_data", None) if owner is not None else None
+    return bool(animation and animation.drivers)
+
+
+def shape_may_follow(obj):
+    """Whether the object's evaluated shape can change when it moves: modifiers (e.g.
+    geometry nodes reading its position), instancing, or drivers on it, its data or its
+    shape keys (e.g. a shape key driven by its height). A plain mesh, shape keys
+    included, keeps its shape."""
+    shape_keys = getattr(obj.data, "shape_keys", None) if obj.data is not None else None
+    return (bool(obj.modifiers) or obj.instance_type != "NONE"
+            or any(has_drivers(owner) for owner in (obj, obj.data, shape_keys)))
+
+
 def settle(obj, surface, margin, lift_only):
-    """Moves the object along world Z by `rest_offset`. Modifiers and instances can make
-    its shape depend on where it is (geometry nodes reading its position), so for such
-    an object it measures again after the move and corrects, with secant steps, until it
-    rests within SETTLE_TOLERANCE. With lift_only, an object high enough isn't moved.
+    """Moves the object along world Z by `rest_offset`. Its shape can depend on where it
+    is (`shape_may_follow`: geometry nodes reading its position, a driven shape key), so
+    for such an object it measures again after the move and corrects, with secant
+    steps, until it rests within SETTLE_TOLERANCE. With lift_only, an object high enough
+    isn't moved.
 
     Returns:
         float: how far the object was moved, positive up, 0 when it was not moved
@@ -687,7 +703,7 @@ def settle(obj, surface, margin, lift_only):
     if offset is None or (lift_only and offset <= 0):
         return 0.0
     move_z(obj, offset)
-    if not obj.modifiers and obj.instance_type == "NONE":
+    if not shape_may_follow(obj):
         return offset
     # the residual offset after moving by `moved`: goes down 1 for 1 for a fixed shape
     previous, moved = (0.0, offset), offset

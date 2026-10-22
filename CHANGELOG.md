@@ -29,8 +29,8 @@ All notable changes to Blendmentation. The format follows
   object lying across a ridge or on a bumpy low-poly terrain (up to a third of a unit
   in our tests). The contact is now found exactly.
 - `PlaceOn` and `KeepAbove` placed an object whose shape depends on where it is
-  (geometry nodes reading its position) by its shape before the move. They now measure
-  it again after the move until it rests.
+  (geometry nodes reading its position, a shape key driven by its location) by its
+  shape before the move. They now measure it again after the move until it rests.
 - In Cycles, with depth of field (e.g. from `augmentations.DepthOfField`) or motion blur,
   the masks of `generating.Segmentation` had speckled edges as wide as the blur, and so
   did the boxes made from them (`bbox_from="mask"` in `export.coco`, `yolo` and `voc`,

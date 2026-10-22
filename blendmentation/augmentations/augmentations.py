@@ -986,9 +986,10 @@ class KeepAbove(ObjectAugmentation):
     the instances it makes (geometry nodes instances, e.g. Instance on Points or Object
     Info with As Instance, and collection instancing). Uneven surfaces work, and the
     contact is found exactly, also where an edge of the object crosses an edge of the
-    surface away from any vertex (an object lying across a ridge). A shape that depends
-    on where the object is (geometry nodes reading its position) is measured again
-    after the move, until it rests. It sets `matrix_world`, so parented objects work
+    surface away from any vertex (an object lying across a ridge). Shape keys and
+    modifiers count as they are when it runs; a shape that depends on where the object
+    is (geometry nodes reading its position, a shape key or modifier setting driven by
+    its location) is measured again after the move, until it rests. It sets `matrix_world`, so parented objects work
     too. Only the object's own geometry counts, not its children's.
 
     !!! warning "Put it after the transforms"

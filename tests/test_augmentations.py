@@ -1695,6 +1695,25 @@ def test_place_on_shape_that_depends_on_location(cube):
         A.PlaceOn(floor)(obj)
         assert min(shown_z(obj)) == pytest.approx(0, abs=1e-4)
 
+    # a shape key driven by the object's height: its bottom goes lower the higher it is
+    obj.location.x = 50
+    stretched = cube("Stretched", location=(0, 0, 3))
+    stretched.shape_key_add(name="Basis")
+    key = stretched.shape_key_add(name="Stretch")
+    for point in key.data:
+        point.co.z -= 1
+    driver = key.driver_add("value").driver
+    driver.type = "SCRIPTED"
+    height = driver.variables.new()
+    height.name, height.type = "z", "TRANSFORMS"
+    height.targets[0].id, height.targets[0].transform_type = stretched, "LOC_Z"
+    height.targets[0].transform_space = "WORLD_SPACE"
+    driver.expression = "max(0, min(1, z / 4))"
+    for start in (3, 0.2):
+        stretched.location.z = start
+        A.PlaceOn(floor)(stretched)
+        assert min(shown_z(stretched)) == pytest.approx(0, abs=1e-4)
+
 
 def test_place_on_edges_crossing(cube):
     """Where the object's edges cross the surface's edges seen from above, away from any
