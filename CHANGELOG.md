@@ -6,7 +6,19 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `export.yolo(path, task="segment")` writes the instance masks as polygons, in the
+  Ultralytics segmentation format, for YOLO segmentation models. Ultralytics draws each
+  polygon back exactly as its mask; an object split into pieces by something in front
+  of it stays one polygon, and holes are filled. `tolerance` simplifies the polygons
+  for shorter files. It needs no OpenCV.
+
 ### Fixed
+
+- `export.yolo` now writes `images.txt`, the list of the dataset's images, and points
+  `dataset.yaml` at it. Before, it pointed at the whole folder, so Ultralytics also
+  trained on the mask PNGs, previews and PNG passes there, as images without objects.
 
 - In Cycles, with depth of field (e.g. from `augmentations.DepthOfField`) or motion blur,
   the masks of `generating.Segmentation` had speckled edges as wide as the blur, and so

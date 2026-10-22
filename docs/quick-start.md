@@ -747,7 +747,8 @@ print(coco.loadCats(annotation["category_id"])[0]["name"], annotation["bbox"], a
 
 ### YOLO
 
-Detection boxes, a `.txt` file next to every image and a `dataset.yaml` for Ultralytics.
+Detection boxes or segmentation polygons, a `.txt` file next to every image, and a
+`dataset.yaml` for Ultralytics with `images.txt`, the list of the images to train on.
 
 ```python
 milk_box = bpy.data.objects["Milk Box"]
@@ -763,7 +764,7 @@ generator = gen.Compose(
 
 # ... generate ...
 
-# writes //dataset/<index>.txt, classes.txt and dataset.yaml
+# writes //dataset/<index>.txt, classes.txt, images.txt and dataset.yaml
 export.yolo("//dataset")
 ```
 
@@ -791,6 +792,22 @@ generator = gen.Compose(
 # boxes of the visible pixels, from the masks
 export.yolo("//dataset", bbox_from="mask")
 ```
+
+For a YOLO segmentation model (`yolo11n-seg.pt` and the like), export the same masks
+as polygons, in the [Ultralytics segmentation
+format](https://docs.ultralytics.com/datasets/segment/): one line per instance,
+`class x1 y1 x2 y2 ...`.
+
+```python
+# polygons of the instance masks, for segmentation models
+export.yolo("//dataset", task="segment")
+```
+
+Drawn back the way Ultralytics does it, each polygon is exactly its mask. A carton split
+in two by something in front of it stays one polygon: the pieces are joined by a thin
+line, as Ultralytics joins the pieces of a COCO object. Holes in a mask are filled,
+since a polygon can't have them. Both tasks write the same `.txt` files, so export the
+one you train.
 
 ### Pascal VOC
 
@@ -1094,8 +1111,9 @@ for _ in range(1000):
 
 # 4. training-ready annotations
 export.coco("//dataset")
-# boxes of the visible pixels, from the masks
-export.yolo("//dataset", bbox_from="mask")
+# polygons of the masks, for YOLO segmentation models;
+# boxes only: bbox_from="mask" instead of task
+export.yolo("//dataset", task="segment")
 # 6D pose: poses, masks, depth
 export.bop("//dataset")
 # how often each augmentation ran, against the graph

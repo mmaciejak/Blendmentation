@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ElementTree
 import numpy as np
 import pytest
 
-from blendmentation.export import export
+from blendmentation.export import export, polygons
 
 
 def test_rle_and_mask_bbox():
@@ -55,11 +55,107 @@ def test_yolo(dataset):
     assert class_id == "0" and float(cx) == pytest.approx((x_min + x_max) / 640, abs=1e-5)
     assert float(w) == pytest.approx((x_max - x_min) / 320, abs=1e-5)
     assert open(os.path.join(dataset, "classes.txt")).read() == "car\ntable\n"
+    yaml = open(os.path.join(dataset, "dataset.yaml")).read()
+    assert "train: images.txt\nval: images.txt\n" in yaml and "./000001.png\n" in open(os.path.join(dataset, "images.txt")).read()
     assert not os.path.exists(os.path.join(dataset, "000003.txt"))  # no image
     export.yolo(dataset, classes=["table", "car"])
     assert open(os.path.join(dataset, "000000.txt")).read().startswith("1 ")
     with pytest.raises(ValueError):
         export.yolo(dataset, classes=["car"])
+
+
+def disk(radius, shape=(120, 160), center=(80, 60)):
+    ys, xs = np.mgrid[0:shape[0], 0:shape[1]] + 0.5
+    return (xs - center[0]) ** 2 + (ys - center[1]) ** 2 < radius ** 2
+
+
+def iou(first, second):
+    return (first & second).sum() / (first | second).sum()
+
+
+def test_mask_polygon():
+    """The outline goes through the pixels at the mask's edge (their x, y indices, like
+    OpenCV's contours), so drawn back like OpenCV fills it, it is the mask; parts are
+    joined, holes filled, and a polygon has at least 3 points."""
+    pixel = np.zeros((5, 5), dtype=bool)
+    pixel[2, 3] = True
+    assert polygons.mask_polygon(pixel).tolist() == [[3, 2]] * 3
+    assert polygons.mask_polygon(np.zeros((5, 5), dtype=bool)) is None
+    stairs = np.array([[1, 0, 0], [1, 1, 0], [0, 1, 1]], dtype=bool)
+    plus = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+    # diagonal edges go straight from step to step, as in OpenCV
+    assert polygons.mask_polygon(plus).tolist() == [[1, 0], [2, 1], [1, 2], [0, 1]]
+
+    border = disk(50, center=(150, 60))  # cut by the image border
+    line = np.zeros((6, 9), dtype=bool)
+    line[2, 1:8] = True  # one pixel thin
+    ring = disk(40) & ~disk(15)
+    for mask, expected in ((disk(20), disk(20)), (border, border), (np.ones((4, 7), dtype=bool), None),
+                           (stairs, None), (plus, None), (line, None), (ring, disk(40))):  # the hole filled
+        drawn = polygons.draw(polygons.mask_polygon(mask), mask.shape)
+        assert (drawn == (mask if expected is None else expected)).all()
+
+    split = disk(30)
+    split[:, 70:90] = False  # something in front of the middle: two pieces
+    diagonal = np.zeros((6, 6), dtype=bool)
+    diagonal[1, 1] = diagonal[2, 2] = diagonal[4, 4] = True  # corners touching: three parts
+    assert len(polygons.outlines(diagonal)) == 3
+    for mask in (split, diagonal):
+        drawn = polygons.draw(polygons.mask_polygon(mask), mask.shape)
+        # every pixel, and the zero-width bridge between the pieces drawn as a line
+        assert drawn[mask].all() and (drawn & ~mask).sum() <= 21
+
+    exact, simplified = polygons.mask_polygon(disk(50)), polygons.mask_polygon(disk(50), 1)
+    assert len(simplified) < len(exact) / 3
+    assert iou(polygons.draw(simplified, (120, 160)), disk(50)) > 0.97
+    assert all(any((exact == point).all(axis=1)) for point in simplified)  # a subset of the outline
+    assert len(polygons.mask_polygon(line, 10)) == 3
+
+
+def test_yolo_segment(dataset):
+    """Each line is the polygon of an instance mask, normalized, which drawn back is the
+    mask. Hidden and out-of-frame instances are left out."""
+    export.yolo(dataset, task="segment")
+    lines = open(os.path.join(dataset, "000000.txt")).read().splitlines()
+    label = load(dataset)
+    masks = [m for m in label["masks"] if m["per"] == "instance"]
+    visible = [m for m in masks if export.read_mask(dataset, m["mask"]).any()]
+    assert len(lines) == len(visible) == 3  # car1, car2 (cut by the border), the table
+    for line, entry in zip(lines, visible):
+        class_id, *values = line.split()
+        assert class_id == str(["car", "table"].index(entry["class"]))
+        points = np.array(values, dtype=float).reshape(-1, 2)
+        assert len(points) >= 3 and points.min() >= 0 and points.max() <= 1
+        reference = export.read_mask(dataset, entry["mask"])
+        # as Ultralytics draws it (polygon2mask): scaled, truncated to pixels, filled
+        drawn = polygons.draw((points * (320, 240)).astype(int), reference.shape)
+        if entry["class"] == "car":
+            assert (drawn == reference).all()
+        else:  # top and leg apart: two pieces and a bridge
+            assert drawn[reference].all() and (drawn & ~reference).sum() < 40
+
+    export.yolo(dataset, task="segment", tolerance=1)  # shorter, close
+    simplified = open(os.path.join(dataset, "000000.txt")).read().splitlines()
+    assert sum(map(len, simplified)) < sum(map(len, lines))
+    for line, entry in zip(simplified, visible):
+        points = (np.array(line.split()[1:], dtype=float).reshape(-1, 2) * (320, 240)).astype(int)
+        reference = export.read_mask(dataset, entry["mask"])
+        assert iou(polygons.draw(points, reference.shape), reference) > 0.95
+    # only the images, not the masks next to them
+    assert open(os.path.join(dataset, "images.txt")).read() == "./000000.png\n./000001.png\n./000002.png\n"
+    with pytest.raises(ValueError, match="task"):
+        export.yolo(dataset, task="pose")
+    with pytest.raises(ValueError, match="tolerance"):
+        export.yolo(dataset, task="segment", tolerance=-1)
+
+
+def test_yolo_segment_needs_instance_masks(out, cube):
+    from blendmentation.generating import generating as G
+
+    classes = {"car": [cube("car1", (-2, 0, 0))]}
+    G.Compose([G.Render(), G.BBox(classes)], out, (64, 48))()
+    with pytest.raises(ValueError, match='task="segment" needs instance masks'):
+        export.yolo(out, task="segment")
 
 
 def test_voc(dataset):

@@ -32,6 +32,8 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
 from typing import Literal, Optional
 
+from ..values import is_number
+
 # the public API, also importable as `from blendmentation import export`
 __all__ = ["coco", "yolo", "voc", "bop", "augmentation_stats", "skip_stats", "augmentation_report"]
 
@@ -151,20 +153,21 @@ def check_bbox_from(bbox_from):
         raise ValueError('bbox_from must be "label" or "mask"')
 
 
-def visible_instances(path, label, need_masks):
+def visible_instances(path, label, need_masks, needs="bbox_from=\"mask\""):
     """(class, objects, instance, mask) of every instance of a label (see `instances`)
     that is not fully hidden: mask is its instance mask read as a boolean array, None when
     it has none. An instance whose mask is empty, or was not written because it was
     (Segmentation(skip_empty=True)), is left out.
 
     Raises:
-        ValueError: need_masks (bbox_from="mask") and an instance has no instance mask
+        ValueError: need_masks (bbox_from="mask", needs: what needs them) and an instance
+            has no instance mask
     """
     for (class_name, objects), instance in instances(label).items():
         if "mask" not in instance:
             if need_masks:
                 raise ValueError(
-                    f'bbox_from="mask" needs instance masks, {label["image"]} has none for {list(objects)}: '
+                    f'{needs} needs instance masks, {label["image"]} has none for {list(objects)}: '
                     'add Segmentation(classes, per="instance") with the classes of BBox'
                 )
             yield class_name, objects, instance, None
@@ -279,14 +282,47 @@ def coco(path: str, output: Optional[str] = None, *, classes: Optional[Sequence[
     return output
 
 
-def yolo(path: str, *, classes: Optional[Sequence[str]] = None, bbox_from: Literal["label", "mask"] = "label") -> str:
-    """Writes YOLO detection labels.
+# the list of the dataset's images, for dataset.yaml
+YOLO_IMAGES = "images.txt"
 
-    Writes `<index>.txt` next to every image, with one `class x_center y_center width
-    height` line per bbox (normalized to 0-1), `classes.txt`, and `dataset.yaml`
-    pointing at the folder, ready for Ultralytics.
+
+def yolo(path: str, *, task: Literal["detect", "segment"] = "detect", classes: Optional[Sequence[str]] = None,
+         bbox_from: Literal["label", "mask"] = "label", tolerance: float = 0.0) -> str:
+    """Writes YOLO labels for detection or instance segmentation.
+
+    Writes `<index>.txt` next to every image, `classes.txt`, `images.txt` (the list of
+    the dataset's images, so the masks, previews and passes in the folder aren't taken
+    for images) and `dataset.yaml` pointing at it, ready for Ultralytics. Each line of a
+    `.txt` is one object, with coordinates normalized to 0-1:
+
+    - `task="detect"`: `class x_center y_center width height`, its box.
+    - `task="segment"`: `class x1 y1 x2 y2 ...`, the outline of its instance mask as a
+      polygon ([Ultralytics segmentation format](https://docs.ultralytics.com/datasets/segment/)).
+      Ultralytics takes the box from the polygon. Needs a `Segmentation` step with
+      `per="instance"` or `"both"`; instances with no visible pixels are left out.
+
+    The two tasks write the same `.txt` files, so a folder holds one of them; the last
+    export wins.
 
     [YOLO examples in the Quick start](quick-start.md#yolo){ .md-button }
+
+    How a mask becomes a polygon (in numpy, Blender has no OpenCV): its points are the
+    centers of the pixels at the edge of the mask (as OpenCV's `findContours` finds them,
+    which Ultralytics' own mask converter uses), and a diagonal edge goes straight from
+    pixel to pixel. Ultralytics draws a polygon back into a mask with OpenCV's
+    `fillPoly`, which fills it and its edge pixels: that gives exactly the mask (tested
+    with Ultralytics' `polygon2mask`). `tolerance` simplifies the outline (Douglas-Peucker, like
+    OpenCV's `approxPolyDP`) for shorter lines, at the cost of pixels along the edge.
+    A row holds one polygon, so:
+
+    - an object split into pieces, e.g. by something in front of it, is one polygon:
+      the pieces are joined by zero-width bridges, walked there and back, as Ultralytics
+      joins the pieces of a COCO object (`merge_multi_segment`), so the object stays one
+      instance. Drawn back, a bridge is a line of pixels between the pieces, also as in
+      Ultralytics;
+    - holes in a mask are filled (an object seen through a gap, a ring), since a
+      polygon can't have them. COCO polygons fill them the same way; `export.coco`
+      keeps them, its masks are run-length encoded.
 
     !!! warning "Visible boxes need instance masks"
         By default (`bbox_from="label"`) the boxes come from the `BBox` step and cover
@@ -298,28 +334,46 @@ def yolo(path: str, *, classes: Optional[Sequence[str]] = None, bbox_from: Liter
 
     Args:
         path: generating path with the `<index>.json` labels.
+        task: `"detect"` for boxes, `"segment"` for the polygons of the instance masks.
         classes: class names in class id order (ids start at 0). None = in order of
             first appearance.
-        bbox_from: `"label"` for the boxes of the `BBox` step, around the whole object
-            including hidden parts (amodal), or `"mask"` for the extent of the visible
-            pixels in the instance masks (modal), which needs `Segmentation` with
-            `per="instance"` or `"both"`; fully hidden instances are left out. See the
-            module description.
+        bbox_from: with `task="detect"`, `"label"` for the boxes of the `BBox` step,
+            around the whole object including hidden parts (amodal), or `"mask"` for the
+            extent of the visible pixels in the instance masks (modal), which needs
+            `Segmentation` with `per="instance"` or `"both"`; fully hidden instances are
+            left out. See the module description. Not used by `"segment"`, whose
+            polygons are always the visible pixels.
+        tolerance: with `task="segment"`, how far in pixels the simplified outline may
+            be from the mask's edge pixels. 0 (the default) keeps the outline exact,
+            with about as many points as Ultralytics' own converter writes; 1 has about
+            5 times fewer points and loses some pixels along the edges.
 
     Returns:
         Path of `dataset.yaml`.
 
     Raises:
-        ValueError: an unknown `bbox_from`, `bbox_from="mask"` with an instance that
-            has no instance mask, or a class in the labels missing from `classes`.
+        ValueError: an unknown `task` or `bbox_from`, a negative `tolerance`,
+            `bbox_from="mask"` or `task="segment"` with an instance that has no instance
+            mask, or a class in the labels missing from `classes`.
+
+    Note:
+        Ultralytics finds a label by the image path with `images` replaced by `labels`,
+        or, when the path has no `images` folder, next to the image, where this writes
+        them. Keep `images` out of the dataset path, or move the `.txt` files to a
+        `labels` folder next to an `images` one.
 
     Example:
         ```python
         export.yolo("//dataset")
         export.yolo("//dataset", bbox_from="mask")  # boxes of the visible pixels
+        export.yolo("//dataset", task="segment")  # polygons, for YOLO segmentation models
         ```
     """
     check_bbox_from(bbox_from)
+    if task not in ("detect", "segment"):
+        raise ValueError('task must be "detect" or "segment"')
+    if not is_number(tolerance) or tolerance < 0:
+        raise ValueError(f"tolerance must be a number of pixels, 0 or more, got {tolerance!r}")
     path = dataset_path(path)
     labels = load_labels(path)
     names = class_names(labels, classes)
@@ -328,20 +382,35 @@ def yolo(path: str, *, classes: Optional[Sequence[str]] = None, bbox_from: Liter
     for _, label in labels:
         width, height = label["resolution"]
         lines = []
-        for class_name, _, (x_min, y_min, x_max, y_max) in label_boxes(path, label, bbox_from):
-            lines.append(
-                f"{class_ids[class_name]} {(x_min + x_max) / 2 / width:.6f} {(y_min + y_max) / 2 / height:.6f} "
-                f"{(x_max - x_min) / width:.6f} {(y_max - y_min) / height:.6f}"
-            )
+        if task == "segment":
+            from . import polygons
+
+            for class_name, _, _, mask in visible_instances(path, label, need_masks=True, needs='task="segment"'):
+                polygon = polygons.mask_polygon(mask, tolerance)
+                if polygon is None:  # not visible: visible_instances leaves those out
+                    continue
+                # pixel centers: Ultralytics truncates the scaled coordinates to pixels
+                points = (polygon + 0.5) / (width, height)
+                lines.append(f"{class_ids[class_name]} " + " ".join(f"{x:.6f} {y:.6f}" for x, y in points))
+        else:
+            for class_name, _, (x_min, y_min, x_max, y_max) in label_boxes(path, label, bbox_from):
+                lines.append(
+                    f"{class_ids[class_name]} {(x_min + x_max) / 2 / width:.6f} {(y_min + y_max) / 2 / height:.6f} "
+                    f"{(x_max - x_min) / width:.6f} {(y_max - y_min) / height:.6f}"
+                )
         stem = os.path.splitext(label["image"])[0]
         with open(os.path.join(path, f"{stem}.txt"), "w") as file:
             file.write("\n".join(lines) + ("\n" if lines else ""))
 
     with open(os.path.join(path, "classes.txt"), "w") as file:
         file.write("\n".join(names) + "\n")
+    # the images to train on: the folder also has masks, previews and passes, which
+    # Ultralytics would take as images without objects
+    with open(os.path.join(path, YOLO_IMAGES), "w") as file:
+        file.writelines(f"./{label['image']}\n" for _, label in labels)
     yaml = os.path.join(path, "dataset.yaml")
     with open(yaml, "w") as file:
-        file.write(f"path: {path}\ntrain: .\nval: .\nnames:\n")
+        file.write(f"path: {path}\ntrain: {YOLO_IMAGES}\nval: {YOLO_IMAGES}\nnames:\n")
         file.writelines(f"  {number}: {json.dumps(name)}\n" for number, name in enumerate(names))
     return yaml
 
