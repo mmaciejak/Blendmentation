@@ -93,9 +93,3 @@ These may change in any release, with a line in the changelog:
 - **Supported Blender versions:** the minimum follows Blender's LTS releases. Raising it
   is announced in the changelog.
 
-## When a label value was wrong
-
-A fix that changes values in the labels, because they were wrong, is a bug fix, even
-though datasets generated before and after differ. The changelog says what changed,
-which datasets it affects and how to correct older ones, e.g. 0.12.1 moving the camera
-matrix `K` by half a pixel.
