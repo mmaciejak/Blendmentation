@@ -896,6 +896,51 @@ def test_background_opaque_render(scene, cube, out):
     assert image == pytest.approx(plain[..., :3], abs=2 / 255)
 
 
+def test_shadow_catcher_over_background(scene, cube, out):
+    """A floor made a shadow catcher (augmentations.ShadowCatcher) in Cycles, over a
+    Background: the open floor is the background color, the shadow darkens it, the
+    object covers it, and the floor is a floor again when the augmentation is undone."""
+    import random
+
+    from blendmentation import augmentations as A, state
+
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 16
+    transparent(scene)
+    camera = scene.camera
+    camera.location = (0, -8, 5)
+    camera.rotation_euler = (Vector((0, 0, 0)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    bpy.ops.mesh.primitive_plane_add(size=20)
+    floor = bpy.context.object
+    floor.data.materials.append(new_material(floor, "Floor"))
+    cube("box", (0, 0, 1))  # bottom at 0.5
+    sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN"))
+    sun.data.energy = 5
+    sun.rotation_euler = (math.radians(-45), 0, 0)  # from behind: the shadow falls toward the camera
+    scene.collection.objects.link(sun)
+    bpy.context.view_layer.update()
+
+    def pixel(image, point):
+        view = world_to_camera_view(scene, camera, Vector(point))
+        return image[int((1 - view.y) * 90), int(view.x * 120), :3]
+
+    random.seed(1)
+    steps = [G.Background({"color": 1}), G.Render()]
+    with state.restoring():
+        A.ShadowCatcher(p=1)(floor)
+        assert G.Compose(steps, out, (120, 90))()
+    assert not floor.is_shadow_catcher
+    assert G.Compose(steps, out, (120, 90))()
+    color = np.array(label(out)["background"]["color"]) / 255
+    caught, plain = (read_image(os.path.join(out, f"00000{i}.png")) for i in (0, 1))
+    open_floor, shadow, box = (2.5, -1.5, 0), (0, -1.4, 0), (0, -0.5, 1)
+    assert pixel(caught, open_floor) == pytest.approx(color, abs=3 / 255)
+    # a full sun shadow, no other light: the background darkened to almost black
+    assert (pixel(caught, shadow) < 0.25 * color).all()
+    assert np.abs(pixel(caught, box) - color).max() > 0.05
+    assert np.abs(pixel(plain, open_floor) - color).max() > 0.05  # without it: the floor, not the background
+
+
 @pytest.mark.parametrize("setup, background, match", [
     (lambda scene: setattr(scene.render.image_settings, "color_mode", "RGB"), G.Background(), "RGBA"),
     (None, G.Background({"sky": 1}), "Unknown background modes"),
