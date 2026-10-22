@@ -6,6 +6,8 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-22
+
 ### Fixed
 
 - The camera `intrinsics` of `generating.CameraData`, and so the `cam_K` of
@@ -595,7 +597,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.0...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.1...dev
+[0.12.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.1...v0.10.2
