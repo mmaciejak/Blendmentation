@@ -15,6 +15,7 @@ nav:
   - Generating: generating.md
   - Export: export.md
   - Compatibility with Blender MCP: blender-mcp.md
+  - Stability: stability.md
   - Development: development.md
   - Changelog: changelog.md
 

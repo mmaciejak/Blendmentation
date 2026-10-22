@@ -121,6 +121,7 @@ check and fix it.
 - [Generating](https://blendmentation.docs.csmx.eu/generating/): renders, passes, AOVs, masks, labels and preview images.
 - [Export](https://blendmentation.docs.csmx.eu/export/): COCO, YOLO, Pascal VOC and BOP.
 - [Compatibility with Blender MCP](https://blendmentation.docs.csmx.eu/blender-mcp/): an agent skill ([`skills/blendmentation`](skills/blendmentation/SKILL.md)) for AI agents that control Blender through [Blender MCP](https://github.com/ahujasid/blender-mcp).
+- [Stability](https://blendmentation.docs.csmx.eu/stability/): what stays the same when you update, and what may change.
 - [Development](https://blendmentation.docs.csmx.eu/development/): tests, releases and known issues.
 
 The docs are built from `docs/` and the docstrings with `pip install -e ".[docs]"` and
