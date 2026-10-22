@@ -107,6 +107,11 @@ from there (this needs `git`). The `main` branch always holds the
   pip install "blendmentation[module] @ git+https://github.com/mmaciejak/Blendmentation"
   ```
 
+Use one of them at a time: an installed add-on, even an older or disabled one, can be
+imported instead of your copy. The
+[installation guide](https://blendmentation.docs.csmx.eu/installation/) says how to
+check and fix it.
+
 ## Documentation
 
 - [Quick start](https://blendmentation.docs.csmx.eu/quick-start/): examples built up step by step, and a full example with every feature.

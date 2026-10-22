@@ -7,8 +7,34 @@ give you that.
 
 There are four ways to use it: install it in Blender as an add-on, point your script at
 a copy of this repository, install it into Blender with pip, or use Blender as a Python
-module without the app. They are the same package; inside Blender, pick one of the first
-three, since with two copies your scripts import whichever Blender finds first.
+module without the app. They are the same package, so use one of them at a time.
+
+!!! warning "An installed add-on can shadow your copy"
+    With two copies, your scripts import whichever Python finds first, and an
+    installed Blendmentation add-on is often found first, also when it is an older
+    version:
+
+    - **In Blender, from a copy of the repository:** the add-ons folder is on
+      `sys.path` even when the add-on is disabled, so with `sys.path.append(...)` the
+      add-on wins. `sys.path.insert(0, ...)` puts your copy first, but an enabled
+      add-on is imported when Blender starts, so it still wins.
+    - **As a Python module:** `bpy` adds the add-ons folder of your Blender user
+      folder for the same version (e.g. the Blender 5.2 one for `bpy` 5.2) to
+      `sys.path`, so the add-on also wins over an editable install
+      (`pip install -e`). A normal install comes first.
+
+    It shows as features of the newer version missing, e.g. `TypeError: ... got an
+    unexpected keyword argument`. To see which copy a script uses:
+
+    ```python
+    import blendmentation
+    print(blendmentation.__file__)    # the folder it was imported from
+    print(blendmentation.__version__) # from 0.11.0
+    ```
+
+    To fix it, update the add-on to the same release (install the new zip, see
+    below, and restart Blender), or remove it: Edit > Preferences > Add-ons >
+    Blendmentation > Remove.
 
 ## Inside Blender, as an add-on
 
