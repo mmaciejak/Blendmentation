@@ -18,6 +18,21 @@ GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every push to `
 oldest supported version (Python 3.11), on Linux with Mesa software rendering, and
 without Blender on Python 3.11 and 3.12.
 
+## Examples
+
+`example.py`, the Full example of the Quick start page and the README example must run.
+`scripts/check_examples.py` builds a scene for each (`scripts/example_scenes.py`, as their
+descriptions say), runs them with a few datapoints in every Blender app and every Python
+with `bpy` given, and prints OK or FAIL with the folder of the logs:
+
+```sh
+python scripts/check_examples.py --out /tmp/examples \
+    --blender "/Applications/Blender.app/Contents/MacOS/Blender" \
+    --python .venv/bin/python --python .venv42/bin/python
+```
+
+Run it before a release.
+
 ## Lint
 
 [Ruff](https://docs.astral.sh/ruff/) checks the code (its settings are in
@@ -46,6 +61,7 @@ can do now or what behaves differently, not how it was implemented.
 
 Releases are made by `.github/workflows/release.yml`:
 
+1. Run the examples (see [Examples](#examples)).
 1. On `dev`, set the new `version` in `pyproject.toml` and in `bl_info` in
    `blendmentation/__init__.py` (the add-on's version), and in `CHANGELOG.md` rename
    `## [Unreleased]` to `## [<version>] - <YYYY-MM-DD>`, add an empty
