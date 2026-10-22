@@ -7,12 +7,14 @@ import os
 import random
 import re
 
+import numpy as np
 import pytest
 
 bpy = pytest.importorskip("bpy")
 
 from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
 from mathutils import Vector  # noqa: E402
+from mathutils.bvhtree import BVHTree  # noqa: E402
 
 from blendmentation import bpy_paths  # noqa: E402
 from blendmentation.augmentations import (  # noqa: E402
@@ -1599,6 +1601,145 @@ def test_place_on(cube):
 
     with pytest.raises(ValueError):
         A.PlaceOn(obj)(obj)
+
+
+def shown_z(obj):
+    """World z of every vertex the object shows, its geometry nodes instances included."""
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    found = []
+    for instance in depsgraph.object_instances:
+        owner = instance.parent if instance.is_instance else instance.object
+        if owner is None or owner.original != obj or instance.object.type != "MESH":
+            continue
+        mesh = instance.object.to_mesh()
+        found += [(instance.matrix_world @ vertex.co).z for vertex in mesh.vertices]
+        instance.object.to_mesh_clear()
+    return found
+
+
+def nodes_object(name, output):
+    """An object whose geometry nodes modifier outputs what output(tree) links."""
+    obj = bpy.data.objects.new(name, bpy.data.meshes.new(name))
+    bpy.context.scene.collection.objects.link(obj)
+    tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
+    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    tree.links.new(output(tree), tree.nodes.new("NodeGroupOutput").inputs[0])
+    obj.modifiers.new("Nodes", "NODES").node_group = tree
+    return obj
+
+
+def instance_on_point(tree):
+    """A 1 x 1 x 1 cube instanced on one point at the origin, not realized."""
+    points, on_points = tree.nodes.new("GeometryNodeMeshLine"), tree.nodes.new("GeometryNodeInstanceOnPoints")
+    points.inputs["Count"].default_value = 1
+    tree.links.new(points.outputs[0], on_points.inputs["Points"])
+    tree.links.new(tree.nodes.new("GeometryNodeMeshCube").outputs[0], on_points.inputs["Instance"])
+    return on_points.outputs[0]
+
+
+def test_place_on_instances(cube):
+    """Geometry nodes instances aren't in the object's mesh: they count too, also as the
+    surface."""
+    floor = cube("Floor", location=(0, 0, -1), size=2)  # top at z = 0
+    instanced = nodes_object("Instanced", instance_on_point)
+    source = cube("Source", location=(30, 30, 30))
+
+    def object_info(tree):
+        info = tree.nodes.new("GeometryNodeObjectInfo")
+        info.inputs["Object"].default_value = source
+        info.inputs["As Instance"].default_value = True
+        info.transform_space = "ORIGINAL"
+        return info.outputs["Geometry"]
+
+    as_instance = nodes_object("As instance", object_info)
+    for obj in (instanced, as_instance):
+        for start in (3, -2):
+            obj.location = (0, 0, start)
+            place = A.PlaceOn(floor)
+            place(obj)
+            assert min(shown_z(obj)) == pytest.approx(0, abs=1e-5), (obj.name, start)
+            assert place.actual == pytest.approx(0.5 - start)
+        obj.location = (0, 0, -2)
+        A.KeepAbove(floor, margin=0.5)(obj)
+        assert min(shown_z(obj)) == pytest.approx(0.5, abs=1e-5)
+        obj.location.x = 50
+
+    # a surface made of instances
+    ground = nodes_object("Ground", instance_on_point)  # top at z = 0.5
+    obj = cube("Cube", location=(0, 0, 5))
+    A.PlaceOn(ground)(obj)
+    assert obj.location.z == pytest.approx(1)
+
+
+def test_place_on_shape_that_depends_on_location(cube):
+    """A shape that changes with where the object is (here geometry nodes move the cube
+    up by the object's height) is measured again after the move until it rests."""
+    floor = cube("Floor", location=(0, 0, -1), size=2)
+
+    def follows_height(tree):
+        info = tree.nodes.new("GeometryNodeObjectInfo")
+        tree.links.new(tree.nodes.new("GeometryNodeSelfObject").outputs[0], info.inputs["Object"])
+        height, offset = tree.nodes.new("ShaderNodeSeparateXYZ"), tree.nodes.new("ShaderNodeCombineXYZ")
+        tree.links.new(info.outputs["Location"], height.inputs[0])
+        tree.links.new(height.outputs["Z"], offset.inputs["Z"])
+        move = tree.nodes.new("GeometryNodeSetPosition")
+        tree.links.new(tree.nodes.new("GeometryNodeMeshCube").outputs[0], move.inputs["Geometry"])
+        tree.links.new(offset.outputs[0], move.inputs["Offset"])
+        return move.outputs[0]
+
+    obj = nodes_object("Follows", follows_height)
+    for start in (3, -2):
+        obj.location = (0, 0, start)
+        A.PlaceOn(floor)(obj)
+        assert min(shown_z(obj)) == pytest.approx(0, abs=1e-4)
+
+
+def test_place_on_edges_crossing(cube):
+    """Where the object's edges cross the surface's edges seen from above, away from any
+    vertex: a stick lying across a roof ridge, and objects on a bumpy terrain whose
+    faces aren't flat, never end up inside."""
+    roof_mesh = bpy.data.meshes.new("Roof")
+    roof_mesh.from_pydata([(-4, -10, 0), (0, -10, 1), (4, -10, 0), (-4, 10, 0), (0, 10, 1), (4, 10, 0)], [],
+                          [(0, 1, 4, 3), (1, 2, 5, 4)])
+    roof = bpy.data.objects.new("Roof", roof_mesh)
+    bpy.context.scene.collection.objects.link(roof)
+    stick = cube("Stick", location=(0, 0, 3), size=1)
+    stick.scale = (4, 0.2, 0.2)  # vertices only at its ends, over the slopes
+    for augmentation, start in ((A.PlaceOn(roof), 3), (A.KeepAbove(roof), 0)):
+        stick.location.z = start
+        augmentation(stick)
+        assert min(shown_z(stick)) == pytest.approx(1, abs=1e-5)  # on the ridge
+
+    random.seed(4)
+    size = 5
+    heights = [(x * 2 - 4, y * 2 - 4, random.uniform(-0.8, 0.8)) for y in range(size) for x in range(size)]
+    quads = [(y * size + x, y * size + x + 1, (y + 1) * size + x + 1, (y + 1) * size + x)
+             for y in range(size - 1) for x in range(size - 1)]
+    terrain_mesh = bpy.data.meshes.new("Terrain")
+    terrain_mesh.from_pydata(heights, [], quads)
+    terrain = bpy.data.objects.new("Terrain", terrain_mesh)
+    bpy.context.scene.collection.objects.link(terrain)
+    terrain_tree = BVHTree.FromObject(terrain, bpy.context.evaluated_depsgraph_get())
+    for _ in range(12):
+        obj = cube("Box", location=(random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-2, 3)), size=1)
+        obj.scale = (random.uniform(0.3, 3), random.uniform(0.1, 1), random.uniform(0.1, 1))
+        obj.rotation_euler = [random.uniform(0, math.pi) for _ in range(3)]
+        A.PlaceOn(terrain)(obj)
+        bpy.context.view_layer.update()
+        box_tree = BVHTree.FromPolygons([obj.matrix_world @ v.co for v in obj.data.vertices],
+                                        [p.vertices for p in obj.data.polygons])  # world space
+        corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        gaps = []
+        for x in np.linspace(min(c.x for c in corners), max(c.x for c in corners), 40):
+            for y in np.linspace(min(c.y for c in corners), max(c.y for c in corners), 40):
+                bottom = box_tree.ray_cast(Vector((x, y, -50)), Vector((0, 0, 1)))[0]
+                top = terrain_tree.ray_cast(Vector((x, y, 50)), Vector((0, 0, -1)))[0]
+                if bottom is not None and top is not None:
+                    gaps.append(bottom.z - top.z)
+        assert min(gaps) > -1e-5, "inside the terrain"
+        bpy.data.objects.remove(obj)
 
 
 def seed_group():

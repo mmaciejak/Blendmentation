@@ -982,9 +982,14 @@ class KeepAbove(ObjectAugmentation):
     the surface where they overlap seen from above, and if not, moves the object up
     along world Z until it is. An object that is already high enough, or not over the
     surface, is left where it is; it is never moved down. Both are compared as
-    evaluated meshes (modifiers included) in world space, so uneven surfaces work.
-    It sets `matrix_world`, so parented objects work too. Only the object's own
-    geometry counts, not its children's.
+    everything they show, in world space: the evaluated mesh (modifiers included) and
+    the instances it makes (geometry nodes instances, e.g. Instance on Points or Object
+    Info with As Instance, and collection instancing). Uneven surfaces work, and the
+    contact is found exactly, also where an edge of the object crosses an edge of the
+    surface away from any vertex (an object lying across a ridge). A shape that depends
+    on where the object is (geometry nodes reading its position) is measured again
+    after the move, until it rests. It sets `matrix_world`, so parented objects work
+    too. Only the object's own geometry counts, not its children's.
 
     !!! warning "Put it after the transforms"
         It checks the object where it is when it runs, so put it in the `Compose`
@@ -993,7 +998,8 @@ class KeepAbove(ObjectAugmentation):
         Augmentations after it can push the object into the surface again.
 
     Args:
-        surface: object to stay above. It must have faces (a mesh, curve, text...).
+        surface: object to stay above. It must have faces (a mesh, curve, text...), its
+            own or of the instances it makes.
         margin: minimum gap between the surface and the object's lowest point, in
             Blender units.
         p: probability of applying the augmentation.
@@ -1040,9 +1046,10 @@ class PlaceOn(ObjectAugmentation):
     exactly `margin` above the top of the surface where they overlap seen from above,
     so a floating object drops onto the surface and a sunken one is lifted out. Only
     the height changes, along world Z. An object that is not over the surface is left
-    where it is. Both are compared as evaluated meshes (modifiers included) in world
-    space, so uneven surfaces work. It sets `matrix_world`, so parented objects work
-    too. Only the object's own geometry counts, not its children's.
+    where it is. Both are compared as everything they show, instances included, and
+    the contact is found exactly, as in `KeepAbove`. It sets `matrix_world`, so
+    parented objects work too. Only the object's own geometry counts, not its
+    children's.
 
     Use it when the object must touch the surface, e.g. after a rotation that tips it
     over around an origin that is not at its bottom. Use `KeepAbove` when the object
@@ -1054,7 +1061,8 @@ class PlaceOn(ObjectAugmentation):
         deforms the object.
 
     Args:
-        surface: object to rest on. It must have faces (a mesh, curve, text...).
+        surface: object to rest on. It must have faces (a mesh, curve, text...), its own
+            or of the instances it makes.
         margin: gap between the surface and the object's lowest point, in Blender
             units.
         p: probability of applying the augmentation.

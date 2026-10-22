@@ -19,7 +19,18 @@ All notable changes to Blendmentation. The format follows
 - `export.yolo` now writes `images.txt`, the list of the dataset's images, and points
   `dataset.yaml` at it. Before, it pointed at the whole folder, so Ultralytics also
   trained on the mask PNGs, previews and PNG passes there, as images without objects.
-
+- `augmentations.PlaceOn` and `KeepAbove` left an object whose geometry nodes output
+  is an instance (Instance on Points without Realize Instances, Object Info with As
+  Instance, Collection Info) where it was, since only its mesh counted; an object with
+  some real geometry next to its instances was placed by that geometry only. They now
+  count everything the object and the surface show, collection instances too.
+- `PlaceOn` and `KeepAbove` could leave an object partly inside the surface where an
+  edge of the object crosses an edge of the surface away from any vertex, e.g. an
+  object lying across a ridge or on a bumpy low-poly terrain (up to a third of a unit
+  in our tests). The contact is now found exactly.
+- `PlaceOn` and `KeepAbove` placed an object whose shape depends on where it is
+  (geometry nodes reading its position) by its shape before the move. They now measure
+  it again after the move until it rests.
 - In Cycles, with depth of field (e.g. from `augmentations.DepthOfField`) or motion blur,
   the masks of `generating.Segmentation` had speckled edges as wide as the blur, and so
   did the boxes made from them (`bbox_from="mask"` in `export.coco`, `yolo` and `voc`,

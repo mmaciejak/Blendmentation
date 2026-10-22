@@ -5,6 +5,7 @@ import random
 from collections import Counter
 
 import bpy
+import numpy as np
 from mathutils import Euler, Matrix, Quaternion, Vector
 from mathutils.bvhtree import BVHTree
 
@@ -513,21 +514,82 @@ def shadow_catcher(obj, enabled):
     return enabled
 
 
-def world_mesh(obj, depsgraph):
-    """World coordinates of the evaluated object's vertices, and its faces. Objects
-    without geometry (empties, cameras...) are a point at their origin, without faces."""
-    obj_eval = obj.evaluated_get(depsgraph)
-    geometry = {"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD"}
-    mesh = obj_eval.to_mesh() if obj.type in geometry else None
+# object types with an evaluated mesh (to_mesh)
+GEOMETRY_TYPES = {"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD"}
+
+
+def local_geometry(obj_eval):
+    """(n, 3) vertices of an evaluated object's mesh in its local space, and its faces as
+    the triangles Blender splits them into (as it renders them: a face that isn't flat
+    bends along a diagonal, which is an edge too)."""
+    mesh = obj_eval.to_mesh() if obj_eval.type in GEOMETRY_TYPES else None
     if mesh is None:
-        return [obj_eval.matrix_world.translation.copy()], []
+        return np.empty((0, 3)), []
     try:
-        matrix = obj_eval.matrix_world
-        vertices = [matrix @ vertex.co for vertex in mesh.vertices]
-        faces = [tuple(polygon.vertices) for polygon in mesh.polygons]
+        coords = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+        mesh.vertices.foreach_get("co", coords)
+        mesh.calc_loop_triangles()
+        triangles = np.empty(len(mesh.loop_triangles) * 3, dtype=np.int64)
+        mesh.loop_triangles.foreach_get("vertices", triangles)
     finally:
         obj_eval.to_mesh_clear()
-    return vertices, faces
+    return coords.reshape(-1, 3), [tuple(triangle) for triangle in triangles.reshape(-1, 3).tolist()]
+
+
+def world_mesh(obj, depsgraph):
+    """World coordinates of the vertices of everything the evaluated object shows, as an
+    (n, 3) array, and its faces (triangles, `local_geometry`): its mesh (modifiers included) and the instances it makes
+    (geometry nodes instances, collection instancing), which aren't in its mesh. An object
+    without either (an empty, a camera) is a point at its origin, without faces."""
+    parts, faces, count, local = [], [], 0, {}
+    for instance in depsgraph.object_instances:
+        if instance.is_instance:
+            if instance.parent is None or instance.parent.original != obj:
+                continue
+        elif instance.object.original != obj:
+            continue
+        source = instance.object
+        # the evaluated geometry is only valid while iterating; instances of one mesh share it
+        key = (source.data.as_pointer() if source.data else source.as_pointer(), source.type)
+        if key not in local:
+            local[key] = local_geometry(source)
+        coords, local_faces = local[key]
+        if not len(coords):
+            continue
+        matrix = np.array(instance.matrix_world)
+        parts.append(coords @ matrix[:3, :3].T + matrix[:3, 3])
+        faces += [tuple(index + count for index in face) for face in local_faces]
+        count += len(coords)
+    if not parts:
+        return np.array([obj.evaluated_get(depsgraph).matrix_world.translation]), []
+    return np.concatenate(parts), faces
+
+
+# the edges of a triangle, as index pairs into its corners
+TRIANGLE_EDGES = np.array([[0, 1], [1, 2], [2, 0]])
+
+
+def edge_crossings(triangles, others):
+    """Where the edges of paired triangles cross seen from above (in XY): for triangle
+    pairs as (p, 3, 3) arrays of corners, the z on each triangle's edge at every crossing
+    of an edge of one with an edge of the other, as two arrays."""
+    a = triangles[:, TRIANGLE_EDGES][:, :, None]  # (p, 3, 1, 2, 3): every edge of one...
+    b = others[:, TRIANGLE_EDGES][:, None]        # (p, 1, 3, 2, 3): ...against every edge of the other
+    r, s = a[..., 1, :] - a[..., 0, :], b[..., 1, :] - b[..., 0, :]
+    q = b[..., 0, :] - a[..., 0, :]
+    denominator = r[..., 0] * s[..., 1] - r[..., 1] * s[..., 0]
+    # parallel in XY: no single crossing (their end points are vertices), masked out
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = (q[..., 0] * s[..., 1] - q[..., 1] * s[..., 0]) / denominator
+        u = (q[..., 0] * r[..., 1] - q[..., 1] * r[..., 0]) / denominator
+        crossing = (denominator != 0) & (t >= 0) & (t <= 1) & (u >= 0) & (u <= 1)
+        return (a[..., 0, 2] + t * r[..., 2])[crossing], (b[..., 0, 2] + u * s[..., 2])[crossing]
+
+
+# rounds of lifting the object off the surface triangles it still cuts through
+CROSSING_ROUNDS = 8
+# how much lower than the object would rest it looks for triangles cutting through
+CROSSING_TOLERANCE = 1e-6
 
 
 def column_hit(tree, x, y, z, direction):
@@ -540,10 +602,13 @@ def rest_offset(obj, surface, margin):
     """How far to move the object along world Z so its lowest point is margin above the
     top of the surface, where they overlap seen from above: positive up, negative down.
 
-    Both are compared as evaluated meshes (modifiers included) in world space: the
-    object's vertices against the surface top under them, and the surface's vertices
-    against the object's bottom over them, so a surface peak between the object's
-    vertices also counts.
+    Both are compared as everything they show (`world_mesh`: modifiers and instances
+    included, as triangles) in world space, where the gap between them can be smallest:
+    under the object's vertices, over the surface's vertices (a peak between the
+    object's vertices), and where their edges cross seen from above (an object lying
+    across a ridge). The gap is linear in between, so that is exact. The crossings are
+    only looked for between triangles that cut through each other where the vertices
+    would put the object (a BVH overlap), the only place a crossing can be too low.
 
     Returns:
         float | None: the move, None when the object is not over the surface
@@ -558,23 +623,41 @@ def rest_offset(obj, surface, margin):
         raise TypeError(f"Surface '{surface.name}' has no faces")
     vertices, faces = world_mesh(obj, depsgraph)
 
-    surface_tree = BVHTree.FromPolygons(surface_vertices, surface_faces)
-    above_surface = max(vertex.z for vertex in surface_vertices + vertices) + 1.0
-    offset = None
-    for vertex in vertices:
-        top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
+    surface_tree = BVHTree.FromPolygons(surface_vertices.tolist(), surface_faces)
+    above_surface = max(surface_vertices[:, 2].max(), vertices[:, 2].max()) + 1.0
+    lifts = []
+    for x, y, z in vertices.tolist():
+        top = column_hit(surface_tree, x, y, above_surface, -1.0)
         if top is not None:
-            offset = max(offset if offset is not None else -math.inf, top + margin - vertex.z)
+            lifts.append(top + margin - z)
     if faces:
-        tree = BVHTree.FromPolygons(vertices, faces)
-        below_object = min(vertex.z for vertex in vertices + surface_vertices) - 1.0
-        for vertex in surface_vertices:
-            bottom = column_hit(tree, vertex.x, vertex.y, below_object, 1.0)
+        tree = BVHTree.FromPolygons(vertices.tolist(), faces)
+        below_object = min(surface_vertices[:, 2].min(), vertices[:, 2].min()) - 1.0
+        for x, y, z in surface_vertices.tolist():
+            bottom = column_hit(tree, x, y, below_object, 1.0)
             if bottom is None:
                 continue
-            top = column_hit(surface_tree, vertex.x, vertex.y, above_surface, -1.0)
-            lift = (vertex.z if top is None else top) + margin - bottom
-            offset = max(offset if offset is not None else -math.inf, lift)
+            top = column_hit(surface_tree, x, y, above_surface, -1.0)
+            lifts.append((z if top is None else top) + margin - bottom)
+    if not lifts or not faces:
+        return max(lifts) if lifts else None
+    # the vertices miss where an edge of the object crosses an edge of the surface seen
+    # from above, e.g. lying across a ridge: there the object cuts through the surface,
+    # so lift it off the triangles it cuts through, by what their edges need
+    offset = max(lifts)
+    faces, surface_faces = np.array(faces), np.array(surface_faces)
+    for _ in range(CROSSING_ROUNDS):
+        resting = vertices + (0.0, 0.0, offset - margin - CROSSING_TOLERANCE)
+        pairs = BVHTree.FromPolygons(resting.tolist(), faces.tolist()).overlap(surface_tree)
+        if not pairs:
+            break
+        pairs = np.array(pairs)
+        object_z, surface_z = edge_crossings(vertices[faces[pairs[:, 0]]],
+                                             surface_vertices[surface_faces[pairs[:, 1]]])
+        needed = float((surface_z + margin - object_z).max()) if len(object_z) else -math.inf
+        if needed <= offset + CROSSING_TOLERANCE:
+            break
+        offset = needed
     return offset
 
 
@@ -586,34 +669,60 @@ def move_z(obj, offset):
     obj.matrix_world = matrix
 
 
-def keep_above(obj, surface, margin):
-    """Moves the object up along world Z until its lowest point is at least margin
-    above the top of the surface, where they overlap seen from above (rest_offset). An
-    object that is already high enough, or not over the surface, is not moved.
-
-    Returns:
-        float: how far the object was moved up, 0 when it was not moved
-    """
-    offset = rest_offset(obj, surface, margin)
-    if offset is None or offset <= 0:
-        return 0.0
-    move_z(obj, offset)
-    return offset
+# measuring again after a move, for objects whose shape depends on where they are
+SETTLE_STEPS = 8
+SETTLE_TOLERANCE = 1e-5
 
 
-def place_on(obj, surface, margin):
-    """Moves the object up or down along world Z until its lowest point is margin above
-    the top of the surface, where they overlap seen from above (rest_offset). An object
-    that is not over the surface is not moved.
+def settle(obj, surface, margin, lift_only):
+    """Moves the object along world Z by `rest_offset`. Modifiers and instances can make
+    its shape depend on where it is (geometry nodes reading its position), so for such
+    an object it measures again after the move and corrects, with secant steps, until it
+    rests within SETTLE_TOLERANCE. With lift_only, an object high enough isn't moved.
 
     Returns:
         float: how far the object was moved, positive up, 0 when it was not moved
     """
     offset = rest_offset(obj, surface, margin)
-    if offset is None:
+    if offset is None or (lift_only and offset <= 0):
         return 0.0
     move_z(obj, offset)
-    return offset
+    if not obj.modifiers and obj.instance_type == "NONE":
+        return offset
+    # the residual offset after moving by `moved`: goes down 1 for 1 for a fixed shape
+    previous, moved = (0.0, offset), offset
+    for _ in range(SETTLE_STEPS):
+        residual = rest_offset(obj, surface, margin)
+        if residual is None or abs(residual) <= SETTLE_TOLERANCE:
+            break
+        slope = (residual - previous[1]) / (moved - previous[0])
+        step = -residual / slope if abs(slope) > 1e-9 else residual
+        previous = (moved, residual)
+        move_z(obj, step)
+        moved += step
+    return moved
+
+
+def keep_above(obj, surface, margin):
+    """Moves the object up along world Z until its lowest point is at least margin
+    above the top of the surface, where they overlap seen from above (`settle`). An
+    object that is already high enough, or not over the surface, is not moved.
+
+    Returns:
+        float: how far the object was moved up, 0 when it was not moved
+    """
+    return settle(obj, surface, margin, lift_only=True)
+
+
+def place_on(obj, surface, margin):
+    """Moves the object up or down along world Z until its lowest point is margin above
+    the top of the surface, where they overlap seen from above (`settle`). An object
+    that is not over the surface is not moved.
+
+    Returns:
+        float: how far the object was moved, positive up, 0 when it was not moved
+    """
+    return settle(obj, surface, margin, lift_only=False)
 
 
 # the largest seed, Blender's seed inputs are 32 bit ints
