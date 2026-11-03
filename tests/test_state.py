@@ -60,7 +60,7 @@ def test_restoring(scene, cube):
         "shape key": lambda: obj.data.shape_keys.key_blocks["Key 1"].value,
         "faces": lambda: tuple(polygon.material_index for polygon in obj.data.polygons),
         "active slot": lambda: obj.active_material_index,
-        "uv map": lambda: (obj.data.uv_layers.active.name, [layer.active_render for layer in obj.data.uv_layers]),
+        "uv map": lambda: (obj.data.uv_layers.active.name, *[layer.active_render for layer in obj.data.uv_layers]),
         "modifier": lambda: bpy_paths.get_value(density, obj.modifiers["GN"]),
         "energy": lambda: light.data.energy,
         "color": lambda: plain(light.data.color),
