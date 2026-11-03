@@ -58,7 +58,7 @@ mesh_transform = augmentations.Compose(
     [
         augmentations.Translation(x=0.5, y=0.5, z=0.5),
         augmentations.Rotation(x=30.0, y=30.0, z=30.0),
-        augmentations.SimpleMaterial(material_id="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
+        augmentations.SimpleMaterial(material="material.001", hue=(0.0, 1.0), saturation=(0.4, 0.9),
                                value=(0.2, 0.8), roughness=(0.2, 0.8), metallic=(0.0, 0.3)),
         # every shape key, one Number each: 3D viewport Sidebar > Blendmentation > Copy Shape
         # Keys Template > Relative (the add-on), or print(augmentations.Chain.shape_keys_template(obj))
@@ -169,7 +169,7 @@ camera_transforms = augmentations.Compose(
 
 # per-class skip settings win over the BBox arguments
 classes = {
-    "part": {"instances": [obj1, obj2], "iou_deconflict": 0.3},
+    "part": {"instances": [obj1, obj2], "max_iou": 0.3},
     # every pebble the Floor's geometry nodes scatter, cut by the frame or hidden by the parts as they come
     "pebble": {"instances": [generating.Instances(floor, of=pebbles)], "max_truncation": None, "max_occlusion": None},
 }
@@ -179,7 +179,7 @@ image_generator = generating.Compose(
         # behind the transparent render: a random color, gray or color noise, or a photo twice as often
         generating.Background(weights={"color": 1, "white_noise": 1, "color_noise": 1, "image": 2},
                               noise_size=(1, 8), images_path="//backgrounds"),
-        generating.AOVToImage(["Albedo"]),
+        generating.AOVs(["Albedo"]),
         generating.Passes(["Depth", "Normal"]),
         generating.BBox(classes, max_truncation=0.3, max_occlusion=0.5,  # Clutter may hide half a part
                         allow_empty=True),  # parts out of view don't count

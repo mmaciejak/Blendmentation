@@ -44,12 +44,12 @@ def object_at(data_path):
     return obj
 
 
-def get_material(obj, material_id):
+def get_material(obj, material):
     """Returns the material of given name from the object's material slots."""
     for slot in obj.material_slots:
-        if slot.material is not None and slot.material.name == material_id:
+        if slot.material is not None and slot.material.name == material:
             return slot.material
-    raise KeyError(f"Object '{obj.name}' has no material '{material_id}'")
+    raise KeyError(f"Object '{obj.name}' has no material '{material}'")
 
 
 def get_node(node_tree, node_type, owner_name):
@@ -127,7 +127,7 @@ def range_or_value(value_range, current):
     return random.uniform(low, high)
 
 
-def material(obj, material_id, hue, saturation, value, roughness, metallic):
+def material(obj, material, hue, saturation, value, roughness, metallic):
     """Sets base color, roughness and metallic of the material's Principled BSDF
     to random values from (min, max) ranges, or exact values. None leaves the value unchanged.
     Base color is set through hue, saturation and value, each in 0-1.
@@ -135,7 +135,7 @@ def material(obj, material_id, hue, saturation, value, roughness, metallic):
     Returns:
         dict: values that were set
     """
-    mat = get_material(obj, material_id)
+    mat = get_material(obj, material)
     principled = get_node(mat.node_tree, "BSDF_PRINCIPLED", mat.name)
     applied = {}
 

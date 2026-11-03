@@ -3,8 +3,8 @@ JSON label, `<index>.json`.
 
 The steps can be listed in any order; they always run as: label steps (`BBox`,
 `Pose`, `OutputField`, `CameraData`, `Keypoints`, `Augmentations`), so a datapoint skipped
-by `BBox` (`iou_deconflict`, `max_truncation`, `max_occlusion`) is never rendered,
-then `Background`, then `Render`, then `AOVToImage`, `Passes` and `BBoxImage`, then `Segmentation`, then
+by `BBox` (`max_iou`, `max_truncation`, `max_occlusion`) is never rendered,
+then `Background`, then `Render`, then `AOVs`, `Passes` and `BBoxImage`, then `Segmentation`, then
 `SegmentationImage`. All steps share one render, except that `Segmentation` with EEVEE or
 Workbench adds a flat Workbench render, reusing the one of `BBox(max_occlusion=...)` when
 both have the same classes, and `Segmentation(full_masks=True)` adds the renders of the
@@ -35,7 +35,7 @@ from . import bpy_generating as bpy_g
 # the public API, also importable as `from blendmentation import generating`
 __all__ = [
     "Compose", "Instances", "BBox", "Pose", "OutputField", "Augmentations", "CameraData", "Keypoints", "Background",
-    "Render", "AOVToImage", "Passes", "BBoxImage", "Segmentation", "SegmentationImage",
+    "Render", "AOVs", "Passes", "BBoxImage", "Segmentation", "SegmentationImage",
 ]
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 #: an object, a sublist of objects labeled as one instance, or the instances of an object's geometry nodes
 InstanceList = Sequence[Union["Object", Sequence["Object"], "Instances"]]
-#: {class name: [instances] | {"instances": [instances], "iou_deconflict": ...,
+#: {class name: [instances] | {"instances": [instances], "max_iou": ...,
 #: "max_truncation": ..., "max_occlusion": ...}}
 Classes = Mapping[str, Union[InstanceList, Mapping[str, Any]]]
 #: an object, (mesh object, vertex index or vertex group), (armature, bone name) or a point (x, y, z)
@@ -142,32 +142,32 @@ class Compose:
         self.resolution = resolution
         self.prefix = prefix
 
-    def __call__(self, custom_dict: Optional[dict[str, Any]] = None) -> bool:
+    def __call__(self, extra: Optional[dict[str, Any]] = None) -> bool:
         """Generates one datapoint.
 
         Args:
-            custom_dict: extra keys and values to save in the label (not `"version"`,
+            extra: extra keys and values to save in the label (not `"version"`,
                 which is always the Blendmentation version).
 
         Returns:
-            False if the datapoint was skipped, e.g. by `BBox(iou_deconflict=...)`,
+            False if the datapoint was skipped, e.g. by `BBox(max_iou=...)`,
                 otherwise True.
         """
-        return bpy_g.generate(self.path, self.resolution, self.steps, custom_dict, self.prefix)
+        return bpy_g.generate(self.path, self.resolution, self.steps, extra, self.prefix)
 
-    def preview(self, scaling_factor: float, custom_dict: Optional[dict[str, Any]] = None) -> bool:
+    def preview(self, factor: float, *, extra: Optional[dict[str, Any]] = None) -> bool:
         """Generates one datapoint at a reduced resolution, for a quick look.
 
         Args:
-            scaling_factor: the resolution is divided by this factor.
-            custom_dict: extra keys and values to save in the label (not `"version"`,
+            factor: the resolution is divided by this factor.
+            extra: extra keys and values to save in the label (not `"version"`,
                 which is always the Blendmentation version).
 
         Returns:
             False if the datapoint was skipped, otherwise True.
         """
-        resolution = tuple(int(size / scaling_factor) for size in self.resolution)
-        return bpy_g.generate(self.path, resolution, self.steps, custom_dict, self.prefix)
+        resolution = tuple(int(size / factor) for size in self.resolution)
+        return bpy_g.generate(self.path, resolution, self.steps, extra, self.prefix)
 
 
 class Instances:
@@ -246,10 +246,10 @@ class BBox(Step):
         classes: `{class name: [instances]}`, an instance is an object or a sublist of
             objects labeled as one (its box is the union of the members), and
             `Instances(parent, of=...)` adds every geometry nodes instance. A class can
-            instead be `{"instances": [instances], "iou_deconflict": ...,
+            instead be `{"instances": [instances], "max_iou": ...,
             "max_truncation": ..., "max_occlusion": ...}` to set its own skip settings
             (all keys but `instances` optional).
-        iou_deconflict: skip the datapoint, before rendering, when any two boxes
+        max_iou: skip the datapoint, before rendering, when any two boxes
             overlap more than this IoU. None = never skip.
         max_truncation: skip the datapoint, before rendering, when more than this
             fraction (0-1) of any instance's box is out of frame, measured on its
@@ -259,7 +259,7 @@ class BBox(Step):
         max_occlusion: skip the datapoint, before the beauty render, when objects in no
             class (clutter, distractors) cover more than this fraction (0-1) of any
             instance: 1 - its visible pixels / its pixels with those objects hidden.
-            Class objects covering each other don't count (that is `iou_deconflict`),
+            Class objects covering each other don't count (that is `max_iou`),
             and an instance with no pixels even then (out of frame, or behind another
             class object) counts as 0. None = never skip.
         allow_empty: `max_truncation` ignores instances out of view (their `bbox` is
@@ -276,7 +276,7 @@ class BBox(Step):
         engine, which only run when some class has a limit and the cheaper checks
         passed; Workbench draws every object solid, so transparent and alpha-clipped
         objects occlude fully, shader displacement is missing, and shadows don't count. For
-        `iou_deconflict`, two boxes conflict when their IoU is over the lower of their
+        `max_iou`, two boxes conflict when their IoU is over the lower of their
         two classes' limits, so a strict class can't overlap anything, and a pair is
         only free when both classes have no limit.
 
@@ -286,7 +286,7 @@ class BBox(Step):
             "car": [car_1, car_2],                                       # uses the BBox arguments
             "table": {"instances": [[top, legs]], "max_truncation": 0.8},  # may be cut more
         }
-        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3, max_occlusion=0.5)
+        generating.BBox(classes, max_iou=0.5, max_truncation=0.3, max_occlusion=0.5)
         # also keep images without some or all of them
         generating.BBox(classes, max_truncation=0.3, allow_empty=True)
         ```
@@ -297,20 +297,20 @@ class BBox(Step):
     def __init__(
         self,
         classes: Classes,
-        *, iou_deconflict: Optional[float] = None,
+        *, max_iou: Optional[float] = None,
         max_truncation: Optional[float] = None,
         max_occlusion: Optional[float] = None,
         allow_empty: bool = False,
     ):
         self.classes = classes
-        self.iou_deconflict = iou_deconflict
+        self.max_iou = max_iou
         self.max_truncation = max_truncation
         self.max_occlusion = max_occlusion
         self.allow_empty = allow_empty
 
     def _settings(self):
         return {
-            "iou_deconflict": self.iou_deconflict,
+            "max_iou": self.max_iou,
             "max_truncation": self.max_truncation,
             "max_occlusion": self.max_occlusion,
         }
@@ -421,9 +421,9 @@ class Augmentations(Step):
 
     In `skipped.jsonl`, one JSON object per skipped datapoint: `{"version", "skip": {"reason",
     "class", "objects", "value", "limit"}, "augmentations": {...}}`, where the reason is
-    the `BBox` setting (`"max_truncation"`, `"iou_deconflict"` or `"max_occlusion"`),
+    the `BBox` setting (`"max_truncation"`, `"max_iou"` or `"max_occlusion"`),
     `value` what was measured (the truncated fraction, the IoU or the occluded fraction)
-    and `limit` the setting's value; for `iou_deconflict`, `class` and `objects` list the
+    and `limit` the setting's value; for `max_iou`, `class` and `objects` list the
     two instances.
 
     Args:
@@ -636,7 +636,7 @@ class Render(Step):
         bpy_g.render_image(frame, self.file_format)
 
 
-class AOVToImage(Step):
+class AOVs(Step):
     """Saves shader AOVs as images `<index>_<aov>.<ext>`.
 
     Uses the same render as `Render`; without `Render`, the scene is still rendered
@@ -655,7 +655,7 @@ class AOVToImage(Step):
 
     Example:
         ```python
-        generating.AOVToImage(["Albedo"])
+        generating.AOVs(["Albedo"])
         ```
     """
 
@@ -678,7 +678,7 @@ class AOVToImage(Step):
 class Passes(Step):
     """Saves built-in render passes as images `<index>_<pass>.<ext>`.
 
-    Uses the same render as `Render` and `AOVToImage`. Each pass is enabled in the view
+    Uses the same render as `Render` and `AOVs`. Each pass is enabled in the view
     layer for that render only. Cycles has all passes, EEVEE no `UV` or index passes,
     and Workbench only `Depth`; in Cycles, `Vector` also needs motion blur off. With a
     `Segmentation` step in Cycles, `ObjectIndex` holds its instance ids (1, 2, ...) and 0

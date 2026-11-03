@@ -39,7 +39,7 @@ def test_render_aovs_and_passes_share_one_render(scene, cube, out, renders):
     add_aov(material, "Albedo", "COLOR", (1, 0.25, 0, 1))
     scene.render.image_settings.file_format = "JPEG"
 
-    steps = [G.Passes(["Depth", "Normal", "UV", "ObjectIndex"]), G.AOVToImage(["Mask", "Albedo"]), G.Render()]
+    steps = [G.Passes(["Depth", "Normal", "UV", "ObjectIndex"]), G.AOVs(["Mask", "Albedo"]), G.Render()]
     assert G.Compose(steps, out, (64, 48))() is True
     assert renders == ["CYCLES"]
     data = label(out)
@@ -60,7 +60,7 @@ def test_render_aovs_and_passes_share_one_render(scene, cube, out, renders):
 
     # AOVs without Render: still one render, no image
     renders.clear()
-    assert G.Compose([G.AOVToImage(["Albedo"], file_format="PNG")], out, (64, 48))()
+    assert G.Compose([G.AOVs(["Albedo"], file_format="PNG")], out, (64, 48))()
     assert renders == ["CYCLES"] and "000001.png" not in os.listdir(out) and "000001_Albedo.png" in os.listdir(out)
 
 
@@ -70,7 +70,7 @@ def test_aovs_and_passes_skip_empty(scene, cube, out):
     material = new_material(obj, "Mat")
     add_aov(material, "Albedo", "COLOR", (1, 0.25, 0, 1))
     add_aov(material, "Empty", "VALUE", 0.0)
-    steps = [G.Render(), G.AOVToImage(["Albedo", "Empty"], skip_empty=True),
+    steps = [G.Render(), G.AOVs(["Albedo", "Empty"], skip_empty=True),
              G.Passes(["Depth", "Normal", "ObjectIndex"], skip_empty=True)]
     assert G.Compose(steps, out, (64, 48))()
     data = label(out)
@@ -78,7 +78,7 @@ def test_aovs_and_passes_skip_empty(scene, cube, out):
     assert data["passes"] == {"Depth": "000000_Depth.exr", "Normal": "000000_Normal.exr", "ObjectIndex": None}
     assert "000000_Empty.exr" not in os.listdir(out) and "000000_ObjectIndex.exr" not in os.listdir(out)
     # off by default
-    assert G.Compose([G.AOVToImage(["Empty"]), G.Passes(["ObjectIndex"])], out, (64, 48))()
+    assert G.Compose([G.AOVs(["Empty"]), G.Passes(["ObjectIndex"])], out, (64, 48))()
     assert label(out, 1)["aovs"] == {"Empty": "000001_Empty.exr"} and "000001_ObjectIndex.exr" in os.listdir(out)
 
 
@@ -267,7 +267,7 @@ def test_pass_not_supported_by_engine(scene, cube, out):
 
 
 @pytest.mark.parametrize("steps", [
-    [G.Render(), G.AOVToImage(["Nope"])],
+    [G.Render(), G.AOVs(["Nope"])],
     [G.Render("TIFF")],
     [G.Render(), G.Passes(["Depthh"])],
     [G.Render(), G.BBox([])],
@@ -404,10 +404,10 @@ def test_many_instances(scene, cube, out):
     assert mask(out, "000000_class_c.png").sum() == total
 
 
-def test_iou_deconflict_skips_before_render(scene, cube, out, renders):
+def test_max_iou_skips_before_render(scene, cube, out, renders):
     a, b = cube("a"), cube("b", (0.2, 0, 0))
     classes = {"x": [a, b]}
-    assert G.Compose([G.Render(), G.Segmentation(classes), G.BBox(classes, iou_deconflict=0.1)], out, (64, 48))() is False
+    assert G.Compose([G.Render(), G.Segmentation(classes), G.BBox(classes, max_iou=0.1)], out, (64, 48))() is False
     assert renders == [] and os.listdir(out) == []
 
 
@@ -465,12 +465,12 @@ def test_class_settings_win_over_bbox_arguments():
     classes = {
         "plain": ["a"],
         "loose": {"instances": ["b"], "max_truncation": 0.9},
-        "free": {"instances": ["c"], "max_truncation": None, "iou_deconflict": None},
+        "free": {"instances": ["c"], "max_truncation": None, "max_iou": None},
     }
-    settings = bpy_generating.class_settings(classes, {"iou_deconflict": 0.5, "max_truncation": 0.3})
-    assert settings["plain"] == {"iou_deconflict": 0.5, "max_truncation": 0.3}
-    assert settings["loose"] == {"iou_deconflict": 0.5, "max_truncation": 0.9}
-    assert settings["free"] == {"iou_deconflict": None, "max_truncation": None}
+    settings = bpy_generating.class_settings(classes, {"max_iou": 0.5, "max_truncation": 0.3})
+    assert settings["plain"] == {"max_iou": 0.5, "max_truncation": 0.3}
+    assert settings["loose"] == {"max_iou": 0.5, "max_truncation": 0.9}
+    assert settings["free"] == {"max_iou": None, "max_truncation": None}
 
 
 def test_iou_conflict_uses_the_lower_limit():
@@ -495,10 +495,10 @@ def test_per_class_skip_settings(scene, cube, out, renders):
     assert generate({"in": [inside], "edge": {"instances": [edge]}}, max_truncation=0.3) is False
 
     a, b = cube("a", (0, 0, 1)), cube("b", (0.2, 0, 1))
-    assert generate({"a": {"instances": [a], "iou_deconflict": None}, "b": [b]}, iou_deconflict=0.1) is False
-    assert generate({"a": {"instances": [a], "iou_deconflict": None}, "b": {"instances": [b], "iou_deconflict": None}},
-                    iou_deconflict=0.1)
-    assert generate({"a": {"instances": [a], "iou_deconflict": 0.1}, "b": [b]}) is False
+    assert generate({"a": {"instances": [a], "max_iou": None}, "b": [b]}, max_iou=0.1) is False
+    assert generate({"a": {"instances": [a], "max_iou": None}, "b": {"instances": [b], "max_iou": None}},
+                    max_iou=0.1)
+    assert generate({"a": {"instances": [a], "max_iou": 0.1}, "b": [b]}) is False
     assert renders == []
 
     # Segmentation takes the same classes dict and ignores the settings
@@ -679,7 +679,7 @@ def test_second_cycles_segmentation_uses_workbench(scene, cube, out, renders):
 @pytest.mark.parametrize("value, match", [
     ({"objects": []}, "unknown keys"),
     ({"max_truncation": 0.5}, "needs an 'instances' list"),
-    ({"instances": [], "iou_deconflict": 1.5}, "iou_deconflict"),
+    ({"instances": [], "max_iou": 1.5}, "max_iou"),
     ({"instances": [], "max_occlusion": -0.1}, "max_occlusion"),
     ({"instances": "not a list"}, "must map to a list"),
 ])
@@ -1042,8 +1042,8 @@ def test_skipped_datapoints(scene, cube, out):
     far.location.x = 30  # out of view
 
     a, b = cube("a", (0, 0, 0)), cube("b", (0.1, 0, 0))
-    line = skipped([a, b], iou_deconflict=0.5)
-    assert line["skip"]["reason"] == "iou_deconflict" and line["skip"]["class"] == ["car", "car"]
+    line = skipped([a, b], max_iou=0.5)
+    assert line["skip"]["reason"] == "max_iou" and line["skip"]["class"] == ["car", "car"]
     assert line["skip"]["objects"] == [["a"], ["b"]] and line["skip"]["value"] > 0.5
     b.location.x = 5
 

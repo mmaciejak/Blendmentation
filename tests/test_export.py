@@ -539,7 +539,7 @@ def test_skip_stats(tmp_path):
     lines = [
         {"skip": {"reason": "max_truncation", "class": "car", "objects": ["x"], "value": 0.4, "limit": 0.3},
          "augmentations": {"a": {"x": {"applied": True}}, "a.0": {"x": {"applied": True, "value": True}}}},
-        {"skip": {"reason": "iou_deconflict", "class": ["car", "table"], "objects": [["x"], ["t"]], "value": 0.6,
+        {"skip": {"reason": "max_iou", "class": ["car", "table"], "objects": [["x"], ["t"]], "value": 0.6,
                   "limit": 0.5},
          "augmentations": {"a": {"x": {"applied": True}}, "a.0": {"x": {"applied": True, "value": True}}}},
         {"skip": {"reason": "max_truncation", "class": "car", "objects": ["x"], "value": 0.9, "limit": 0.3},
@@ -549,7 +549,7 @@ def test_skip_stats(tmp_path):
 
     assert export.skip_stats(str(tmp_path)) == {"kept": 1, "skipped": 3, "reasons": {
         "max_truncation": {"count": 2, "classes": {"car": 2}},
-        "iou_deconflict": {"count": 1, "classes": {"car + table": 1}}}}
+        "max_iou": {"count": 1, "classes": {"car + table": 1}}}}
     stats = export.augmentation_stats(str(tmp_path))["a.0"]
     assert stats["observed"] == 0 and stats["skipped"] == {"observed": 2 / 3, "applied": 2, "calls": 3}
     assert stats["values"] == [{"value": True, "expected": 0.5, "observed": 0.0, "skipped_observed": 2 / 3},

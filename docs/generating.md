@@ -14,7 +14,7 @@
         - Keypoints
         - Background
         - Render
-        - AOVToImage
+        - AOVs
         - Passes
         - BBoxImage
         - Segmentation

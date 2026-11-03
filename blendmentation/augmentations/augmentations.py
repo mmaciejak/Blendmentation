@@ -412,7 +412,7 @@ class Augmentation:
         ```
     """
 
-    def __init__(self, p: float = 1.0, otherwise: Any = None, name: Optional[str] = None):
+    def __init__(self, p: float = 1.0, *, otherwise: Any = None, name: Optional[str] = None):
         self.p = check_p(p)
         self.name = check_name(name)
         self.otherwise = otherwise
@@ -503,9 +503,9 @@ class ObjectAugmentation(Augmentation):
     data-path augmentation with an absolute path. `results` is then stored under that
     object's name."""
 
-    def __init__(self, p: float = 1.0, otherwise: Any = None, data_path: Optional[str] = None,
+    def __init__(self, p: float = 1.0, *, otherwise: Any = None, data_path: Optional[str] = None,
                  name: Optional[str] = None):
-        super().__init__(p, otherwise, name=name)
+        super().__init__(p, otherwise=otherwise, name=name)
         self.data_path = check_object_path(data_path)
 
     @property
@@ -907,8 +907,8 @@ class Visibility(ObjectAugmentation):
 
     def __init__(self, p: float = 0.5, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
                  name: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
-                         name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"),
+                         data_path=data_path, name=name)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.visibility(obj, True)
@@ -962,8 +962,8 @@ class ShadowCatcher(ObjectAugmentation):
 
     def __init__(self, p: float = 0.5, *, otherwise: Optional[bool] = False, data_path: Optional[str] = None,
                  name: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), data_path,
-                         name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"),
+                         data_path=data_path, name=name)
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.shadow_catcher(obj, True)
@@ -1030,7 +1030,7 @@ class KeepAbove(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, *, p: float = 1.0, data_path: Optional[str] = None,
+    def __init__(self, surface: Object, *, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
@@ -1093,7 +1093,7 @@ class PlaceOn(ObjectAugmentation):
         ```
     """
 
-    def __init__(self, surface: Object, margin: float = 0.0, *, p: float = 1.0, data_path: Optional[str] = None,
+    def __init__(self, surface: Object, *, margin: float = 0.0, p: float = 1.0, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         super().__init__(p, data_path=data_path, name=name)
         self.surface = surface
@@ -1147,7 +1147,7 @@ class Seed(Augmentation):
     def __init__(self, node_group: NodeTree, *, p: float = 1.0, otherwise: Optional[int] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, int) and not isinstance(otherwise, bool)
-        super().__init__(p, check_otherwise(otherwise, valid, "an int"), name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, valid, "an int"), name=name)
         bpy_a.check_seed_group(node_group)
         self.node_group = node_group
 
@@ -1345,7 +1345,8 @@ class FocalLength(ObjectAugmentation):
     def __init__(self, focal_length: RangeOrValue, *, target: Optional[Target] = None, keep_size: bool = False,
                  size: Optional[RangeOrValue] = None, p: float = 1.0, otherwise: Optional[float] = None,
                  data_path: Optional[str] = None, name: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a lens in mm"), data_path, name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, is_number(otherwise), "a lens in mm"),
+                         data_path=data_path, name=name)
         if keep_size and target is None:
             raise ValueError("keep_size needs a target")
         if keep_size and otherwise is not None:
@@ -1425,8 +1426,8 @@ class DepthOfField(ObjectAugmentation):
     def __init__(self, target: Optional[Target] = None, *, f_stop: Optional[RangeOrValue] = None,
                  defocus: Optional[Offset] = None, p: float = 1.0, otherwise: Optional[bool] = None,
                  data_path: Optional[str] = None, name: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, otherwise is False, "False (depth of field off)"), data_path,
-                         name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, otherwise is False, "False (depth of field off)"),
+                         data_path=data_path, name=name)
         self.target = target
         self.f_stop = f_stop
         self.defocus = None if defocus is None else check_offset(defocus, "defocus")
@@ -1519,7 +1520,8 @@ class MaterialSlot(ObjectAugmentation):
                  *, p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
-        super().__init__(p, check_otherwise(otherwise, valid, "a slot index or a material name"), data_path, name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, valid, "a slot index or a material name"),
+                         data_path=data_path, name=name)
         check_weights(weights, None if slots is None else len(slots), "slot")
         self.slots = slots
         self.weights = weights
@@ -1588,7 +1590,8 @@ class UVMap(ObjectAugmentation):
                  *, p: float = 1.0, otherwise: Optional[Union[int, str]] = None, data_path: Optional[str] = None,
                  name: Optional[str] = None):
         valid = isinstance(otherwise, str) or (isinstance(otherwise, int) and not isinstance(otherwise, bool))
-        super().__init__(p, check_otherwise(otherwise, valid, "a UV map index or name"), data_path, name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, valid, "a UV map index or name"),
+                         data_path=data_path, name=name)
         check_weights(weights, None if uv_maps is None else len(uv_maps), "UV map")
         self.uv_maps = uv_maps
         self.weights = weights
@@ -1613,7 +1616,7 @@ class SimpleMaterial(ObjectAugmentation):
     It changes the **material**, so every object using it is affected.
 
     Args:
-        material_id: name of the material.
+        material: name of the material.
         hue: range of the base color hue.
         saturation: range of the base color saturation.
         value: range of the base color value (brightness).
@@ -1642,7 +1645,7 @@ class SimpleMaterial(ObjectAugmentation):
 
     def __init__(
         self,
-        material_id: str,
+        material: str,
         *, hue: Optional[RangeOrValue] = None,
         saturation: Optional[RangeOrValue] = None,
         value: Optional[RangeOrValue] = None,
@@ -1653,7 +1656,7 @@ class SimpleMaterial(ObjectAugmentation):
         name: Optional[str] = None,
     ):
         super().__init__(p, data_path=data_path, name=name)
-        self.material_id = material_id
+        self.material = material
         self.hue = hue
         self.saturation = saturation
         self.value = value
@@ -1662,7 +1665,7 @@ class SimpleMaterial(ObjectAugmentation):
 
     def apply(self, obj: Optional[Object]) -> None:
         self.actual = bpy_a.material(
-            obj, self.material_id, self.hue, self.saturation, self.value, self.roughness, self.metallic
+            obj, self.material, self.hue, self.saturation, self.value, self.roughness, self.metallic
         )
 
 
@@ -1742,7 +1745,7 @@ class Number(PathAugmentation):
 
     def __init__(self, data_path: Union[str, Range, None] = None, value_range: Optional[Range] = None,
                  *, p: float = 1.0, otherwise: Optional[float] = None, name: Optional[str] = None):
-        super().__init__(p, check_otherwise(otherwise, is_number(otherwise), "a number"), name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, is_number(otherwise), "a number"), name=name)
         self.data_path, value_range = split_path(data_path, value_range)
         self.value_range = check_range(value_range, "value_range")
 
@@ -1806,7 +1809,8 @@ class Vector(PathAugmentation):
         valid = is_number(otherwise) or (
             isinstance(otherwise, Sequence) and not isinstance(otherwise, str)
             and all(value is None or is_number(value) for value in otherwise))
-        super().__init__(p, check_otherwise(otherwise, valid, "a number or one value per component"), name=name)
+        super().__init__(p, otherwise=check_otherwise(otherwise, valid, "a number or one value per component"),
+                         name=name)
         self.data_path, value_range = split_path(data_path, value_range)
         if isinstance(value_range, str) or not isinstance(value_range, Sequence) or len(value_range) != 2:
             raise ValueError(f"value_range must be (min, max), got {value_range!r}")
@@ -1863,7 +1867,7 @@ class Boolean(PathAugmentation):
                  *, otherwise: Optional[bool] = False, name: Optional[str] = None):
         data_path, p = split_path(data_path, p)
         super().__init__(0.5 if p is None else p,
-                         check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), name=name)
+                         otherwise=check_otherwise(otherwise, isinstance(otherwise, bool), "True or False"), name=name)
         self.data_path = data_path
 
     def apply(self, obj: Optional[Object]) -> None:
@@ -1929,7 +1933,7 @@ class Menu(PathAugmentation):
     def __init__(self, data_path: Union[str, Sequence[Any], None] = None, options: Optional[Sequence[Any]] = None,
                  weights: Optional[Sequence[float]] = None, *, p: float = 1.0, otherwise: Any = None,
                  name: Optional[str] = None):
-        super().__init__(p, otherwise, name=name)
+        super().__init__(p, otherwise=otherwise, name=name)
         if not (data_path is None or isinstance(data_path, str)) and options is not None:
             raise TypeError(f"Without a data path the first argument is the options, so {options!r} can't be "
                             f"options too: pass the weights by name, Menu({data_path!r}, weights={options!r})")

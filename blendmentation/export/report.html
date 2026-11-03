@@ -546,7 +546,7 @@ function openSkips() {
   close.onclick = () => panel.classList.remove("open");
   panel.append(close, text("h2", "", "Skipped datapoints"),
                text("div", "note", skips.skipped + " of " + total + " generated (" + pct(skips.skipped / total) + "), skipped by BBox"));
-  const NAMES = {max_truncation: "cut by the frame (max_truncation)", iou_deconflict: "boxes overlapping (iou_deconflict)",
+  const NAMES = {max_truncation: "cut by the frame (max_truncation)", max_iou: "boxes overlapping (max_iou)", iou_deconflict: "boxes overlapping (iou_deconflict)",
                  max_occlusion: "hidden by other objects (max_occlusion)"};
   const table = text("table"), hr = text("tr");
   hr.append(text("th", "", "reason"), text("th", "n", "datapoints"), text("th", "n", "of all"));

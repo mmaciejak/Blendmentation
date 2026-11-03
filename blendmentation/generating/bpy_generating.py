@@ -32,7 +32,7 @@ BACKGROUND_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff",
 INDEX = r"^{}(\d+)(?:[_.]|$)"
 
 
-CLASS_SETTINGS = ("iou_deconflict", "max_truncation", "max_occlusion")
+CLASS_SETTINGS = ("max_iou", "max_truncation", "max_occlusion")
 # the datapoints a step skipped, one JSON line each (generating.Augmentations)
 SKIPPED_FILE = "skipped.jsonl"
 
@@ -615,12 +615,12 @@ def bboxes(frame, classes, settings, allow_empty=False):
     """Adds {"class", "objects", "bbox"} of every instance to the labels under "bboxes".
 
     Args:
-        settings (dict): the BBox arguments iou_deconflict, max_truncation and max_occlusion,
+        settings (dict): the BBox arguments max_iou, max_truncation and max_occlusion,
             the defaults for the classes
         allow_empty (bool): max_truncation ignores instances out of view
 
     Returns:
-        bool: False if two bboxes overlap over iou_deconflict, an instance is more than
+        bool: False if two bboxes overlap over max_iou, an instance is more than
             max_truncation out of frame or more than max_occlusion covered by objects in no
             class, and the datapoint should be skipped. Objects hidden in the render are left
             out, an instance with all of them hidden, or with no geometry, has bbox None and
@@ -652,12 +652,12 @@ def bboxes(frame, classes, settings, allow_empty=False):
         box = entry["bbox"] = to_pixels(bounds, frame.width, frame.height)
         if box is not None:
             boxes.append(box)
-            limits.append(settings[class_name]["iou_deconflict"])
+            limits.append(settings[class_name]["max_iou"])
             boxed.append(entry)
     conflict = iou_conflict(boxes, limits)
     if conflict:
         i, j, overlap, limit = conflict
-        frame.skip = {"reason": "iou_deconflict", "class": [boxed[i]["class"], boxed[j]["class"]],
+        frame.skip = {"reason": "max_iou", "class": [boxed[i]["class"], boxed[j]["class"]],
                       "objects": [boxed[i]["objects"], boxed[j]["objects"]], "value": overlap, "limit": limit}
         return False
     # last, it needs two workbench renders
@@ -1278,7 +1278,7 @@ def segmentation(frame, classes, per, skip_empty=False, full=False):
         frame.add("full_masks", full_entries)
 
 
-def generate(path, resolution, steps, custom_dict=None, prefix=""):
+def generate(path, resolution, steps, extra=None, prefix=""):
     """Generates one datapoint: runs the steps in order and writes the labels to
     <path>/<prefix><index>.json
 
@@ -1286,7 +1286,7 @@ def generate(path, resolution, steps, custom_dict=None, prefix=""):
         path (str): output directory, "" or relative paths are relative to the .blend file
         resolution (tuple): (width, height) in pixels
         steps (list): generating steps, called with the Frame, a step returning False skips the datapoint
-        custom_dict (dict): extra key and values saved in the labels
+        extra (dict): extra key and values saved in the labels
         prefix (str): start of every file name, the index counts the files with it
 
     Returns:
@@ -1323,7 +1323,7 @@ def generate(path, resolution, steps, custom_dict=None, prefix=""):
                 return False
 
     # the version first, and not overwritten by the custom keys
-    label = {"version": __version__, **frame.label, **(custom_dict or {})}
+    label = {"version": __version__, **frame.label, **(extra or {})}
     label["version"] = __version__
     # an image alone needs no label file
     if set(label) - {"version", "resolution", "image"}:

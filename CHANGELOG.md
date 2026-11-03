@@ -6,6 +6,27 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-03
+
+A last look at the names before 1.0. Scripts using the old names need these changes.
+
+### Changed
+
+- `generating.BBox(iou_deconflict=...)` is now `max_iou`, like `max_truncation` and
+  `max_occlusion`, and so is the key in a class dict (`{"instances": [...],
+  "max_iou": 0.3}`). The skip reason in `skipped.jsonl` is `"max_iou"`; the
+  augmentation report still names old `"iou_deconflict"` skips.
+- `generating.AOVToImage` is now `generating.AOVs`, the twin of `generating.Passes`.
+- The extra label keys passed to the generating `Compose` are called `extra`
+  (`generator(extra={...})`, before `custom_dict`), and `preview(factor, *, extra=None)`
+  takes them only by keyword (`preview(4, extra={...})`); its first argument is
+  `factor` (before `scaling_factor`).
+- `augmentations.SimpleMaterial(material_id)` is now `SimpleMaterial(material)`.
+- `augmentations.KeepAbove` and `PlaceOn` take `margin` only by keyword:
+  `KeepAbove(floor, margin=0.01)`.
+- `augmentations.Augmentation`, the base class of custom augmentations, takes
+  `otherwise` and `name` only by keyword: `super().__init__(p, otherwise=..., name=...)`.
+
 ## [0.12.1] - 2026-10-22
 
 ### Fixed
@@ -597,7 +618,8 @@ All notable changes to Blendmentation. The format follows
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.1...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.2...dev
+[0.12.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.10.2...v0.11.0

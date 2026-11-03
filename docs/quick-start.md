@@ -431,7 +431,7 @@ generator = gen.Compose(
     [
         gen.Render(),
         # the rust mask; no file when there is no rust
-        gen.AOVToImage(["rust"], skip_empty=True),
+        gen.AOVs(["rust"], skip_empty=True),
     ],
     path="//dataset",
     resolution=(640, 480),
@@ -469,7 +469,7 @@ generator = gen.Compose(
     [
         gen.Render(),
         # the rust mask; no file when there is no rust
-        gen.AOVToImage(["rust"], skip_empty=True),
+        gen.AOVs(["rust"], skip_empty=True),
     ],
     path="//dataset",
     resolution=(640, 480),
@@ -1033,7 +1033,7 @@ classes = {
     # cut by the frame or hidden by the cars as they come
     "pebble": {
         "instances": [gen.Instances(floor, of=pebbles)],
-        "iou_deconflict": None,
+        "max_iou": None,
         "max_truncation": None,
         "max_occlusion": None,
     },
@@ -1050,11 +1050,11 @@ steps = [
         },
         images_path="//backgrounds",
     ),
-    gen.AOVToImage(["Albedo"]),
+    gen.AOVs(["Albedo"]),
     gen.Passes(["Depth", "Normal"]),
     gen.BBox(
         classes,
-        iou_deconflict=0.5,
+        max_iou=0.5,
         max_truncation=0.3,
         max_occlusion=0.5,
         allow_empty=True,  # instances out of view don't count

@@ -855,7 +855,7 @@ def skip_stats(path: str, *, prefix: str = "") -> dict:
     Returns:
         `{"kept", "skipped", "reasons": {reason: {"count", "classes": {class: count}}}}`,
         where the reason is the `BBox` setting that skipped it (`"max_truncation"`,
-        `"iou_deconflict"`, `"max_occlusion"`), and the class of an `iou_deconflict` skip
+        `"max_iou"`, `"max_occlusion"`), and the class of an `max_iou` skip
         is the two classes joined by `" + "`.
 
     Example:

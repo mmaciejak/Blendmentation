@@ -201,7 +201,7 @@ generator = generating.Compose(
     [
         generating.Render(),
         generating.Background(weights={"color": 1, "color_noise": 1}),  # + "image": w with images_path=folder
-        generating.BBox(classes, iou_deconflict=0.5, max_truncation=0.3,
+        generating.BBox(classes, max_iou=0.5, max_truncation=0.3,
                         allow_empty=True),      # cars out of view don't count
         generating.BBoxImage(),                 # preview copy with the boxes drawn
         generating.Segmentation(classes, per="both", skip_empty=True,   # no file for empty masks
@@ -226,7 +226,7 @@ Put the pipeline from step 3 in the same call (nothing survives between calls), 
 import json, os, glob
 with state.restoring():                                   # the scene is set back afterwards, also on an error
     objects_aug([car_1, car_2]); lamp_aug([lamp], p=0.7); plant_aug([plant]); camera_aug([camera]); world_aug([world]); floor_aug([floor])
-    print("generated:", generator.preview(4, {"lift": keep_above.results}))   # resolution / 4; False = skipped
+    print("generated:", generator.preview(4, extra={"lift": keep_above.results}))   # resolution / 4; False = skipped
 labels = sorted(glob.glob(os.path.join(generator.path, "[0-9]*.json")))
 print(open(labels[-1]).read() if labels else "no label yet")
 print(sorted(os.listdir(generator.path))[-10:])
@@ -303,10 +303,10 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 |---|---|
 | `Render(file_format="PNG")` | `<index>.png` |
 | `Background(weights=None, noise_size=(1, 8), images_path=None)` | random color, white/color noise or image behind the render and previews; `background` |
-| `BBox(classes, iou_deconflict=None, max_truncation=None, max_occlusion=None, allow_empty=False)` | `bboxes`; the three settings skip the datapoint, `allow_empty` ignores instances out of view |
+| `BBox(classes, max_iou=None, max_truncation=None, max_occlusion=None, allow_empty=False)` | `bboxes`; the three settings skip the datapoint, `allow_empty` ignores instances out of view |
 | `BBoxImage()` / `SegmentationImage()` | preview copies with boxes / masks drawn |
 | `Segmentation(classes, per="instance" \| "class" \| "both", skip_empty=False, full_masks=False)` | mask PNGs, `masks`; `full_masks`: unoccluded masks, `full_masks`; sharp also with depth of field or motion blur |
-| `AOVToImage(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |
+| `AOVs(["Albedo"], skip_empty=False)` | shader AOVs from the view layer (Cycles or EEVEE) |
 | `Passes(["Depth", "Normal"], skip_empty=False)` | render passes, enabled for you |
 | `Pose(classes)` | 6D pose of each instance: `R`, `t` (OpenCV camera axes, Blender units), `scale`; `poses` |
 | `CameraData()` | camera, intrinsics, OpenCV extrinsics, depth of field |
@@ -314,7 +314,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
 | `OutputField(name, data_path, objects=None)` | any value by data path |
 | `Augmentations(composes, graph_file="augmentations.json")` | `augmentations`: what each augmentation did per object (`applied`, `value`); their graph with probabilities in `augmentations.json`; `export.augmentation_stats` compares, `export.augmentation_report` draws both as an HTML page |
 
-- **BBox skip settings**: `iou_deconflict` (two boxes overlap more than this IoU),
+- **BBox skip settings**: `max_iou` (two boxes overlap more than this IoU),
   `max_truncation` (fraction of a box out of frame), `max_occlusion` (fraction of an
   instance hidden by objects that are in no class; costs two Workbench renders). Set them
   per class with `{"car": {"instances": [car_1, car_2], "max_occlusion": 0.3}}`; a class's
@@ -330,7 +330,7 @@ Generating steps (list order doesn't matter, they are sorted by stage):
   `images_path` (a folder) is only needed when `"image"` has a weight above 0; with
   `"image": 0` or `"image"` left out, leave it None. Labels, AOVs and
   passes don't change; the image is saved opaque RGB.
-- **`skip_empty=True`** (`Segmentation`, `AOVToImage`, `Passes`) doesn't write an image
+- **`skip_empty=True`** (`Segmentation`, `AOVs`, `Passes`) doesn't write an image
   that is fully black; its file name in the label is `None`, and the datapoint is kept.
 - **Augmentations**: `Translation`, `Rotation`, `Scale`, `Visibility`, `ShadowCatcher`, `KeepAbove`, `LookAt`, `PlaceOnCurve`,
   `FocalLength`, `DepthOfField`, `SimpleMaterial`, the data-path ones `Number`, `Vector`,
