@@ -4,7 +4,7 @@ What you can rely on when you update Blendmentation, and what may change.
 
 ## Versions
 
-From 1.0.0, versions follow [Semantic Versioning](https://semver.org/): `major.minor.patch`.
+Versions follow [Semantic Versioning](https://semver.org/): `major.minor.patch`.
 
 - **Patch** (1.0.**1**): bug fixes only.
 - **Minor** (1.**1**.0): new features. Scripts written for an earlier 1.x keep working.
@@ -14,8 +14,8 @@ From 1.0.0, versions follow [Semantic Versioning](https://semver.org/): `major.m
 Before a name is removed or changes meaning, it is deprecated first: it keeps working,
 with a `DeprecationWarning` saying what replaces it, for at least one minor release.
 
-Before 1.0.0 (the 0.x versions), a minor release could break scripts; the changelog
-says how.
+The 0.x versions before 1.0.0 made no such promise: a release could break scripts, and
+the changelog says how.
 
 ## What is covered
 
@@ -80,6 +80,11 @@ These may change in any release, with a line in the changelog:
   `check_range`, `flatten`, `rle`), and the modules behind them (`bpy_augmentations`,
   `bpy_generating`, `bpy_paths`, `bpy_undo`, `graph`, `polygons`...). They are
   importable, but they are not the API.
+- **Methods and attributes left out of the API reference** on the public classes (e.g.
+  `apply`, `check`, `skip`, `prepare`, `stage`, `Vector.bounds`): they are how the
+  classes work inside. To write your own augmentation, subclass `Augmentation` and
+  implement `apply(obj)`, setting `actual`, as its documentation shows; that much is
+  covered.
 - **The HTML pages** of `augmentation_report` and `graph_preview`: their look and
   layout. The functions themselves are covered.
 - **The Blender add-on:** its panels and buttons, and the exact text of the templates

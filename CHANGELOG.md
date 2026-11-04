@@ -6,6 +6,18 @@ All notable changes to Blendmentation. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-04
+
+The first stable release. From now on, versions follow Semantic Versioning: the public
+API, the label JSON, the files a dataset is made of and the export formats only break
+in a major version. The [Stability](https://blendmentation.docs.csmx.eu/stability/)
+page lists what is covered.
+
+### Added
+
+- The Stability page in the documentation: what stays the same across versions and
+  what may change.
+
 ## [0.12.2] - 2026-11-03
 
 A last look at the names before 1.0. Scripts using the old names need these changes.
@@ -618,7 +630,8 @@ A last look at the names before 1.0. Scripts using the old names need these chan
 - Export to COCO, YOLO and Pascal VOC.
 - Runs inside Blender and with `bpy` as a Python module.
 
-[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.2...dev
+[Unreleased]: https://github.com/mmaciejak/Blendmentation/compare/v1.0.0...dev
+[1.0.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.2...v1.0.0
 [0.12.2]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/mmaciejak/Blendmentation/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/mmaciejak/Blendmentation/compare/v0.11.0...v0.12.0
